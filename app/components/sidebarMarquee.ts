@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type RefObject } from "react";
+import { raiseVeil } from "@/app/lib/veil";
 
 /**
  * Rubber-band selection over the sidebar rows, the way Finder draws one.
@@ -41,12 +42,13 @@ export function useMarquee(
     const y0 = event.clientY;
     const additive = event.shiftKey || event.metaKey || event.ctrlKey;
     let started = false;
+    let lower: (() => void) | null = null;
 
     const move = (ev: PointerEvent) => {
       if (!started) {
         if (Math.hypot(ev.clientX - x0, ev.clientY - y0) < SLOP) return;
         started = true;
-        document.body.style.userSelect = "none";
+        lower = raiseVeil();
       }
       const list = listRef.current;
       if (!list) return;
@@ -74,7 +76,7 @@ export function useMarquee(
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", done);
       window.removeEventListener("pointercancel", done);
-      document.body.style.userSelect = "";
+      lower?.();
       // A press on nothing, that stayed a press, means "never mind" — the same
       // as clicking the desktop.
       if (!started && !additive) onEmptyRef.current();

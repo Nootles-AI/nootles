@@ -1037,7 +1037,7 @@ export function Sidebar({
       )}
 
       <DropLabel
-        pointer={drag.pointer}
+        tip={drag.tip}
         into={drag.intoId ? folderById(drag.intoId)?.title || "Untitled" : null}
         toRoot={drag.toRoot}
       />
@@ -1218,31 +1218,21 @@ function ChangeCount({ change }: { change: PageChange | undefined }) {
  * sentence. Only the two answers that move a page between levels are worth one;
  * a reorder within a level is already fully described by the line.
  *
- * Follows the pointer rather than anchoring to the row, because the pointer is
- * where the eye is during a drag, and flips to the other side near the right
- * edge so it is never clipped.
+ * Follows the pointer rather than anchoring to the row — placed there by the
+ * drag, which holds the pointer outside React.
  */
 function DropLabel({
-  pointer,
+  tip,
   into,
   toRoot,
 }: {
-  pointer: { x: number; y: number } | null;
+  tip: (el: HTMLElement | null) => void;
   into: string | null;
   toRoot: boolean;
 }) {
-  if (!pointer || (!into && !toRoot)) return null;
-  const flip = pointer.x > window.innerWidth - 220;
+  if (!into && !toRoot) return null;
   return (
-    <div
-      aria-hidden
-      className="nt-drag-tip"
-      style={{
-        top: pointer.y + 18,
-        left: pointer.x + (flip ? -12 : 14),
-        transform: flip ? "translateX(-100%)" : undefined,
-      }}
-    >
+    <div ref={tip} aria-hidden className="nt-drag-tip">
       {into ? `Into ${into}` : "Out to top level"}
     </div>
   );

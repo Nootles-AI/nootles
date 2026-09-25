@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { raiseVeil } from "@/app/lib/veil";
 import type { Id } from "@/convex/_generated/dataModel";
 
 /**
@@ -27,9 +28,8 @@ const EMPTY: ReadonlySet<string> = new Set();
 const HOVER_OPEN_MS = 500;
 
 /* Marks the split zone while the pointer is over it. Written straight to the
-   element, the way this drag already writes the grabbing cursor to the body:
-   the zone belongs to the workspace, and a highlight is not worth a render of
-   the two documents inside it. */
+   element: the zone belongs to the workspace, and a highlight is not worth a
+   render of the two documents inside it. */
 const OVER = "nt-drop-aside";
 
 /** One visible row of the sidebar tree, in render order. */
@@ -62,6 +62,26 @@ type Drop = {
 };
 
 type Spot = { drop: Drop; line: Line | null; intoId: Id<"folders"> | null };
+
+/** What the list draws for a drag in progress. */
+export type Shown = {
+  ids: ReadonlySet<string>;
+  line: Line | null;
+  intoId: Id<"folders"> | null;
+  toRoot: boolean;
+};
+
+/** Whether two moves would draw the same list — the only moves worth a render. */
+export function sameShown(a: Shown | null, b: Shown): boolean {
+  return (
+    !!a &&
+    a.ids === b.ids &&
+    a.intoId === b.intoId &&
+    a.toRoot === b.toRoot &&
+    a.line?.top === b.line?.top &&
+    a.line?.depth === b.line?.depth
+  );
+}
 
 type Handlers = {
   /** Every carried row, in row order, landing together — either kind. */
@@ -101,18 +121,20 @@ export function useTreeDrag(
   intoId: Id<"folders"> | null;
   /** True when releasing here would lift the row out of its folder. */
   toRoot: boolean;
-  /** Live pointer position, for the label that says what a release will do. */
-  pointer: { x: number; y: number } | null;
+  /** Ref for the label that says what a release will do; kept beside the
+   *  pointer by the drag itself, so following the hand never renders. */
+  tip: (el: HTMLElement | null) => void;
   /** Call from the row's `onPointerDown`. */
   press: (row: TreeRow, event: React.PointerEvent) => void;
 } {
-  const [drag, setDrag] = useState<{
-    ids: ReadonlySet<string>;
-    line: Line | null;
-    intoId: Id<"folders"> | null;
-    toRoot: boolean;
-    pointer: { x: number; y: number };
-  } | null>(null);
+  const [drag, setDrag] = useState<Shown | null>(null);
+
+  const pointer = useRef<{ x: number; y: number } | null>(null);
+  const tipEl = useRef<HTMLElement | null>(null);
+  const tip = useCallback((el: HTMLElement | null) => {
+    tipEl.current = el;
+    if (el && pointer.current) placeTip(el, pointer.current.x, pointer.current.y);
+  }, []);
 
   const rowsRef = useRef(rows);
   const handlersRef = useRef(handlers);
@@ -300,10 +322,12 @@ export function useTreeDrag(
     let started = false;
     let spot: Spot | null = null;
     let marked: HTMLElement | null = null;
+    let lower: (() => void) | null = null;
     let hover: { id: Id<"folders">; since: number } | null = null;
-    /* The list is told where the drag is once a frame. Where it IS lives in
-       `spot`, read straight off the pointer, so a release never waits for one. */
-    let frame = 0;
+    /* The list is told only when what it draws changes. Where the drag IS
+       lives in `spot`, read straight off the pointer, so a release never waits
+       for a render. */
+    let shown: Shown | null = null;
 
     const mark = (zone: HTMLElement | null) => {
       if (marked === zone) return;
@@ -316,9 +340,10 @@ export function useTreeDrag(
       if (!started) {
         if (Math.hypot(ev.clientX - startX, ev.clientY - startY) < SLOP) return;
         started = true;
-        document.body.style.cursor = "grabbing";
-        document.body.style.userSelect = "none";
+        lower = raiseVeil("grabbing");
       }
+      pointer.current = { x: ev.clientX, y: ev.clientY };
+      if (tipEl.current) placeTip(tipEl.current, ev.clientX, ev.clientY);
       // The split zone takes one page; a group has no second pane to go to.
       mark(carried.length === 1 ? asideAt(row, ev.clientX, ev.clientY) : null);
       // Out over the surface the row is going somewhere else entirely, so the
@@ -345,25 +370,21 @@ export function useTreeDrag(
         // Only worth saying when it is a change: a row already at the top level
         // is not being taken out of anything.
         toRoot: !!spot && spot.drop.parentId === null && row.parentId !== null,
-        pointer: { x: ev.clientX, y: ev.clientY },
       };
-      if (frame) cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        frame = 0;
-        setDrag(next);
-      });
+      if (sameShown(shown, next)) return;
+      shown = next;
+      setDrag(next);
     };
 
     const done = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", drop);
       window.removeEventListener("pointercancel", abort);
-      if (frame) cancelAnimationFrame(frame);
       measured.current = null;
       mark(null);
       if (!started) return;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
+      lower?.();
+      pointer.current = null;
       swallowNextClick();
       setDrag(null);
     };
@@ -400,9 +421,20 @@ export function useTreeDrag(
     line: drag?.line ?? null,
     intoId: drag?.intoId ?? null,
     toRoot: drag?.toRoot ?? false,
-    pointer: drag?.pointer ?? null,
+    tip,
     press,
   };
+}
+
+/**
+ * Beside the pointer, since that is where the eye is during a drag; flipped to
+ * the other side near the right edge so it is never clipped.
+ */
+function placeTip(el: HTMLElement, x: number, y: number) {
+  const flip = x > window.innerWidth - 220;
+  el.style.top = `${y + 18}px`;
+  el.style.left = `${x + (flip ? -12 : 14)}px`;
+  el.style.transform = flip ? "translateX(-100%)" : "";
 }
 
 /**
