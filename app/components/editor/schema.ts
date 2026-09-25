@@ -6,6 +6,7 @@ import {
 import { codeBlockSpec } from "./blocks/CodeBlock";
 import { keepListItems, stepOutOfEmptyItems } from "./blocks/listSafe";
 import { markersByDepth } from "./blocks/listMarkers";
+import { withoutShortcuts } from "./notionKeys";
 import { mathBlockSpec } from "./blocks/MathBlock";
 import { canvasBlockSpec } from "./blocks/CanvasBlock";
 import { albumBlockSpec } from "./blocks/AlbumBlock";
@@ -30,8 +31,11 @@ export const schema = BlockNoteSchema.create({
   blockSpecs: {
     ...rest,
     // BlockNote's own heading and quote, less the one thing their markdown
-    // prefixes were never meant to do — see `keepListItems`.
-    heading: keepListItems(defaultBlockSpecs.heading),
+    // prefixes were never meant to do — see `keepListItems`. The heading also
+    // gives ⌘⌥4–6 to Notion's to-do / bullet / numbered (`notionKeys`).
+    heading: keepListItems(
+      withoutShortcuts(defaultBlockSpecs.heading, ["Mod-Alt-4", "Mod-Alt-5", "Mod-Alt-6"]),
+    ),
     quote: keepListItems(defaultBlockSpecs.quote),
     // BlockNote's own list items, less the one thing Enter on an empty one was
     // never meant to do — see `stepOutOfEmptyItems`.

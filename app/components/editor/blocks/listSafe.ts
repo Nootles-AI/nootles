@@ -47,7 +47,7 @@ function declineInsideListItems(extension: Extension): Extension {
  *
  * A block type someone chose outranks two characters they typed. The way to a
  * heading or a quote from a list item is still the slash menu, the block-type
- * dropdown, or ⌘⌥1–6 — asked for rather than stumbled into.
+ * dropdown, or ⌘⌥1–3 — asked for rather than stumbled into.
  *
  * Only the input rules change. Rendering, props, keyboard shortcuts and
  * everything else about the block stay BlockNote's.

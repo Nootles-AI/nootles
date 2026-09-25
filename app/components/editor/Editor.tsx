@@ -11,6 +11,7 @@ import {
   useSyncExternalStore,
   type ReactElement,
 } from "react";
+import { formatKeyboardShortcut } from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/mantine/style.css";
 import {
@@ -70,6 +71,7 @@ import { arrivalFlashExtension } from "./arrivalFlash";
 import { commentExtension } from "./comments/commentExtension";
 import { CommentDecorationsBridge } from "./comments/CommentDecorationsBridge";
 import { blockSelection, blockSelectionExtension } from "./blockSelection";
+import { notionKeysExtension } from "./notionKeys";
 import { useBlockMarquee } from "./useBlockMarquee";
 import { PageMentionMenu, SlashMenu } from "./SlashMenu";
 import * as Icon from "../Icons";
@@ -229,6 +231,13 @@ function tidyBadge(badge?: string): string | undefined {
 }
 
 /**
+ * The badge for a key of ours. BlockNote's own list badges are its ⌘⇧6–9, which
+ * still work; the menu shows Notion's ⌘⌥ row instead, the one `notionKeys`
+ * completes, so every turn-into reads as one numbered series.
+ */
+const badgeFor = (key: string) => tidyBadge(formatKeyboardShortcut(key));
+
+/**
  * Every "/" command, in intent order, each carrying one of our own icons.
  *
  * The stock items are kept for their insertion behaviour and re-dressed rather
@@ -278,18 +287,22 @@ export function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[]
     ...restyle(d.bullet_list.title, ORGANISE, <Icon.BulletList />, {
       title: "Bullet list",
       subtext: "An unordered list",
+      badge: badgeFor("Mod-Alt-5"),
     }),
     ...restyle(d.numbered_list.title, ORGANISE, <Icon.NumberedList />, {
       title: "Numbered list",
       subtext: "A list that counts",
+      badge: badgeFor("Mod-Alt-6"),
     }),
     ...restyle(d.check_list.title, ORGANISE, <Icon.TodoList />, {
       title: "To-do list",
       subtext: "Checkboxes you can tick",
+      badge: badgeFor("Mod-Alt-4"),
     }),
     ...restyle(d.toggle_list.title, ORGANISE, <Icon.ToggleList />, {
       title: "Toggle list",
       subtext: "A list that folds away",
+      badge: badgeFor("Mod-Alt-7"),
     }),
     {
       // After the to-do list on purpose: both answer to "todo" and "check", and
@@ -428,6 +441,7 @@ export function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[]
     {
       title: "Math equation",
       subtext: "Inline LaTeX equation",
+      badge: badgeFor("Mod-Shift-e"),
       aliases: ["math", "math-equation", "equation", "latex", "tex", "inline math"],
       group: COMPUTE,
       icon: <Icon.Equation />,
@@ -464,6 +478,7 @@ export function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[]
     ...restyle(d.code_block.title, COMPUTE, <Icon.CodeBlock />, {
       title: "Code block",
       subtext: "Syntax-highlighted, in any language",
+      badge: badgeFor("Mod-Alt-8"),
     }),
   ];
 }
@@ -527,6 +542,7 @@ const EXTENSIONS = [
   arrivalFlashExtension,
   blockSelectionExtension,
   commentExtension,
+  notionKeysExtension,
 ];
 
 const placeholder = <div className="min-h-[40vh]" aria-hidden />;
