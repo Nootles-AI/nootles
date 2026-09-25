@@ -5,7 +5,7 @@ import { ConvexError } from "convex/values";
 import { COMMENTS_REFUSED } from "@/app/lib/comments/policy";
 import { WRITE_REFUSED } from "@/convex/roles";
 import type { ConvexReactClient } from "convex/react";
-import { acquireProvider, releaseProvider, YConvexProvider, type ProviderOptions } from "./YConvexProvider";
+import { acquireProvider, releaseProvider, warmDoc, YConvexProvider, type ProviderOptions } from "./YConvexProvider";
 
 /**
  * `YConvexProvider`'s two opt-outs, for a page's comments document: no derived
@@ -288,6 +288,44 @@ describe("acquireProvider", () => {
     expect(warm).toBe(first);
     releaseProvider("comments-1");
     await settle(0);
+  });
+});
+
+describe("warmDoc", () => {
+  it("loads a page without connecting; opening it paints from memory, then visits", async () => {
+    const seeded = new Y.Doc();
+    seeded.getText("t").insert(0, "written earlier");
+    const update = Y.encodeStateAsUpdate(seeded);
+    backend.seq = 1;
+    backend.log.push({ seq: 1, update: update.buffer.slice(update.byteOffset, update.byteOffset + update.byteLength) as ArrayBuffer });
+    const derived = vi
+      .spyOn(YConvexProvider.prototype as unknown as { writeDerived(o?: object): Promise<void> }, "writeDerived")
+      .mockResolvedValue(undefined);
+    const client = backend.client();
+
+    warmDoc(client, "page-1");
+    await settle(0);
+    expect(backend.calls).toEqual(["query ydoc:load"]);
+    expect(derived).not.toHaveBeenCalled();
+
+    const provider = acquireProvider(client, "page-1");
+    expect(provider.synced).toBe(true);
+    expect(provider.doc.getText("t").toString()).toBe("written earlier");
+    expect(derived).toHaveBeenCalledWith({ preview: false });
+    await settle(0);
+    // Caught up by asking what changed, not by loading the document again.
+    expect(backend.calls.filter((call) => call === "query ydoc:load")).toHaveLength(1);
+    releaseProvider("page-1");
+    await settle(0);
+  });
+
+  it("keeps at most two loads in flight", async () => {
+    const client = backend.client();
+    for (const id of ["w-1", "w-2", "w-3"]) warmDoc(client, id);
+    expect(backend.calls).toEqual(["query ydoc:load", "query ydoc:load"]);
+    await settle(0);
+    warmDoc(client, "w-3");
+    expect(backend.calls.filter((call) => call === "query ydoc:load")).toHaveLength(3);
   });
 });
 

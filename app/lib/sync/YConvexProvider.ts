@@ -131,6 +131,8 @@ export class YConvexProvider {
   private sentPreview: string | null | undefined;
   /** The hash of the last digest offered; undefined until one has been. */
   private sentDigest: string | undefined;
+  /** Whether opening this doc has offered its digest — warming it has not. */
+  private visited = false;
 
   private unwatchPresence: (() => void) | null = null;
   private awarenessTimer: ReturnType<typeof setTimeout> | null = null;
@@ -261,6 +263,7 @@ export class YConvexProvider {
     const watch = this.client.watchQuery(api.ydoc.meta, { docId: this.docId });
     this.unwatch = watch.onUpdate(this.wake);
     this.wake();
+    this.visit();
     if (!this.options.presence) return;
 
     const presence = this.client.watchQuery(api.presence.list, {
@@ -349,8 +352,17 @@ export class YConvexProvider {
     this.pull().catch(() => {});
   };
 
-  private async pull() {
-    if (!this.connected) return;
+  /**
+   * Catches the doc up once without connecting: no watch, no presence and
+   * nothing written. What a hover buys, so the open it predicts paints from
+   * memory and `connect` only asks what changed since.
+   */
+  warm(): Promise<void> {
+    return this.pull(true).catch(() => {});
+  }
+
+  private async pull(warming = false) {
+    if (!this.connected && !warming) return;
     if (this.pulling) {
       this.pullAgain = true;
       return;
@@ -392,15 +404,23 @@ export class YConvexProvider {
           this.syncedFlag = true;
           this.resolveSynced();
           this.emit();
-          // A page opened is a page whose node can be brought up to date, so a
-          // page written before the graph existed joins it on its next visit.
-          // Only the digest: an unchanged thumbnail is not worth a write.
-          void this.writeDerived({ preview: false });
+          this.visit();
         }
       } while (this.pullAgain);
     } finally {
       this.pulling = false;
     }
+  }
+
+  /**
+   * A page opened is a page whose node can be brought up to date, so a page
+   * written before the graph existed joins it on its next visit. Only the
+   * digest: an unchanged thumbnail is not worth a write.
+   */
+  private visit() {
+    if (!this.connected || !this.syncedFlag || this.visited) return;
+    this.visited = true;
+    void this.writeDerived({ preview: false });
   }
 
   // ---- Awareness ↔ presence ----------------------------------------------
@@ -635,6 +655,7 @@ export class YConvexProvider {
     this.retryMs = 0;
     this.cursor = 0;
     this.syncedFlag = false;
+    this.visited = false;
     this.synchronizing = this.untilSynced();
     this.refused = refusal;
     this.currentDoc = new Y.Doc();
@@ -717,22 +738,39 @@ type Held = { provider: YConvexProvider; refs: number };
 const held = new Map<string, Held>();
 
 /**
- * Documents let go of recently, kept in memory rather than destroyed. The
- * expensive part of opening a page is the snapshot and the log behind it, and
- * a back-navigation is the one case where we already have both — reviving one
+ * Documents let go of recently, or warmed ahead of an open (`warmDoc`), kept in
+ * memory rather than destroyed. The expensive part of opening a page is the
+ * snapshot and the log behind it, and a back-navigation is one case where we
+ * already have both — reviving one
  * of these paints from a doc that is already synced, while `connect` catches
  * up whatever changed in between. Presence is dropped on release, so a warm
  * doc costs nothing on the wire.
  */
-const RECENT_MAX = 4;
+const RECENT_MAX = 16;
 const recent = new Map<string, YConvexProvider>();
 /** Whose session the warm docs belong to; a different client discards them. */
 let recentClient: ConvexReactClient | null = null;
+/** Hover-driven, so a sweep down the sidebar must not fan out into loads. */
+const WARMING_MAX = 2;
+let warming = 0;
 
 function forget(docId: string, provider: YConvexProvider) {
   recent.delete(docId);
   provider.destroy();
   provider.doc.destroy();
+}
+
+function adoptClient(client: ConvexReactClient) {
+  if (recentClient === client) return;
+  for (const [id, provider] of recent) forget(id, provider);
+  recentClient = client;
+}
+
+function trimRecent() {
+  for (const [oldest, provider] of recent) {
+    if (recent.size <= RECENT_MAX) break;
+    forget(oldest, provider);
+  }
 }
 
 /**
@@ -756,10 +794,7 @@ export function acquireProvider(
   docId: string,
   options: ProviderOptions = {},
 ): YConvexProvider {
-  if (recentClient !== client) {
-    for (const [id, provider] of recent) forget(id, provider);
-    recentClient = client;
-  }
+  adoptClient(client);
   // A docId is one kind of document for life, so a second opinion about what
   // its provider does is a caller bug — not something to settle by first come.
   const existing = held.get(docId)?.provider ?? recent.get(docId);
@@ -796,9 +831,21 @@ export function releaseProvider(docId: string) {
     held.delete(docId);
     entry.provider.disconnect();
     recent.set(docId, entry.provider);
-    for (const [oldest, provider] of recent) {
-      if (recent.size <= RECENT_MAX) break;
-      forget(oldest, provider);
-    }
+    trimRecent();
   }, 0);
+}
+
+/**
+ * Loads a page's document into the warm set ahead of its open — a guess, so it
+ * costs one read and nothing else: never connected, no presence, no derived
+ * writes. Opening it later is `acquireProvider` reviving a synced doc.
+ */
+export function warmDoc(client: ConvexReactClient, docId: string) {
+  adoptClient(client);
+  if (warming >= WARMING_MAX || held.has(docId) || recent.has(docId)) return;
+  const provider = new YConvexProvider(client, docId, new Y.Doc());
+  recent.set(docId, provider);
+  trimRecent();
+  warming++;
+  void provider.warm().finally(() => warming--);
 }
