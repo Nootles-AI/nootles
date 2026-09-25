@@ -133,6 +133,14 @@ describe("nested numbered markers", () => {
     expect(markers(next)).toEqual(markers(state));
   });
 
+  it("recounts when only a nested run's start attribute changes", () => {
+    const state = stateFor([item("1", [item("x"), item("y")])]);
+    // The step a props-only `updateBlock` makes: no range, only an attribute.
+    const content = textStart(state.doc, "x") - 1;
+    const next = state.apply(state.tr.setNodeAttribute(content, "start", 5));
+    expect(markers(next)).toEqual({ x: "e", y: "f" });
+  });
+
   it("draws markers for a list that becomes nested", () => {
     const state = stateFor([item("1"), item("2")]);
     const $two = state.doc.resolve(textStart(state.doc, "2"));

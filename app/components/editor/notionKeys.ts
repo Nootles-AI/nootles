@@ -1,46 +1,41 @@
 import { createExtension, getBlockInfoFromSelection } from "@blocknote/core";
 import type { Extension, ExtensionFactoryInstance } from "@blocknote/core";
-import type { Node as PMNode } from "prosemirror-model";
 
 type AnyEditor = Parameters<NonNullable<Extension["keyboardShortcuts"]>[string]>[0]["editor"];
 
-/** The block types ⌘⌥4–8 turn the caret's block into, in Notion's order. */
+/**
+ * Notion's ⌘⌥ turn-into row, in its order. ⌘⌥8, code, is the code block's own
+ * key (`codeBlockKeys`): its caret has to follow the words into CodeMirror.
+ */
 export const TURN_INTO = {
-  "Mod-Alt-4": "checkListItem",
-  "Mod-Alt-5": "bulletListItem",
-  "Mod-Alt-6": "numberedListItem",
-  "Mod-Alt-7": "toggleListItem",
-  "Mod-Alt-8": "codeBlock",
+  "Mod-Alt-0": { type: "paragraph" },
+  "Mod-Alt-1": { type: "heading", props: { level: 1 } },
+  "Mod-Alt-2": { type: "heading", props: { level: 2 } },
+  "Mod-Alt-3": { type: "heading", props: { level: 3 } },
+  "Mod-Alt-4": { type: "checkListItem" },
+  "Mod-Alt-5": { type: "bulletListItem" },
+  "Mod-Alt-6": { type: "numberedListItem" },
+  "Mod-Alt-7": { type: "toggleListItem" },
 } as const;
 
-type TurnIntoType = (typeof TURN_INTO)[keyof typeof TURN_INTO];
-
-/** Hard breaks become newlines; inline atoms (math, chips, ticks) carry no text. */
-function plainText(editor: AnyEditor): string {
-  const info = getBlockInfoFromSelection(editor.prosemirrorState);
-  if (!info.isBlockContainer) return "";
-  const { node } = info.blockContent;
-  return node.textBetween(0, node.content.size, "\n", (leaf: PMNode) =>
-    leaf.type.name === "hardBreak" ? "\n" : "",
-  );
-}
+type TurnIntoTarget = (typeof TURN_INTO)[keyof typeof TURN_INTO];
 
 /**
- * The caret's block, retyped — BlockNote's own ⌘⌥0–3 and ⌘⇧6–9 to the letter,
- * extended to the rest of Notion's row. Only a block with text qualifies, as
- * theirs: an image or a diagram has nothing to turn.
- *
- * A code block keeps the words as its code, since its content lives in a prop
- * rather than inline.
+ * Every block in play, retyped: the caret's, or each one a selection spans —
+ * text dragged across blocks and a block selection alike, as Notion's do. Only
+ * a block with text qualifies: an image or a diagram has nothing to turn, and
+ * is passed over. One transaction, so one undo.
  */
-export function turnInto(editor: AnyEditor, type: TurnIntoType): boolean {
-  const { block } = editor.getTextCursorPosition();
-  if (editor.schema.blockSchema[block.type]?.content !== "inline") return false;
-  if (type === "codeBlock") {
-    editor.updateBlock(block, { type, props: { code: plainText(editor) } });
-  } else {
-    editor.updateBlock(block, { type, props: {} });
-  }
+export function turnInto(editor: AnyEditor, target: TurnIntoTarget): boolean {
+  if (!editor.isEditable) return false;
+  const blocks = (
+    editor.getSelection()?.blocks ?? [editor.getTextCursorPosition().block]
+  ).filter((block) => editor.schema.blockSchema[block.type]?.content === "inline");
+  if (!blocks.length) return false;
+  const props = "props" in target ? target.props : {};
+  editor.transact(() => {
+    for (const block of blocks) editor.updateBlock(block, { type: target.type, props });
+  });
   return true;
 }
 
@@ -84,16 +79,23 @@ export function toggleAtCaret(editor: AnyEditor): boolean {
  * ⌘⇧E. A selection becomes an inline equation whose source is the selected
  * text; a bare caret gets an empty one, exactly as the "Math equation" slash
  * item inserts it. A selection that leaves its line has no single place to put
- * an equation, so it is declined.
+ * an equation, so it is declined — as is one holding an equation, a mention or
+ * a line break, which the plain source would silently lose.
  */
 export function inlineEquation(editor: AnyEditor): boolean {
-  const { selection } = editor.prosemirrorState;
+  if (!editor.isEditable) return false;
+  const { selection, doc } = editor.prosemirrorState;
   if (selection.empty) {
     editor.insertInlineContent([{ type: "math", props: { latex: "" } }, " "]);
     return true;
   }
   const { $from, $to } = selection;
   if (!$from.sameParent($to) || !$from.parent.inlineContent) return false;
+  let textOnly = true;
+  doc.nodesBetween(selection.from, selection.to, (node) => {
+    if (node.isInline && !node.isText) textOnly = false;
+  });
+  if (!textOnly) return false;
   const latex = editor.getSelectedText();
   editor.insertInlineContent([{ type: "math", props: { latex } }], {
     updateSelection: true,
@@ -112,6 +114,7 @@ export function inlineEquation(editor: AnyEditor): boolean {
  * the new line and stays put.
  */
 export function textAboveHeading(editor: AnyEditor): boolean {
+  if (!editor.isEditable) return false;
   const state = editor.prosemirrorState;
   const { selection } = state;
   if (!selection.empty || selection.$from.parentOffset !== 0) return false;
@@ -153,25 +156,26 @@ export function withoutShortcuts<
 }
 
 /**
- * The editor's Notion keys that BlockNote does not bind itself: the rest of
- * the ⌘⌥ turn-into row, ⌘↵, ⌘⇧X for strikethrough beside BlockNote's ⌘⇧S,
- * ⌘⇧E for an inline equation — and Enter at the start of a heading, where
- * BlockNote does answer, but not as Notion does.
+ * The editor's Notion keys that BlockNote does not bind as Notion does: the
+ * ⌘⌥0–7 turn-into row, ⌘↵, ⌘⇧X for strikethrough beside BlockNote's ⌘⇧S, ⌘⇧E
+ * for an inline equation, and Enter at the start of a heading.
  *
- * ⌘⌥4–6 were BlockNote's Heading 4–6; the heading spec gives them up in the
- * schema, and `#### ` still makes one.
+ * BlockNote binds ⌘⌥0–6 itself, for the caret's block only and ⌘⌥4–6 as
+ * Heading 4–6; the paragraph and heading specs give them up in the schema, and
+ * `#### ` still makes a Heading 4.
  */
 export const notionKeysExtension = createExtension({
   key: "nt-notion-keys",
   keyboardShortcuts: {
     ...Object.fromEntries(
-      Object.entries(TURN_INTO).map(([key, type]) => [
+      Object.entries(TURN_INTO).map(([key, target]) => [
         key,
-        ({ editor }: { editor: AnyEditor }) => turnInto(editor, type),
+        ({ editor }: { editor: AnyEditor }) => turnInto(editor, target),
       ]),
     ),
     "Mod-Enter": ({ editor }) => toggleAtCaret(editor),
     "Mod-Shift-x": ({ editor }) => {
+      if (!editor.isEditable) return false;
       editor.toggleStyles({ strike: true });
       return true;
     },

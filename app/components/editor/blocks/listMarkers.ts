@@ -2,7 +2,7 @@ import { createExtension } from "@blocknote/core";
 import type { Extension, ExtensionFactoryInstance } from "@blocknote/core";
 import type { Node } from "prosemirror-model";
 import { Plugin, PluginKey, type Transaction } from "prosemirror-state";
-import { AddMarkStep, RemoveMarkStep, ReplaceStep } from "prosemirror-transform";
+import { AddMarkStep, AttrStep, RemoveMarkStep, ReplaceStep } from "prosemirror-transform";
 import { Decoration, DecorationSet } from "prosemirror-view";
 
 /** The attribute a nested numbered item's marker is read from (`editor.css`). */
@@ -122,9 +122,26 @@ function wordsOnly(tr: Transaction): boolean {
   });
 }
 
+/**
+ * Where a transaction changed the document, in its final positions. An
+ * attribute step maps nothing, so `changedRange` does not see it — and a
+ * props-only `updateBlock`, a list's `start` included, is made of those.
+ */
+function changedSpan(tr: Transaction): { from: number; to: number } | null {
+  let span = tr.changedRange();
+  tr.steps.forEach((step, i) => {
+    if (!(step instanceof AttrStep)) return;
+    const pos = tr.mapping.slice(i + 1).map(step.pos);
+    span = span
+      ? { from: Math.min(span.from, pos), to: Math.max(span.to, pos) }
+      : { from: pos, to: pos };
+  });
+  return span;
+}
+
 export function nextMarkers(tr: Transaction, previous: DecorationSet): DecorationSet {
   const mapped = previous.map(tr.mapping, tr.doc);
-  const changed = tr.changedRange();
+  const changed = changedSpan(tr);
   if (!changed || wordsOnly(tr)) return mapped;
   const [from, to] = topLevelSpan(tr.doc, changed.from, changed.to);
   return mapped

@@ -6,7 +6,7 @@ import {
 import { codeBlockSpec } from "./blocks/CodeBlock";
 import { keepListItems, stepOutOfEmptyItems } from "./blocks/listSafe";
 import { markersByDepth } from "./blocks/listMarkers";
-import { withoutShortcuts } from "./notionKeys";
+import { TURN_INTO, withoutShortcuts } from "./notionKeys";
 import { mathBlockSpec } from "./blocks/MathBlock";
 import { canvasBlockSpec } from "./blocks/CanvasBlock";
 import { albumBlockSpec } from "./blocks/AlbumBlock";
@@ -19,6 +19,8 @@ import { mathInlineSpec } from "./inline/MathInline";
 import { pageMentionSpec } from "./inline/PageMention";
 import type { BlockType } from "@/convex/ai/operations";
 
+const TURN_INTO_KEYS = Object.keys(TURN_INTO);
+
 // Swap BlockNote's built-in code, audio and video blocks for our own.
 const {
   codeBlock: _builtInCodeBlock,
@@ -30,12 +32,12 @@ const {
 export const schema = BlockNoteSchema.create({
   blockSpecs: {
     ...rest,
+    // The paragraph and heading give up their ⌘⌥0–6 to the turn-into row in
+    // `notionKeys`, which retypes a whole selection rather than one block.
+    paragraph: withoutShortcuts(defaultBlockSpecs.paragraph, TURN_INTO_KEYS),
     // BlockNote's own heading and quote, less the one thing their markdown
-    // prefixes were never meant to do — see `keepListItems`. The heading also
-    // gives ⌘⌥4–6 to Notion's to-do / bullet / numbered (`notionKeys`).
-    heading: keepListItems(
-      withoutShortcuts(defaultBlockSpecs.heading, ["Mod-Alt-4", "Mod-Alt-5", "Mod-Alt-6"]),
-    ),
+    // prefixes were never meant to do — see `keepListItems`.
+    heading: keepListItems(withoutShortcuts(defaultBlockSpecs.heading, TURN_INTO_KEYS)),
     quote: keepListItems(defaultBlockSpecs.quote),
     // BlockNote's own list items, less the one thing Enter on an empty one was
     // never meant to do — see `stepOutOfEmptyItems`.

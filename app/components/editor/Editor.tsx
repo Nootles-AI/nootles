@@ -478,7 +478,6 @@ export function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[]
     ...restyle(d.code_block.title, COMPUTE, <Icon.CodeBlock />, {
       title: "Code block",
       subtext: "Syntax-highlighted, in any language",
-      badge: badgeFor("Mod-Alt-8"),
     }),
   ];
 }
