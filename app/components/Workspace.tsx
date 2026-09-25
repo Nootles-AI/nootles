@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Component,
   Suspense,
   lazy,
   useCallback,
@@ -14,6 +15,7 @@ import {
   type CSSProperties,
 } from "react";
 import { useQuery } from "convex/react";
+import * as Sentry from "@sentry/nextjs";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { useMediaQuery } from "@/app/lib/useMediaQuery";
@@ -47,15 +49,15 @@ import { WorkspacePalette } from "./WorkspacePalette";
 import { useLinger } from "@/app/lib/useLinger";
 import { publishColumnEdges } from "@/app/lib/columnEdges";
 import dynamic from "next/dynamic";
+import type { ChatPanel } from "./ChatPanel";
 
 // Opened rarely, so it does not ride in the workspace's first bundle.
 const ShortcutsDialog = dynamic(() => import("./ShortcutsDialog"), { ssr: false });
 // The chat carries the AI SDK, so it loads beside the open rather than in
 // front of it. React's own `lazy`, not `dynamic`: its fallback has to take the
 // panel's props to hold the same place, hidden or drawn, as the panel will.
-const ChatPanel = lazy(() =>
-  import("./ChatPanel").then((m) => ({ default: m.ChatPanel })),
-);
+const loadChat = () =>
+  lazy(() => import("./ChatPanel").then((m) => ({ default: m.ChatPanel })));
 import { PanelsProvider } from "./PanelsContext";
 import { PagesProvider, type PageRef } from "./PagesContext";
 import { CompletionContextProvider } from "./editor/ai/CompletionContext";
@@ -906,9 +908,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
               inert={!compact && !chatOn}
             >
               {chatMounted && (
-                <Suspense fallback={<ChatShell {...chatProps} hidden={chatHidden} />}>
-                  <ChatPanel {...chatProps} hidden={chatHidden} />
-                </Suspense>
+                <ChatSlot {...chatProps} hidden={chatHidden} />
               )}
             </div>
           )}
@@ -1010,13 +1010,49 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   );
 }
 
+type ChatProps = ComponentProps<typeof ChatPanel>;
+
+/**
+ * The chat's code arrives on its own, so it can fail on its own — a dropped
+ * connection, or a chunk a newer deploy removed — and that must leave the
+ * workspace standing. A failed chat keeps its place as the empty shell and
+ * fetches afresh the next time it is shown: `lazy` remembers a rejection, so
+ * a retry is a new `lazy`.
+ */
+class ChatSlot extends Component<
+  ChatProps,
+  { Panel: ReturnType<typeof loadChat>; failed: boolean; armed: boolean }
+> {
+  state = { Panel: loadChat(), failed: false, armed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  static getDerivedStateFromProps(props: ChatProps, state: ChatSlot["state"]) {
+    if (!state.failed) return null;
+    if (props.hidden) return state.armed ? null : { armed: true };
+    return state.armed ? { Panel: loadChat(), failed: false, armed: false } : null;
+  }
+  componentDidCatch(error: unknown) {
+    Sentry.captureException(error, { tags: { feature: "chat-panel" } });
+  }
+  render() {
+    const { Panel, failed } = this.state;
+    if (failed) return <ChatShell {...this.props} />;
+    return (
+      <Suspense fallback={<ChatShell {...this.props} />}>
+        <Panel {...this.props} />
+      </Suspense>
+    );
+  }
+}
+
 /** The chat's rail, empty, while its code is on the way. */
 function ChatShell({
   width,
   hidden,
   className = "",
   style,
-}: ComponentProps<typeof ChatPanel>) {
+}: ChatProps) {
   return (
     <aside
       hidden={hidden}

@@ -49,6 +49,7 @@ import { CodeGate } from "./context/CodeGate";
 import { SidebarContext } from "./context/SidebarContext";
 import { ContextMenu } from "./ContextMenu";
 import { Editable } from "./Editable";
+import { useRenamePage } from "./renamePage";
 import { usePageChanges, type PageChange } from "./ReviewContext";
 import { useStandIn } from "./StandIn";
 import { useHints } from "./hints/useHints";
@@ -159,7 +160,7 @@ export function Sidebar({
     return null;
   };
   const createPage = useMutation(api.pages.create);
-  const renamePage = useMutation(api.pages.rename);
+  const renamePage = useRenamePage();
   const removePage = useMutation(api.pages.remove);
   const duplicatePage = useMutation(api.pages.duplicate);
   const createFolder = useMutation(api.folders.create);

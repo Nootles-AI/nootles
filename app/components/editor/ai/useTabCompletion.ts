@@ -572,6 +572,9 @@ export function useTabCompletion(
   // whole lane.
   const contextSeed = useCompletionContext(pageId);
   const projectRef = useRef(projectId);
+  // Renaming the page must not restart the lane: that aborts a streaming
+  // completion, and with it a diagram the user already accepted.
+  const titleRef = useRef(title);
   const appendRef = useRef(appendBatch);
   const logRef = useRef(logSuggestion);
   const logManyRef = useRef(logTurnedDown);
@@ -584,6 +587,7 @@ export function useTabCompletion(
     amendRef.current = amendSuggestion;
     seedRef.current = contextSeed;
     projectRef.current = projectId;
+    titleRef.current = title;
   });
 
   useEffect(() => {
@@ -917,9 +921,9 @@ export function useTabCompletion(
      * Both halves of the lane read the SAME projection: the split the model
      * completes, and the `current` the compiler diffs its answer against. A
      * drawing collapsed on one side only would read as one the model deleted.
+     * So the title is read once per turn, into the turn's own projection.
      */
-    const projection = {
-      title,
+    const lens = {
       window: AI.projection.window,
       collapseDrawn: true,
       // Diagrams appear as the <nt-build-diagram> macro, never as shapes: shown
@@ -936,7 +940,8 @@ export function useTabCompletion(
       // ProseMirror position counts node boundaries as well as characters, and
       // the title rides in front of the prefix on its own line, so this bounds
       // the exact check below from above: too generous, never too strict.
-      if (sel.from + title.length + 1 < AI.modes[mode].minContextChars) {
+      const projection = { ...lens, title: titleRef.current };
+      if (sel.from + projection.title.length + 1 < AI.modes[mode].minContextChars) {
         return null;
       }
       // A caret in a table cell. BlockNote's cursor block is the table itself —
@@ -979,6 +984,7 @@ export function useTabCompletion(
         visible,
         midWord: /\w$/.test(bare),
         cell,
+        projection,
       };
     };
 
@@ -1049,7 +1055,7 @@ export function useTabCompletion(
         const res = await fetch("/api/diagram", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ brief, page, title, projectId: projectRef.current }),
+          body: JSON.stringify({ brief, page, title: titleRef.current, projectId: projectRef.current }),
           signal: controller.signal,
         });
         if (!res.ok || !res.body) return "";
@@ -1219,7 +1225,7 @@ export function useTabCompletion(
       const current = () =>
         (currentNodes ??= parseDocHtml(
           toDocHtml(ctx.blocks, {
-            ...projection,
+            ...ctx.projection,
             cursorBlockId: ctx.cursorBlockId,
           }),
         ));
@@ -1655,7 +1661,7 @@ export function useTabCompletion(
       setGhostAcceptHandler(null);
       setDismissHandler(null);
     };
-  }, [editor, pageId, title, mode, docId]);
+  }, [editor, pageId, mode, docId]);
 
   return { walled, dismissWall: useCallback(() => setWalled(false), []) };
 }
