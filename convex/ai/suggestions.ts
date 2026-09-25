@@ -42,7 +42,7 @@ const settled = {
   suggestionText: v.optional(v.string()),
   contextBefore: v.optional(v.string()),
   model: v.optional(v.string()),
-  pageMode: v.optional(v.union(v.literal("create"), v.literal("complete"))),
+  reach: v.optional(v.number()),
   docLength: v.optional(v.number()),
   decisionMs: v.optional(v.number()),
   dismissReason: v.optional(

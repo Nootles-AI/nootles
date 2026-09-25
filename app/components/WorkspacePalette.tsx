@@ -19,8 +19,8 @@ import { useStandIn } from "./StandIn";
 import { slugOf, useContainer } from "./workspaces/ContainerContext";
 import { INVITE_WORDS, InvitePage } from "./workspaces/InvitePage";
 import { offersInvite } from "./workspaces/seats";
-import type { ModeCommand } from "./pageCommands";
-import type { PageMode } from "./editor/ai/useTabCompletion";
+import { useAutocomplete } from "./editor/ai/useAutocomplete";
+import { ReachSlider } from "./editor/ai/ReachSlider";
 
 /** A keyboard, in the app's 24-grid stroke. */
 function Keyboard() {
@@ -31,7 +31,7 @@ function Keyboard() {
   );
 }
 
-/** A spark, for the suggestion mode's rows. */
+/** A spark, for autocomplete's row. */
 function Spark() {
   return (
     <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -40,19 +40,15 @@ function Spark() {
   );
 }
 
-/** Both lines describe what the model does, not what you happen to be doing. */
-const MODES: { id: PageMode; name: string; line: string; words: readonly string[] }[] = [
-  { id: "create", name: "Suggestions: Create", line: "Writes what is not there yet", words: ["mode", "ai", "create", "complete", "suggest"] },
-  { id: "complete", name: "Suggestions: Complete", line: "Only finishes what you started", words: ["mode", "ai", "create", "complete", "suggest"] },
-];
+const AUTOCOMPLETE_WORDS = ["ai", "suggest", "suggestions", "ghost", "tab", "complete"] as const;
+const REACH_WORDS = [...AUTOCOMPLETE_WORDS, "less", "more", "amount", "eager", "aggressive", "slider"] as const;
 
 /**
  * ⌘K inside a project: the projects screen's palette, pointed at pages.
  *
  * It mostly goes places — a page, a rail, the project list. The one thing it
- * changes, the open page's suggestion mode, it asks the page to change: the
- * page writes it and records it on the undo spine. Making a page stays with the
- * sidebar, which already records it.
+ * changes is the account's autocomplete — its switch and its reach, the same
+ * ones the page's bar holds. Making a page stays with the sidebar, which already records it.
  */
 
 type Row = {
@@ -74,7 +70,6 @@ export function WorkspacePalette({
   leftOpen,
   rightOpen,
   canChat,
-  mode,
   onOpenPage,
   onToggleLeft,
   onToggleRight,
@@ -87,8 +82,6 @@ export function WorkspacePalette({
   rightOpen: boolean;
   /** Viewers have no assistant, so they are not offered its rail. */
   canChat: boolean;
-  /** The open page's suggestion mode, when it is one you can change. */
-  mode?: ModeCommand | null;
   onOpenPage: (id: Id<"pages">) => void;
   onToggleLeft: () => void;
   onToggleRight: () => void;
@@ -104,7 +97,6 @@ export function WorkspacePalette({
           leftOpen={leftOpen}
           rightOpen={rightOpen}
           canChat={canChat}
-          mode={mode}
           onOpenPage={onOpenPage}
           onToggleLeft={onToggleLeft}
           onToggleRight={onToggleRight}
@@ -122,7 +114,6 @@ function Body({
   leftOpen,
   rightOpen,
   canChat,
-  mode,
   onOpenPage,
   onToggleLeft,
   onToggleRight,
@@ -135,6 +126,7 @@ function Body({
   const home = homePath(slugOf(container));
   const homeName =
     container.kind === "workspace" ? `All projects in ${container.name}` : "All projects";
+  const autocomplete = useAutocomplete();
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const list = useRef<HTMLDivElement>(null);
@@ -143,9 +135,9 @@ function Body({
   const standIn = useStandIn();
   const inviteTo =
     container.kind === "workspace" && offersInvite(container.role, standIn) ? container : null;
-  const [asked, setPage] = useState<"root" | "invite">("root");
-  const page = inviteTo ? asked : "root";
-  const go = (to: "root" | "invite") => {
+  const [asked, setPage] = useState<"root" | "invite" | "reach">("root");
+  const page = asked === "invite" && !inviteTo ? "root" : asked;
+  const go = (to: "root" | "invite" | "reach") => {
     setPage(to);
     setQuery("");
     setIndex(0);
@@ -161,16 +153,33 @@ function Body({
         icon: <FileDoc width={16} height={16} />,
         run: () => onOpenPage(p._id),
       })),
-      ...(mode
-        ? MODES.map((m) => ({
-            id: `mode-${m.id}`,
-            group: "This page",
-            name: m.name,
-            line: m.id === mode.mode ? "On" : m.line,
-            icon: <Spark />,
-            words: m.words,
-            run: () => mode.set(m.id),
-          }))
+      // Viewers write nothing, so there is nothing to complete for them.
+      ...(canChat && autocomplete.loaded
+        ? [
+            {
+              id: "autocomplete",
+              group: "Writing",
+              name: autocomplete.on ? "Turn autocomplete off" : "Turn autocomplete on",
+              line: "Suggestions as you type",
+              icon: <Spark />,
+              words: AUTOCOMPLETE_WORDS,
+              run: () => autocomplete.setOn(!autocomplete.on),
+            },
+            {
+              id: "reach",
+              group: "Writing",
+              name: "How much autocomplete writes",
+              line: "Less to more",
+              icon: <Spark />,
+              words: REACH_WORDS,
+              drill: true,
+              run: () => {
+                setPage("reach");
+                setQuery("");
+                setIndex(0);
+              },
+            },
+          ]
         : []),
       {
         id: "left",
@@ -224,7 +233,7 @@ function Body({
         : []),
     ];
     return all.filter((r) => paletteMatch(query, r.name, r.words));
-  }, [pages, currentPageId, leftOpen, rightOpen, canChat, mode, query, onOpenPage, onToggleLeft, onToggleRight, onShowKeys, router, home, homeName, inviteTo]);
+  }, [pages, currentPageId, leftOpen, rightOpen, canChat, autocomplete, query, onOpenPage, onToggleLeft, onToggleRight, onShowKeys, router, home, homeName, inviteTo]);
 
   const at = Math.min(index, Math.max(rows.length - 1, 0));
   const current = rows.at(at);
@@ -244,6 +253,32 @@ function Body({
     if (!row.drill) close();
     row.run();
   };
+
+  if (page === "reach") {
+    return (
+      <div
+        className="flex min-h-0 flex-col"
+        onKeyDown={(e) => {
+          // As the invite page does: Escape backs out to the list first.
+          if (e.key !== "Escape") return;
+          e.preventDefault();
+          e.nativeEvent.stopImmediatePropagation();
+          go("root");
+        }}
+      >
+        <div className="nt-pal-field">
+          <button type="button" className="nt-pal-crumb" onClick={() => go("root")}>
+            How much autocomplete writes
+          </button>
+          <span className="flex-1" />
+          <kbd className="nt-kbd">esc</kbd>
+        </div>
+        <div className="nt-pal-reach">
+          <ReachSlider autoFocus />
+        </div>
+      </div>
+    );
+  }
 
   if (page === "invite" && inviteTo) {
     return (

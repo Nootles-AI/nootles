@@ -74,7 +74,6 @@ import { PmfSurvey } from "./feedback/PmfSurvey";
 import { DismissSampler } from "./feedback/DismissSampler";
 import { PanelLeft, PanelRight } from "./Icons";
 import { CornerSlotContext } from "./cornerSlot";
-import { PageCommandsContext, type ModeCommand } from "./pageCommands";
 
 const LEFT = { def: 256, min: 200, max: 480 };
 const RIGHT = { def: 320, min: 260, max: 560 };
@@ -184,13 +183,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   const [drawer, setDrawer] = useState<"left" | "right" | null>(null);
   const [cornerSlot, setCornerSlot] = useState<HTMLElement | null>(null);
   const [finding, setFinding] = useState(false);
-  // Read when ⌘K opens, not while it is open: the palette is modal.
-  const modeCommand = useRef<ModeCommand | null>(null);
-  const [paletteMode, setPaletteMode] = useState<ModeCommand | null>(null);
-  const find = () => {
-    setPaletteMode(modeCommand.current);
-    setFinding(true);
-  };
+  const find = () => setFinding(true);
   const [showingKeys, setShowingKeys] = useState(false);
 
   const [canvas, setCanvas] = useState<ActiveCanvas | null>(null);
@@ -325,7 +318,6 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
       if (typing && !window.getSelection()?.isCollapsed) return;
       e.preventDefault();
       e.stopPropagation();
-      setPaletteMode(modeCommand.current);
       setFinding((f) => !f);
     };
     document.addEventListener("keydown", onKey, true);
@@ -845,7 +837,6 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
             )}
           </div>
           <CornerSlotContext.Provider value={cornerSlot}>
-          <PageCommandsContext.Provider value={modeCommand}>
           {mainPageId ? (
             <PageSurface
               pageId={mainPageId}
@@ -873,7 +864,6 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
               </div>
             </>
           )}
-          </PageCommandsContext.Provider>
           </CornerSlotContext.Provider>
         </div>
 
@@ -971,7 +961,6 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
             leftOpen={compact ? openDrawer === "left" : leftOpen}
             rightOpen={compact ? openDrawer === "right" : rightOpen}
             canChat={!viewer}
-            mode={paletteMode}
             onOpenPage={(id) => {
               open(id);
               setDrawer(null);

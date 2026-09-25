@@ -144,7 +144,7 @@ function makeResource(seedLegacy = false): Resource {
 }
 
 function Surface({ resource }: { resource: Resource }) {
-  useTabCompletion(resource.editor, undefined, "", "create", resource.documentId);
+  useTabCompletion(resource.editor, undefined, "", 1, resource.documentId);
   useEffect(() => {
     lifecycle.surfaceMounts++;
     return () => {

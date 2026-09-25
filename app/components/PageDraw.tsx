@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useSyncExternalStore, type RefObject } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { track } from "@/app/lib/telemetry";
 import { useColumnEdges } from "@/app/lib/columnEdges";
 import { useSpineState, useWorkspaceHistory } from "@/app/lib/history/useWorkspaceHistory";
 import type { LiveEditor, EditorRegistry } from "./editor/EditorRegistry";
+import { useAutocomplete } from "./editor/ai/useAutocomplete";
+import { ReachPopover, SPARK_PATH as SPARK } from "./editor/ai/ReachSlider";
 import { Button, PaletteButton, REDO, TOOLS, ToolRow, UNDO } from "./editor/canvas/Toolbar";
 import { isApplePlatform, shortcutHint, type CanvasTool, type ShortcutId } from "./editor/canvas/engine/shortcuts";
 import { handTool } from "./editor/canvas/engine/handedTool";
@@ -44,6 +46,28 @@ export function pageToolFor(id: ShortcutId | null): PageTool | null {
   return tool && PAGE_KINDS.has(tool) ? (tool as PageTool) : null;
 }
 
+const glyph = {
+  width: 17,
+  height: 17,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.7,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+};
+const AUTOCOMPLETE_ON = (
+  <svg {...glyph}>
+    <path d={SPARK} />
+  </svg>
+);
+const AUTOCOMPLETE_OFF = (
+  <svg {...glyph}>
+    <path d={SPARK} />
+    <path d="M4 4l16 16" />
+  </svg>
+);
+
 const neverChanges = () => () => {};
 const notApple = () => false;
 
@@ -61,6 +85,9 @@ export function PageToolbar({
   const hint = (id: ShortcutId) => shortcutHint(id, apple);
   const spine = useWorkspaceHistory();
   const history = useSpineState(spine);
+  const autocomplete = useAutocomplete();
+  /** Where the switch was when a right-click asked for its reach. */
+  const [reachAt, setReachAt] = useState<DOMRect | null>(null);
   const dock = useRef<HTMLDivElement>(null);
   useColumnEdges(dock);
 
@@ -94,6 +121,25 @@ export function PageToolbar({
             >
               {REDO}
             </Button>
+          </>
+        )}
+        {autocomplete.loaded && (
+          <>
+            <span className="nt-toolbar-sep" aria-hidden />
+            <Button
+              label="Autocomplete"
+              hint={autocomplete.on ? "On" : "Off"}
+              pressed={autocomplete.on}
+              toggle
+              onClick={() => autocomplete.setOn(!autocomplete.on)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setReachAt(e.currentTarget.getBoundingClientRect());
+              }}
+            >
+              {autocomplete.on ? AUTOCOMPLETE_ON : AUTOCOMPLETE_OFF}
+            </Button>
+            {reachAt && <ReachPopover anchor={reachAt} onClose={() => setReachAt(null)} />}
           </>
         )}
         <PaletteButton apple={apple} onOpen={onPalette} />

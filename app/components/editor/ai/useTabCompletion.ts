@@ -10,6 +10,7 @@ import { noteDismissal } from "@/app/components/feedback/sampler";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { AI } from "@/app/lib/ai/aiConfig";
+import { suggestionLimits } from "@/app/lib/ai/reach";
 import { project, type AnyBlock } from "@/app/lib/ai/projection";
 import { resolveBatch, warnRejected } from "@/app/lib/ai/validate";
 import { applyBatch, caretTarget, type ApplyResult } from "@/app/lib/ai/apply";
@@ -482,8 +483,6 @@ function blocksFromMarkup(nodes: DocNode[]): GhostBlock[] {
  * shown: bare text streams as ghost text, markup is compiled into ops and
  * offered as a previewed block. Tab accepts either.
  */
-export type PageMode = "create" | "complete";
-
 /** Everything the telemetry row needs about the suggestion on screen. */
 type ShownState = {
   kind: string;
@@ -511,7 +510,7 @@ type TurnedDown = {
   suggestionText: string;
   contextBefore?: string;
   model: string;
-  pageMode: PageMode;
+  reach: number;
   docLength: number;
   decisionMs: number;
   dismissReason?: DismissReason;
@@ -542,7 +541,8 @@ export function useTabCompletion(
   editor: Editor | null | undefined,
   pageId?: Id<"pages"> | null,
   title = "",
-  mode: PageMode = "create",
+  /** How far suggestions reach (see `reach.ts`); null is autocomplete off. */
+  reach: number | null = null,
   /** The sync doc, so an accept can announce itself to collaborators. */
   docId?: string,
 ) {
@@ -592,7 +592,8 @@ export function useTabCompletion(
   });
 
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || reach === null) return;
+    const limits = { ...suggestionLimits(reach), reach };
     let timer: ReturnType<typeof setTimeout> | null = null;
     /**
      * Whether the out-of-completions chip has already been offered on this
@@ -685,7 +686,7 @@ export function useTabCompletion(
         latencyMs: s.latencyMs,
         suggestionText: s.text,
         model: s.kind === "Add diagram" ? AI.diagram.model : AI.fim.model,
-        pageMode: mode,
+        reach: limits.reach,
         docLength: s.docLength,
         decisionMs,
         ...extra,
@@ -942,7 +943,7 @@ export function useTabCompletion(
       // the title rides in front of the prefix on its own line, so this bounds
       // the exact check below from above: too generous, never too strict.
       const projection = { ...lens, title: titleRef.current };
-      if (sel.from + projection.title.length + 1 < AI.modes[mode].minContextChars) {
+      if (sel.from + projection.title.length + 1 < limits.minContextChars) {
         return null;
       }
       // A caret in a table cell. BlockNote's cursor block is the table itself —
@@ -971,13 +972,13 @@ export function useTabCompletion(
         cell,
       );
       if (!split) return null;
-      // Enough written to complete from. "complete" wants more before it
-      // speaks at all.
+      // Enough written to complete from. The Complete end wants more before
+      // it speaks at all.
       const bare = split.prefix.replace(/<[^>]*>/g, "");
       const visible = bare.trim();
-      if (visible.length < AI.modes[mode].minContextChars) return null;
-      // Untrimmed: whether the caret sits mid-word decides what "complete" is
-      // willing to offer.
+      if (visible.length < limits.minContextChars) return null;
+      // Untrimmed: whether the caret sits mid-word decides what the Complete
+      // half is willing to offer.
       return {
         ...split,
         cursorBlockId,
@@ -1173,7 +1174,6 @@ export function useTabCompletion(
         };
       };
 
-      const limits = AI.modes[mode];
       // What this caret can accept, which is what the token budget and the stop
       // sequences are for. A table cell holds inline content only, so a block
       // opened inside one is cut on arrival — no reason to buy its tokens.
@@ -1380,7 +1380,7 @@ export function useTabCompletion(
               if (!headLitAt) headLitAt = performance.now();
               // Plain text to insert, raw markup to render.
               setGhost(view(), displayText(acc), true, acc);
-              // One clause is all "complete" ever offers; stop paying for more.
+              // Past the dial's length it is not a continuation; stop paying for more.
               if (displayText(acc).length >= limits.maxChars) break;
             }
           } catch (error) {
@@ -1457,7 +1457,7 @@ export function useTabCompletion(
         acc = acc.slice(0, asked.at) + html;
       }
 
-      // "complete" only keeps what could have been read off the page: a
+      // The Complete half only keeps what could have been read off the page: a
       // continuation reusing its vocabulary, or the ending of the word being
       // typed. Ungrounded guesses measured 0.00 overlap and ran 2-3x longer,
       // and during a meeting they are pure noise.
@@ -1479,11 +1479,11 @@ export function useTabCompletion(
         }
       }
 
-      // The gate above is the one a mode can switch off, and "create" — where a
-      // runaway completion actually shows up — switches it off. These two the
-      // mode does not reach: a completion that says one thing over and over, or
-      // that hands the page back words it can already read either side of the
-      // caret, is not a completion in any mode.
+      // The gate above is the one the dial can switch off, and the Create half —
+      // where a runaway completion actually shows up — switches it off. These
+      // two the dial does not reach: a completion that says one thing over and
+      // over, or that hands the page back words it can already read either side
+      // of the caret, is not a completion anywhere on it.
       const offered = displayText(acc).trim();
       if (variety(offered) < MIN_VARIETY) return clear();
       const after = ctx.suffix.slice(0, 400).replace(/<[^>]*>/g, " ");
@@ -1641,7 +1641,7 @@ export function useTabCompletion(
       defer(() => {
         if (mySeq === seq) clearSuggestion(view());
       });
-      if (theirs) timer = setTimeout(() => void run(mySeq), AI.modes[mode].debounceMs);
+      if (theirs) timer = setTimeout(() => void run(mySeq), limits.debounceMs);
     };
 
     const unsubChange = editor.onChange(schedule, false);
@@ -1667,7 +1667,7 @@ export function useTabCompletion(
       setGhostAcceptHandler(null);
       setDismissHandler(null);
     };
-  }, [editor, pageId, mode, docId]);
+  }, [editor, pageId, reach, docId]);
 
   return { walled, dismissWall: useCallback(() => setWalled(false), []) };
 }

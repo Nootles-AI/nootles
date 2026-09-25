@@ -68,7 +68,7 @@ function mount(cfg: Config) {
           <OpenPageProvider>
             <ReviewProvider projectId={cfg.projectId as Id<"projects">}>
               <div id="editor-host" className="nt-editor-host">
-                <Editor docId={cfg.docId} pageId={cfg.pageId as Id<"pages">} title="E2E" mode="create" />
+                <Editor docId={cfg.docId} pageId={cfg.pageId as Id<"pages">} title="E2E" />
               </div>
             </ReviewProvider>
           </OpenPageProvider>

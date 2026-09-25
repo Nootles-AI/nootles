@@ -575,6 +575,16 @@
   background: var(--foreground);
   color: var(--background);
 }
+.nt-toolbar-btn[data-toggle][aria-pressed] {
+  background: transparent;
+  color: var(--foreground);
+}
+.nt-toolbar-btn[data-toggle][aria-pressed]:hover:not(:disabled) {
+  background: var(--hover);
+}
+.nt-toolbar-btn[data-toggle][aria-pressed="false"] {
+  color: var(--muted);
+}
 .nt-toolbar-btn:disabled {
   opacity: 0.35;
   cursor: default;

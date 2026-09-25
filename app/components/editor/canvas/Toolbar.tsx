@@ -216,18 +216,28 @@ export function Button({
   label,
   hint,
   pressed,
+  toggle,
   disabled,
   shape,
   onClick,
+  onContextMenu,
   children,
 }: {
   label: string;
   hint: string;
   pressed?: boolean;
+  /**
+   * A standing setting rather than a tool in hand: `pressed` is announced but
+   * not inked, since a setting that is usually on would otherwise read as a
+   * tool left armed. The icon says which way it stands.
+   */
+  toggle?: boolean;
   /** One of the four shapes — what the bar's morph folds into their slot. */
   shape?: boolean;
   disabled?: boolean;
   onClick: () => void;
+  /** A button with more to it than its click: the rest, on a right-click. */
+  onContextMenu?: (e: React.MouseEvent<HTMLButtonElement>) => void;
   children: ReactNode;
 }) {
   return (
@@ -237,12 +247,14 @@ export function Button({
         className="nt-toolbar-btn"
         aria-label={label}
         aria-pressed={pressed}
+        data-toggle={toggle || undefined}
         data-shape={shape || undefined}
         disabled={disabled}
         // The canvas keeps its focus, so the keymap and the clipboard keep working
         // with a tool picked by mouse.
         onPointerDown={(e) => e.preventDefault()}
         onClick={onClick}
+        onContextMenu={onContextMenu}
       >
         {children}
       </button>
