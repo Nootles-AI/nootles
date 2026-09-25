@@ -12,12 +12,13 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { useQuery, useMutation } from "convex/react";
+import { useConvex, useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { EntryDomain, type HistoryEntry } from "@/app/lib/history/entryDomain";
 import { useWorkspaceHistory } from "@/app/lib/history/useWorkspaceHistory";
 import { track } from "@/app/lib/telemetry";
+import { warmDoc } from "@/app/lib/sync/YConvexProvider";
 import {
   ArrowLeft,
   ChevronRight,
@@ -77,6 +78,8 @@ const IconPicker = dynamic(
 
 /** Indent per tree level, mirroring the drop line's inline offset. */
 const INDENT = 12;
+/** How long the pointer rests on a row before its page is worth loading. */
+const WARM_DWELL_MS = 50;
 
 type Props = {
   /** A CSS width: the rail face it fills, or the drawer's own when narrow. */
@@ -134,6 +137,7 @@ export function Sidebar({
   const canEdit = owner || role === "editor";
   const changes = usePageChanges();
   const hints = useHints();
+  const warm = useWarmOnDwell();
   const setPageIcon = useMutation(api.pages.setIcon);
   const setFolderIcon = useMutation(api.folders.setIcon);
   /** The row whose icon is being chosen, and where its menu was opened. */
@@ -958,6 +962,8 @@ export function Sidebar({
                   onPointerDown={
                     canEdit ? (e) => drag.press(dragRows[i], e) : undefined
                   }
+                  onPointerEnter={() => warm.enter(row.page.docId)}
+                  onPointerLeave={warm.leave}
                   onDoubleClick={
                     canEdit ? () => startRename(target, row.page.title) : undefined
                   }
@@ -1177,6 +1183,28 @@ export function Sidebar({
         />
       )}
     </aside>
+  );
+}
+
+/**
+ * Loads a page's document once the pointer rests on its row, so the switch the
+ * hover predicts paints from memory instead of waiting on a round trip.
+ */
+function useWarmOnDwell() {
+  const convex = useConvex();
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  return useMemo(
+    () => ({
+      enter(docId: string) {
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => warmDoc(convex, docId), WARM_DWELL_MS);
+      },
+      leave() {
+        clearTimeout(timer.current);
+      },
+    }),
+    [convex],
   );
 }
 
