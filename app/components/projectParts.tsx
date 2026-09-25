@@ -7,7 +7,7 @@ import type { useQuery } from "convex/react";
 import type { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { ProjectRole } from "@/convex/roles";
-import { projectPath } from "@/app/lib/containerPaths";
+import { projectPath, WHOLE_ROUTE } from "@/app/lib/containerPaths";
 import { Editable } from "./Editable";
 import { Lock, MoreHorizontal } from "./Icons";
 import { Menu, MenuItem } from "./Menu";
@@ -112,7 +112,7 @@ export function OpenProject({
     <Link
       href={href}
       prefetch={false}
-      onPointerEnter={() => router.prefetch(href)}
+      onPointerEnter={() => router.prefetch(href, WHOLE_ROUTE)}
       className={className}
     >
       {children}

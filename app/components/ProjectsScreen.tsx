@@ -9,7 +9,7 @@ import { Id } from "@/convex/_generated/dataModel";
 import { findTemplate } from "@/app/lib/templates";
 import { track } from "@/app/lib/telemetry";
 import { pages, when } from "@/app/lib/projectMeta";
-import { projectPath } from "@/app/lib/containerPaths";
+import { projectPath, WHOLE_ROUTE } from "@/app/lib/containerPaths";
 import { ACCOUNT, rememberScreen, seenScreen } from "@/app/lib/projectsCache";
 import { checkContextFile, storeContextFile } from "@/app/lib/contextFiles";
 import { exportCommentActivity } from "@/app/lib/audit/exportCsv";
@@ -61,6 +61,10 @@ const nth = (i: number) => ({ "--i": i }) as React.CSSProperties;
 
 /** A workspace's home has no "Shared with me": what was shared there is on its list. */
 const NONE: SharedProject[] = [];
+
+/** Whether this visit has warmed the latest project's route yet (`ProjectsScreen`). */
+let warmed = false;
+const IDLE_FALLBACK_MS = 2000;
 
 /**
  * Who else a workspace project's deletion takes it from — whoever it is shown
@@ -115,6 +119,23 @@ export function ProjectsScreen() {
   // Opened on its skeleton: what replaces it arrives in its place (`nt-from-wait`).
   const [waited] = useState(projects === undefined);
   const liveOthers = workspace ? NONE : liveShared;
+  // The project most likely to be opened next is the one worked in last, and
+  // what opening any project costs is mostly the editor's code: warmed once a
+  // visit, while nothing else is going on.
+  const latest = projects?.[0]?._id;
+  useEffect(() => {
+    if (!latest || warmed) return;
+    const warm = () => {
+      warmed = true;
+      router.prefetch(projectPath(slug, latest), WHOLE_ROUTE);
+    };
+    if (typeof window.requestIdleCallback !== "function") {
+      const t = window.setTimeout(warm, IDLE_FALLBACK_MS);
+      return () => window.clearTimeout(t);
+    }
+    const id = window.requestIdleCallback(warm, { timeout: IDLE_FALLBACK_MS });
+    return () => window.cancelIdleCallback(id);
+  }, [latest, router, slug]);
   useEffect(() => {
     if (userId && liveProjects && liveOthers) {
       rememberScreen(userId, home, liveProjects, liveOthers);

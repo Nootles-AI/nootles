@@ -15,7 +15,7 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { pages, when } from "@/app/lib/projectMeta";
-import { projectPath } from "@/app/lib/containerPaths";
+import { projectPath, WHOLE_ROUTE } from "@/app/lib/containerPaths";
 import { Dialog } from "./Dialog";
 import { PROJECT_TEMPLATES, pagePicture, type ProjectTemplate } from "@/app/lib/templates";
 import {
@@ -441,7 +441,7 @@ function Palette({
   useEffect(() => {
     const t = setTimeout(() => {
       setShown(currentProject);
-      if (currentProject) router.prefetch(projectPath(slug, currentProject._id));
+      if (currentProject) router.prefetch(projectPath(slug, currentProject._id), WHOLE_ROUTE);
     }, 110);
     return () => clearTimeout(t);
   }, [currentProject, router, slug]);

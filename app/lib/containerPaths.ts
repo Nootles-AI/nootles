@@ -11,6 +11,17 @@
  *   /w/join/<token>        an invitation into one
  */
 
+import type { useRouter } from "next/navigation";
+
+type PrefetchOptions = NonNullable<Parameters<ReturnType<typeof useRouter>["prefetch"]>[1]>;
+
+/**
+ * What `router.prefetch` is given to warm one of these addresses. Every one is
+ * dynamic with no loading boundary, so the default prefetch brings back an
+ * empty shell and leaves the route's code, and its server render, to the click.
+ */
+export const WHOLE_ROUTE = { kind: "full" } as PrefetchOptions;
+
 export type SettingsSection =
   | "general"
   | "members"
