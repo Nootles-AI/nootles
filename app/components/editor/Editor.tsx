@@ -489,7 +489,7 @@ export function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[]
 }
 
 // The "@" menu: every page in the project, as a chip to be inserted.
-function mentionItems(
+export function mentionItems(
   editor: EditorInstance,
   pages: PageRef[],
 ): DefaultReactSuggestionItem[] {
