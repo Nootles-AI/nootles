@@ -15,10 +15,11 @@
  * This module deliberately imports nothing. The small lanes reach it for the
  * whole wire — where to POST, what pays, and the body fields that differ by
  * vendor; only the four lanes that go through the `ai` package need a provider
- * adapter, and those live in `chat/provider.ts`.
+ * adapter, and those live in `chat/provider.ts`. Anthropic is reached only
+ * through one: its API is not the chat-completions shape the small lanes post.
  */
 
-export type Vendor = "google" | "openai" | "recraft";
+export type Vendor = "anthropic" | "google" | "openai" | "recraft";
 
 /** True only for an explicit opt-in, so a typo fails closed onto direct keys. */
 export function viaOpenRouter(): boolean {
@@ -35,6 +36,7 @@ export function viaOpenRouter(): boolean {
  * plain id would hand `importSvgScene` a PNG and miss every drawing.
  */
 const DIRECT: Record<string, { vendor: Vendor; id: string }> = {
+  "anthropic/claude-opus-5.5": { vendor: "anthropic", id: "claude-opus-5-5" },
   "google/gemini-2.5-flash": { vendor: "google", id: "gemini-2.5-flash" },
   "google/gemini-3.7-flash": { vendor: "google", id: "gemini-3.7-flash" },
   "openai/gpt-5.6-terra": { vendor: "openai", id: "gpt-5.6-terra" },
@@ -54,6 +56,7 @@ export function directModel(slug: string): { vendor: Vendor; id: string } {
 
 const KEY_NAMES: Record<Vendor | "openrouter", string> = {
   openrouter: "OPENROUTER_API_KEY",
+  anthropic: "ANTHROPIC_API_KEY",
   // The name `@ai-sdk/google` reads by default, so the adapter and the small
   // lanes below take their key from one variable.
   google: "GOOGLE_GENERATIVE_AI_API_KEY",
@@ -143,6 +146,9 @@ export function chatTarget(slug: string, answerTokens: number): Target {
   const { vendor, id } = directModel(slug);
   if (vendor === "recraft") {
     throw new Error(`"${slug}" is an image model, not a chat model`);
+  }
+  if (vendor === "anthropic") {
+    throw new Error(`"${slug}" has no chat-completions route — reach it through chat/provider.ts`);
   }
   const thinks = vendor === "google";
   const max_tokens = answerTokens + (thinks ? THINKING_HEADROOM : 0);

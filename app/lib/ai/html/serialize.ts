@@ -349,7 +349,9 @@ export function runsToHtml(content: unknown): string {
       }
       if (item.type === "math") {
         const latex = (item.props as { latex?: string } | undefined)?.latex ?? "";
-        return `<nt-math>${latex}</nt-math>`;
+        // Escaped like any text: inline maths is not raw text to the parser, so
+        // `a<b` written back bare reads as a tag and the formula is lost.
+        return `<nt-math>${esc(latex)}</nt-math>`;
       }
       if (item.type === "pageMention") {
         const props = item.props as { pageId?: string; title?: string } | undefined;
@@ -372,7 +374,7 @@ export function runsToHtml(content: unknown): string {
 export function runsToHtmlFromRuns(runs: Run[]): string {
   return runs
     .map((r) => {
-      if (r.type === "math") return `<nt-math>${r.latex}</nt-math>`;
+      if (r.type === "math") return `<nt-math>${esc(r.latex)}</nt-math>`;
       if (r.type === "checkbox") {
         return r.checked ? "<nt-check checked></nt-check>" : "<nt-check></nt-check>";
       }
@@ -771,6 +773,9 @@ export function toDocHtmlWithin(
       hi = mid - 1;
     }
   }
+  // At least one block, even one bigger than the budget: a read that shows
+  // nothing cannot say where to read on from, and would be asked for again.
+  kept = Math.max(kept, 1);
   return {
     html: toDocHtml(blocks.slice(0, kept), opts),
     dropped: blocks.length - kept,

@@ -1931,6 +1931,10 @@ textarea.nt-input {
 .nt-turn-text + .nt-turn-text {
   margin-top: 0.6em;
 }
+/* A note on the way, not the answer: the same voice, a step quieter. */
+.nt-turn-note {
+  color: var(--muted);
+}
 
 /* ---- Markdown in a reply -----------------------------------------------
    The panel is a column of a few hundred pixels, so this is emphasis rather

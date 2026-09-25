@@ -59,6 +59,13 @@ export const TOOLS = {
             "copy from or edit; a stub is all you need to keep, move or " +
             "replace it.",
         ),
+      after: z
+        .string()
+        .optional()
+        .describe(
+          "A block id: read on from after it. A long page reads in parts, and a " +
+            "read that stops early names the block to continue after.",
+        ),
     }),
   },
   open_page: {
@@ -84,6 +91,10 @@ export const TOOLS = {
         .array(z.string())
         .optional()
         .describe("As on read_page: block ids to read in full."),
+      after: z
+        .string()
+        .optional()
+        .describe("As on read_page: read on from after this block."),
     }),
   },
   edit_page: {
@@ -93,7 +104,9 @@ export const TOOLS = {
     description:
       "Change what a page says. Send Nootles HTML for the blocks you are " +
       "writing: an element WITH an id rewrites that block, an element WITHOUT " +
-      "one is a new block, and the ids around it are what decide where it goes. " +
+      "one is a new block, placed after the element before it — repeat an " +
+      "existing block exactly as you read it to place after that one — or at " +
+      "the end of the page. <nt-section ref> places a section write drafted. " +
       "Blocks you leave out are left alone, so send the part you are changing " +
       "rather than the whole page. Read the page first — the ids have to be " +
       "ids it actually has. The change is applied and shown to the user, who " +
@@ -109,6 +122,36 @@ export const TOOLS = {
         .describe(
           "Ids this rewrite consumes. Any of them your HTML does not keep is " +
             "deleted — this is how four paragraphs become one table.",
+        ),
+    }),
+  },
+  write: {
+    side: "server",
+    mutates: false,
+    surfaces: ["chat"],
+    description:
+      "Have the writer draft ONE SECTION of a page — a heading and what sits " +
+      "under it — from your brief and the sources you name. Returns a REF and an " +
+      "outline; place the section by writing <nt-section ref=\"THAT REF\"></nt-section> " +
+      "in edit_page HTML. Nothing touches the page until you place it. For a page " +
+      "or a long passage, call this once per section, all in one step.",
+    inputSchema: z.object({
+      brief: z
+        .string()
+        .describe(
+          "Everything the writer knows about this section: its heading, what it " +
+            "says in order, each table's columns and rows, each code excerpt and " +
+            "its source, each diagram's parts and how they connect, and the names " +
+            "and figures to use — then the whole page's outline with this section " +
+            "marked, and the page's terms for its main things.",
+        ),
+      sources: z
+        .array(contextIdArg)
+        .max(8)
+        .optional()
+        .describe(
+          "Context items the writer should read and write from — files, documents, " +
+            "concerns. It reads them itself, so name them rather than copying them out.",
         ),
     }),
   },

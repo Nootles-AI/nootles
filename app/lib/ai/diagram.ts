@@ -179,6 +179,10 @@ THE GRAMMAR
 
 ${CANVAS_GRAMMAR}
 
+A canvas the page already holds may appear in what you are shown as a stub,
+<nt-diagram drawn="240 shapes" at="…"></nt-diagram>: a picture already on the page, its
+shapes left out. It is context, never something to copy into your reply.
+
 WHAT TO DRAW
 ${USE_CASES}
 

@@ -1,3 +1,4 @@
+import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
@@ -35,13 +36,42 @@ export function chatModel(): ModelCall {
         // only way to tell a cache breakpoint that is working from one that is
         // being ignored, and OpenRouter leaves those counts out unless asked.
         usage: { include: true },
+        // One host while it answers: each keeps its own prompt cache, and a
+        // turn that wanders between them pays full price on the one it lands
+        // on cold. See `AI.chat.hosts`.
+        provider: { order: [...AI.chat.hosts], allow_fallbacks: true },
         // Never left to the provider's default: unset, this model reasons at
         // full effort and spends minutes before the first token.
         reasoning: { effort: AI.chat.effort },
       }),
     };
   }
-  const { id } = directModel(AI.chat.model);
+  const { vendor, id } = directModel(AI.chat.model);
+  if (vendor === "anthropic") {
+    return {
+      model: anthropic()(id),
+      providerOptions: {
+        anthropic: {
+          effort: AI.chat.effort,
+          thinking: {
+            type: "adaptive",
+            // The short notes between tool calls arrive as thinking on this
+            // line, and are empty unless asked for — the panel would sit
+            // silent through a long turn.
+            display: "updates",
+            // The route edits history the model has already seen — stale reads
+            // shortened, drawings stripped, the open-page note moving — and a
+            // thinking block replayed after an edit is a 400 on newer accounts.
+            // Dropping the block keeps the turn; only that step's reasoning goes.
+            blockBinding: { prefixMismatchBehavior: "drop_block" },
+          },
+          // A classifier refusal re-runs on the model the API picks rather than
+          // ending the turn with nothing said.
+          fallbacks: "default",
+        },
+      },
+    };
+  }
   return {
     model: openai()(id),
     // The same dial as above, where OpenAI's own API takes it. Usage needs no
@@ -75,6 +105,24 @@ export function searchModel(maxResults: number): ModelCall {
   };
 }
 
+/** The writer behind `write`: drafts one section from the agent's brief. */
+export function writerModel(): ModelCall {
+  const { model, effort } = AI.chat.writer;
+  if (viaOpenRouter()) {
+    return {
+      model: openrouter().chat(model, { usage: { include: true }, reasoning: { effort } }),
+    };
+  }
+  const { vendor, id } = directModel(model);
+  if (vendor === "anthropic") {
+    return { model: anthropic()(id), providerOptions: { anthropic: { effort } } };
+  }
+  return {
+    model: googleProvider().chat(id),
+    providerOptions: { google: { thinkingConfig: { thinkingLevel: effort } } },
+  };
+}
+
 /** The model that expands `<nt-build-diagram>` into canvas HTML. */
 export function diagramModel(): ModelCall {
   if (viaOpenRouter()) {
@@ -97,6 +145,10 @@ export function diagramModel(): ModelCall {
 
 function openrouter() {
   return createOpenRouter({ apiKey: apiKey("openrouter") });
+}
+
+function anthropic() {
+  return createAnthropic({ apiKey: apiKey("anthropic") });
 }
 
 function openai() {

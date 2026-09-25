@@ -5,6 +5,7 @@ import type {
   NmlMark,
   NmlMediaSource,
 } from "@/app/lib/nml/schema";
+import { editorMarks } from "@/app/lib/nml/normalize";
 import type { NotionLedgerEntry } from "./convert";
 
 /**
@@ -35,10 +36,10 @@ type BNInline =
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyPartialBlock = any;
 
-const styled = (text: string, marks: readonly NmlMark[]): BNText => ({
+const styled = (text: string, marks: readonly NmlMark[], inLink = false): BNText => ({
   type: "text",
   text,
-  styles: Object.fromEntries(marks.map((mark) => [mark, true])),
+  styles: Object.fromEntries(editorMarks(marks, inLink).map((mark) => [mark, true])),
 });
 
 function inline(content: NmlInlineContent): BNInline[] {
@@ -52,7 +53,7 @@ function inline(content: NmlInlineContent): BNInline[] {
     return {
       type: "link",
       href: node.href,
-      content: node.content.map((run) => styled(run.text, run.marks)),
+      content: node.content.map((run) => styled(run.text, run.marks, true)),
     };
   });
 }

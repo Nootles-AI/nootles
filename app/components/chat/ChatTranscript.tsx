@@ -25,7 +25,7 @@ import type { AbMessage } from "@/app/lib/ai/chat/types";
 import type { DrawChoice } from "@/app/lib/ai/drawStyles";
 import { retryNotice } from "@/app/lib/ai/chat/retryNotice";
 import { DrawStylePicker } from "./DrawStylePicker";
-import { Markdown } from "./Markdown";
+import { Markdown, Note } from "./Markdown";
 
 /**
  * The conversation.
@@ -253,6 +253,12 @@ const MessageRow = memo(function MessageRow({
                 {part.text}
               </p>
             );
+          }
+          // What the agent said it was doing between calls. Its reasoning
+          // arrives the same way with no text — thinking kept hidden — and
+          // that is not a line.
+          if (part.type === "reasoning") {
+            return part.text.trim() ? <Note key={i} text={part.text} /> : null;
           }
           // What came with the question. A mention keeps its "@" because that
           // is how it was written; a file gets the clip it was attached with.
@@ -609,6 +615,10 @@ const STEPS: Record<string, { doing: string; failed: string }> = {
   edit_page: { doing: "Writing…", failed: "Couldn't edit that page" },
   draw: { doing: "Drawing…", failed: "Couldn't draw that" },
   search_web: { doing: "Searching the web…", failed: "Couldn't search the web" },
+  search_context: { doing: "Searching the project…", failed: "Couldn't search the project" },
+  read_context: { doing: "Reading…", failed: "Couldn't read that" },
+  expand_context: { doing: "Following links…", failed: "Couldn't follow that" },
+  write: { doing: "Drafting a section…", failed: "Couldn't draft that section" },
   create_page: { doing: "Adding a page…", failed: "Couldn't add the page" },
   rename_page: { doing: "Retitling…", failed: "Couldn't retitle that page" },
   delete_page: { doing: "Deleting…", failed: "Couldn't delete that page" },
@@ -695,6 +705,25 @@ function stepLine(part: ToolUIPart | DynamicToolUIPart): string {
     }
     case "search_web":
       return query ? `Searched for “${query}”` : "Searched the web";
+    case "search_context": {
+      const n = Array.isArray(part.output) ? part.output.length : 0;
+      const found = n ? `${n} match${n === 1 ? "" : "es"}` : "nothing";
+      return query ? `Found ${found} for “${query}”` : `Found ${found}`;
+    }
+    case "write": {
+      const out = part.output as
+        | { error?: string; headings?: string[]; unsourced?: string[] }
+        | undefined;
+      if (out?.error) return "The writer missed that section";
+      const heading = out?.headings?.[0];
+      const drafted = heading ? `Drafted “${heading}”` : "Drafted a section";
+      const flagged = out?.unsourced?.length ?? 0;
+      return flagged ? `${drafted} — ${flagged} to check` : drafted;
+    }
+    case "read_context":
+      return `Read ${contextTitle(part.output)}`;
+    case "expand_context":
+      return `Followed ${contextTitle(part.output)}`;
     case "create_page":
       return `Added ${named(part.output)}`;
     case "rename_page": {
@@ -723,6 +752,12 @@ function pageTitle(output: unknown): string | null {
   const title =
     typeof output === "string" ? /<title>([^<]*)<\/title>/.exec(output)?.[1] : null;
   return title?.trim() || null;
+}
+
+/** A context item by its title — a file's is its path. */
+function contextTitle(output: unknown): string {
+  const title = (output as { title?: string } | undefined)?.title?.trim();
+  return title || "an untitled item";
 }
 
 /** The page tools answer with the title they left behind. */

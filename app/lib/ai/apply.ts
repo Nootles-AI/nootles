@@ -11,6 +11,7 @@ import type { AnyBlock } from "./projection";
 import { duringAiApply, pushAiOp, type OpFeature } from "@/app/lib/debugRing";
 import { isEmptyParagraphBlock } from "@/app/lib/documentTail";
 import { asOneStep } from "@/app/lib/history/textSteps";
+import { editorMarks } from "@/app/lib/nml/normalize";
 
 /**
  * The applier: turns a validated op batch into the EXACT same BlockNote editor
@@ -51,10 +52,10 @@ type BNInline =
   | { type: "checkbox"; props: { checked: boolean } }
   | { type: "link"; href: string; content: BNText[] };
 
-const styled = (r: { text: string; marks?: Mark[] }): BNText => ({
+const styled = (r: { text: string; marks?: Mark[] }, inLink = false): BNText => ({
   type: "text",
   text: r.text,
-  styles: Object.fromEntries((r.marks ?? []).map((m) => [m, true])),
+  styles: Object.fromEntries(editorMarks(r.marks ?? [], inLink).map((m) => [m, true])),
 });
 
 function compileInline(runs: InlineRun[]): BNInline[] {
@@ -70,7 +71,11 @@ function compileInline(runs: InlineRun[]): BNInline[] {
       return { type: "checkbox" as const, props: { checked: r.checked } };
     }
     if (r.type === "link") {
-      return { type: "link" as const, href: r.href, content: r.content.map(styled) };
+      return {
+        type: "link" as const,
+        href: r.href,
+        content: r.content.map((run) => styled(run, true)),
+      };
     }
     return styled(r);
   });

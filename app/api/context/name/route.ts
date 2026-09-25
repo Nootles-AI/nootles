@@ -3,7 +3,7 @@ import { api } from "@/convex/_generated/api";
 import { AI } from "@/app/lib/ai/aiConfig";
 import { nameRepository } from "@/app/lib/ai/context/name";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
-import { asUser } from "@/app/lib/convexServer";
+import { asSession } from "@/app/lib/convexServer";
 import { refuseIfSpent } from "@/app/lib/entitlementGate";
 import { refuseIfLimited } from "@/app/lib/requestLimitGate";
 import { session } from "@/app/lib/session";
@@ -28,7 +28,9 @@ export async function POST(req: Request) {
   if (typeof repoId !== "string") return new Response("`repoId` is required", { status: 400 });
   const project = typeof projectId === "string" ? projectId : undefined;
 
-  const convex = asUser(token);
+  // Not `asUser`: naming a large repository runs past a token's minute, and
+  // the names — and the ledger rows — are written after it, as the user.
+  const convex = asSession(caller);
   const limited = await refuseIfLimited(convex, "agentGeneration");
   if (limited) return limited;
   // Before the claim, so a refusal leaves the repository waiting to be named.

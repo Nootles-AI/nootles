@@ -27,9 +27,9 @@ import { commentsPack, pagePack, projectPack } from "@/app/lib/ai/context/pack";
 import { commentsGate } from "@/app/lib/ai/commentsGate";
 import { gateSummary, parseDigest, type CommentsDigest } from "@/app/lib/comments/digest";
 import { chatTools } from "@/app/lib/ai/chat/serverTools";
-import { stageTurn } from "@/app/lib/ai/staged/stage";
 import {
   cached,
+  foldResearch,
   markCachePoints,
   shortenStaleReads,
   stripDrawings,
@@ -50,8 +50,12 @@ import { session } from "@/app/lib/session";
  * step and streams the call to the browser — the applier needs the live editor
  * instance, so the document is only ever mutated client-side, through the same
  * path a human edit takes.
+ *
+ * Five minutes, because one request is a whole run of server steps: a turn that
+ * researches the project before handing sections to the writer measured 92s
+ * before the first client tool ended it, and at 60 it was cut off mid-read.
  */
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(req: Request) {
   const startedAt = Date.now();
@@ -143,44 +147,28 @@ export async function POST(req: Request) {
   // valid turn, however long, cannot throttle itself. Ahead of `beginChat`, so
   // a throttled turn spends neither the provider key nor the permanent chat
   // allowance, and the `429` stays distinct from that `402`.
-  // The demo seam. Null unless this project is staged AND the wording matches a
-  // script we are confident about — and null is the fallthrough, so everything
-  // below this line is the ordinary path. A staged model is still a model:
-  // `streamText` runs the tool loop, the client tools mutate the document, the
-  // turn is persisted, and the next turn reads all of it back as history.
-  const staged = await stageTurn({
-    messages,
-    projectId,
-    pageId,
-    convex,
-    userId: caller.userId,
-  });
+  const limited = await refuseIfLimited(convex, "agentGeneration");
+  if (limited) return limited;
 
-  if (!staged) {
-    const limited = await refuseIfLimited(convex, "agentGeneration");
-    if (limited) return limited;
-
-    // Charges the conversation against the free allowance, once, and refuses when
-    // there is none left. Idempotent, which matters here: one turn is several
-    // requests as client tools are answered, and only the first is a new
-    // conversation. Ahead of the model, so a refusal costs nothing.
-    try {
-      await convex.mutation(api.entitlements.beginChat, { threadId, projectId });
-    } catch (e) {
-      if (isQuotaRefusal(e)) return quotaResponse(e.data.meter);
-      // Demoted, or the project gone, mid-conversation: theirs to be told,
-      // not a server error (NT-83). `retryNotice` words it in the panel.
-      if (isChatRefusal(e)) return Response.json(e.data, { status: 403 });
-      throw e;
-    }
+  // Charges the conversation against the free allowance, once, and refuses when
+  // there is none left. Idempotent, which matters here: one turn is several
+  // requests as client tools are answered, and only the first is a new
+  // conversation. Ahead of the model, so a refusal costs nothing.
+  try {
+    await convex.mutation(api.entitlements.beginChat, { threadId, projectId });
+  } catch (e) {
+    if (isQuotaRefusal(e)) return quotaResponse(e.data.meter);
+    // Demoted, or the project gone, mid-conversation: theirs to be told,
+    // not a server error (NT-83). `retryNotice` words it in the panel.
+    if (isChatRefusal(e)) return Response.json(e.data, { status: 403 });
+    throw e;
   }
 
   const inputs = await reading;
   // Only a digest of the page the note names: "this page" has to mean one page.
-  // A staged turn is a script, and asks nothing of a real model; nor does a
-  // caller the project refused, or a turn with no step left to use it in.
+  // Not for a caller the project refused, or a turn with no step left to use it in.
   const pageComments =
-    digest?.ok && note && digest.digest.pageId === pageId && !staged && inputs ? digest.digest : null;
+    digest?.ok && note && digest.digest.pageId === pageId && inputs ? digest.digest : null;
   const withComments = pageComments
     ? await commentsWanted(convex, messages, pageComments, budget > 0, req.signal, {
         ownerId: caller.userId,
@@ -214,15 +202,18 @@ export async function POST(req: Request) {
   // Taken apart rather than spread: this call's tool typing is what the step
   // budget and `activeTools` are checked against, and spreading a bundle that
   // declares an optional `tools` would widen it.
-  const { model, providerOptions } = staged ?? chatModel();
+  const { model, providerOptions } = chatModel();
 
   const result = streamText({
     model,
     providerOptions,
     instructions,
-    messages: markCachePoints(
-      spent ? [...asked, { role: "user", content: OUT_OF_STEPS }] : asked,
-    ),
+    messages: spent ? [...asked, { role: "user", content: OUT_OF_STEPS }] : asked,
+    // Marked per step, not once per request: the server tools run several steps
+    // inside one request, and each re-sends everything the last one read. Marked
+    // only at the request's start, those reads were paid for in full every step —
+    // a research-heavy turn ran at 22% cached.
+    prepareStep: ({ messages }) => ({ messages: markCachePoints(foldResearch(messages)) }),
     tools: chatTools(
       projectId,
       convex,
@@ -244,9 +235,7 @@ export async function POST(req: Request) {
       recordAiCall(convex, {
         ownerId: caller.userId,
         feature: "chat",
-        // A staged turn is still a row. It costs nothing, and ops should be able
-        // to tell demo traffic from unexplained free traffic.
-        model: staged ? `staged/${staged.stagedId}` : AI.chat.model,
+        model: AI.chat.model,
         projectId,
         promptTokens: totalUsage.inputTokens,
         completionTokens: totalUsage.outputTokens,

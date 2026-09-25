@@ -18,6 +18,7 @@ import { parseDocHtml } from "@/app/lib/ai/html/parse";
 import { loadIconCatalog } from "@/app/components/editor/canvas/icons/registry";
 import { compileDocHtml } from "@/app/lib/ai/html/compile";
 import { useCompletionProject } from "./CompletionContext";
+import { watchMachineEdits } from "./machineEdits";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Editor = BlockNoteEditor<any, any, any>;
@@ -299,13 +300,19 @@ export function useReformat(
      * does simply stopping — type an obvious table and never move, and waiting
      * for you to leave would mean never offering it at all.
      */
+    const machine = watchMachineEdits(editor._tiptapEditor);
+
     const schedule = () => {
       const state = editor.prosemirrorView?.state;
       if (state) {
         const block = caretBlockId(state);
         if (state.doc === seenDoc && block === seenBlock) return;
+        const edited = state.doc !== seenDoc;
         seenDoc = state.doc;
         seenBlock = block;
+        // The agent's edits, and steps replayed from elsewhere, did not finish
+        // anything the person wrote; the next thing they do is asked about.
+        if (edited && machine.isMachineDoc(state.doc)) return;
       }
 
       const run = runAtCursor();
@@ -336,6 +343,7 @@ export function useReformat(
     const unsubChange = editor.onChange(schedule, false);
     const unsubSelection = editor.onSelectionChange(schedule, false);
     return () => {
+      machine.stop();
       unsubChange?.();
       unsubSelection?.();
       if (timer) clearTimeout(timer);

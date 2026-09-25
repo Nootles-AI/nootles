@@ -37,6 +37,7 @@ import { resolveMentions } from "./mentions";
 import type { MentionData } from "./parts";
 import { isClientTool } from "./tools";
 import type { AbMessage, ChatDraft, QueuedDraft } from "./types";
+import { forStorage } from "./storedParts";
 
 const EMPTY = {
   messages: [] as AbMessage[],
@@ -183,7 +184,7 @@ export function useProjectChat({
         threadId: boundThreadId,
         uiId: message.id,
         role: "assistant",
-        parts,
+        parts: forStorage(parts),
         metadata: message.metadata,
       });
     };

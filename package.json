@@ -42,8 +42,9 @@
     "test:links:expiry": "node tests/link-expiry.fullstack.mjs"
   },
   "dependencies": {
-    "@ai-sdk/google": "^4.0.44",
-    "@ai-sdk/openai": "^4.0.42",
+    "@ai-sdk/anthropic": "^4.0.63",
+    "@ai-sdk/google": "^4.0.80",
+    "@ai-sdk/openai": "^4.0.75",
     "@blocknote/core": "^0.52.1",
     "@blocknote/mantine": "^0.52.1",
     "@blocknote/react": "^0.52.1",
@@ -68,7 +69,7 @@
     "@lezer/highlight": "^1.2.3",
     "@openrouter/ai-sdk-provider": "^3.0.0",
     "@sentry/nextjs": "^10.69.0",
-    "ai": "^7.0.66",
+    "ai": "^7.0.114",
     "convex": "^1.42.3",
     "fflate": "^0.4.9",
     "html-to-image": "^1.11.13",
