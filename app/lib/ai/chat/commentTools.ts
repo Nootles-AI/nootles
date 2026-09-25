@@ -9,6 +9,7 @@ import { anchorForQuote } from "@/app/lib/comments/resolve";
 import { CommentsStore, CommentsStoreError, threadsSnapshot } from "@/app/lib/comments/store";
 import type { Thread } from "@/app/lib/comments/types";
 import { isForked } from "../review/fork";
+import { NOTHING_WAS_WRITTEN } from "./mutationResult";
 
 /**
  * The assistant's comment tools (docs/commenting-plan.md §8): read a page's
@@ -98,7 +99,7 @@ export function pageText(editor: LiveEditor): PageText {
   };
 }
 
-const NOTHING = "Nothing was written.";
+const NOTHING = NOTHING_WAS_WRITTEN;
 
 const quoted = (text: string) => JSON.stringify(text);
 

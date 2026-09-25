@@ -1,4 +1,5 @@
 import { getToolName, isToolUIPart } from "ai";
+import { isRetryableMutationResult } from "./mutationResult";
 import { TOOLS } from "./tools";
 import type { AbMessage } from "./types";
 
@@ -28,8 +29,8 @@ function stable(value: unknown): unknown {
  * Whether this exact mutation already completed after the current user's message.
  *
  * The transcript is the ledger rather than an in-memory set: it survives the
- * client-tool request/resume cycle and a browser reload. Failed calls remain
- * retryable, as does edit_page's explicit transient "same content" recovery.
+ * client-tool request/resume cycle and a browser reload. Failed calls and
+ * completed no-write results remain retryable.
  */
 export function isRepeatedMutation(
   messages: AbMessage[],
@@ -54,21 +55,11 @@ export function isRepeatedMutation(
       if (!isToolUIPart(part) || part.toolCallId === call.toolCallId) continue;
       if (part.state !== "output-available") continue;
       if (getToolName(part) !== call.toolName) continue;
-      if (allowsExactRetry(part.output)) continue;
+      if (isRetryableMutationResult(part.output)) continue;
       if (fingerprint(call.toolName, part.input) === wanted) return true;
     }
   }
   return false;
-}
-
-function allowsExactRetry(output: unknown): boolean {
-  return (
-    typeof output === "string" &&
-    // A refusal wrote nothing, so the same call later is not a repeat — a
-    // comment refused under a review is fair to retry once the review is kept.
-    (/call edit_page once more with the\s+same content/i.test(output) ||
-      output.startsWith("Nothing was written."))
-  );
 }
 
 /** The model sees why the second call did not change the document. */
