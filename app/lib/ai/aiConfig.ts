@@ -166,14 +166,15 @@ export const AI = {
    * (25 files) and checked its own page most, at $1.09 a turn once research is
    * folded after writing (`foldResearch`) — against Opus 5.5's $2.47, Kimi
    * K3's $0.64 with no self-check, GLM-5.3's $0.24 with an invented code block,
-   * and Grok 4.7's 320s request, past the route's 300s. OpenRouter only: there
-   * is no direct route for it here.
+   * and Grok 4.7's 320s request, past the route's 300s. Direct, it is OpenAI's
+   * own `gpt-6-sol` on the Responses API (`chat/provider.ts`), so the chat does
+   * not need `USE_OPENROUTER` (NT-87).
    */
   chat: {
     model: "openai/gpt-6-sol",
     /**
      * The OpenRouter hosts to try, in order, for the model above — change them
-     * together. Sol is served by OpenAI, Azure and Bedrock, each with its own
+     * together. Read only under `USE_OPENROUTER`; direct, OpenAI is the host. Sol is served by OpenAI, Azure and Bedrock, each with its own
      * prompt cache, and left to route freely one request of a measured turn
      * landed cold: 110K tokens at full price, a fifth of the turn's bill,
      * between two requests that were 97% cached. Other hosts are still tried
@@ -497,7 +498,9 @@ export const AI = {
     "google/gemini-3.7-flash": { in: 0.375, out: 1.875 },
     "openai/gpt-5.6-terra": { in: 1, out: 6, cacheRead: 0.1, cacheWrite: 1.25 },
     "anthropic/claude-opus-5.5": { in: 4, out: 20, cacheRead: 0.2, cacheWrite: 5 },
-    "openai/gpt-6-sol": { in: 2, out: 10, cacheRead: 0.2 },
+    // OpenAI's list price, cache writes included: at 1.25x input they are dearer
+    // than the plain input price a row without `cacheWrite` falls back to.
+    "openai/gpt-6-sol": { in: 2, out: 10, cacheRead: 0.2, cacheWrite: 2.5 },
     // OpenRouter's list price; no cache tier is published for it.
     "meta/muse-spark-1.3": { in: 1.25, out: 4.25 },
     // Flat per image, not per token — `perCall` is the whole price. This is the

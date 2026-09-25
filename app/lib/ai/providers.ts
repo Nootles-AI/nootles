@@ -40,6 +40,7 @@ const DIRECT: Record<string, { vendor: Vendor; id: string }> = {
   "google/gemini-2.5-flash": { vendor: "google", id: "gemini-2.5-flash" },
   "google/gemini-3.7-flash": { vendor: "google", id: "gemini-3.7-flash" },
   "openai/gpt-5.6-terra": { vendor: "openai", id: "gpt-5.6-terra" },
+  "openai/gpt-6-sol": { vendor: "openai", id: "gpt-6-sol" },
   "recraft/recraft-v3": { vendor: "recraft", id: "recraftv3_vector" },
 };
 

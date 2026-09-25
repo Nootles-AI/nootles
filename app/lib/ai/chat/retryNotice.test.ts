@@ -46,6 +46,14 @@ describe("a limiter outage", () => {
   });
 });
 
+describe("no model this deployment can reach", () => {
+  test("reads as the same brief wait: nothing was charged, and the operator is told", () => {
+    expect(retryNotice(JSON.stringify({ code: "model_unavailable" }))).toBe(
+      "The assistant is briefly unavailable. Try again in a moment.",
+    );
+  });
+});
+
 describe("a guest's spent day", () => {
   test("says when it opens again, rather than showing the body", () => {
     vi.useFakeTimers({ now: new Date("2026-09-23T15:30:00Z") });

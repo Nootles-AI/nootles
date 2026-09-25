@@ -41,6 +41,7 @@ import { quotaResponse } from "@/app/lib/entitlementGate";
 import { refuseIfLimited } from "@/app/lib/requestLimitGate";
 import { isChatRefusal, isQuotaRefusal } from "@/convex/entitlements";
 import { session } from "@/app/lib/session";
+import * as Sentry from "@sentry/nextjs";
 
 /**
  * The chat agent's loop.
@@ -126,6 +127,20 @@ export async function POST(req: Request) {
   const budget = AI.chat.maxSteps - stepsTaken(messages);
   const spent = budget <= 0 && !answeringApproval(messages);
 
+  // Resolved before anything is spent: a lane with no route under this
+  // deployment's `USE_OPENROUTER`, or a missing key, used to throw only after
+  // the limiter and `beginChat` had charged the conversation, and arrive as a
+  // bare 500 (NT-87). Now it costs nothing, is reported, and the panel says the
+  // assistant is unavailable rather than showing a stack's worth of nothing.
+  let call: ReturnType<typeof chatModel>;
+  try {
+    call = chatModel();
+  } catch (e) {
+    console.error("[chat] no model to answer with", e);
+    Sentry.captureException(e);
+    return Response.json({ code: "model_unavailable" }, { status: 503 });
+  }
+
   // Not `asUser`: this request streams past the life of one token, and the
   // ledger row at the end — and a drawing stored after a slow artist — must
   // still be written as the user. See `asSession`.
@@ -202,7 +217,7 @@ export async function POST(req: Request) {
   // Taken apart rather than spread: this call's tool typing is what the step
   // budget and `activeTools` are checked against, and spreading a bundle that
   // declares an optional `tools` would widen it.
-  const { model, providerOptions } = chatModel();
+  const { model, providerOptions } = call;
 
   const result = streamText({
     model,
