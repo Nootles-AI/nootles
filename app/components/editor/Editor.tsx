@@ -23,7 +23,6 @@ import {
   useEditorState,
   type DefaultReactSuggestionItem,
 } from "@blocknote/react";
-import { formatKeyboardShortcut } from "@blocknote/core";
 import { autoPlacement, offset, shift, size } from "@floating-ui/react";
 import { useBlockNoteSync } from "@convex-dev/prosemirror-sync/blocknote";
 import { useConvex, useQueries, useQuery } from "convex/react";
