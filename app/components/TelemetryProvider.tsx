@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useUser } from "@clerk/nextjs";
 import { useQuery } from "convex/react";
-import posthog from "posthog-js";
 import * as Sentry from "@sentry/nextjs";
 import { api } from "@/convex/_generated/api";
+import { bootAnalytics, withAnalytics } from "@/app/lib/telemetry";
 
 /**
  * How many sessions are recorded.
@@ -19,7 +19,7 @@ import { api } from "@/convex/_generated/api";
  */
 const REPLAY_SAMPLE = 0.2;
 
-/** Long enough to be out of the way, short enough not to lose early events. */
+/** Out of the way of the first paint; what is tracked before it waits in `telemetry`. */
 const BOOT_DELAY_MS = 1500;
 
 /**
@@ -30,13 +30,12 @@ const BOOT_DELAY_MS = 1500;
 export function TelemetryProvider({ children }: { children: React.ReactNode }) {
   const { user } = useUser();
   const profile = useQuery(api.profiles.get, user ? {} : "skip");
-  const [analytics, setAnalytics] = useState(false);
 
   useEffect(() => {
     const key = process.env.NEXT_PUBLIC_POSTHOG_KEY;
-    if (!key || posthog.__loaded) return;
-    const boot = () => {
-      try {
+    if (!key) return;
+    const boot = () =>
+      void bootAnalytics((posthog) => {
         const record = Math.random() < REPLAY_SAMPLE;
         posthog.init(key, {
           // First-party path, rewritten to PostHog by next.config — ad-blockers
@@ -51,11 +50,7 @@ export function TelemetryProvider({ children }: { children: React.ReactNode }) {
           session_recording: { maskAllInputs: false },
         });
         if (record) posthog.startSessionRecording();
-        setAnalytics(true);
-      } catch {
-        // Telemetry never breaks the app.
-      }
-    };
+      });
     const idle = typeof window.requestIdleCallback === "function";
     const id = idle
       ? window.requestIdleCallback(boot, { timeout: BOOT_DELAY_MS })
@@ -69,20 +64,15 @@ export function TelemetryProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user) return;
     const email = user.primaryEmailAddress?.emailAddress;
-    try {
-      if (analytics) {
-        posthog.identify(user.id, {
-          ...(email ? { email } : {}),
-          ...(user.fullName ? { name: user.fullName } : {}),
-          ...(profile?.role ? { role: profile.role } : {}),
-          ...(profile?.useCase ? { useCase: profile.useCase } : {}),
-        });
-      }
-    } catch {
-      // Telemetry never breaks the app.
-    }
+    const traits = {
+      ...(email ? { email } : {}),
+      ...(user.fullName ? { name: user.fullName } : {}),
+      ...(profile?.role ? { role: profile.role } : {}),
+      ...(profile?.useCase ? { useCase: profile.useCase } : {}),
+    };
+    withAnalytics((posthog) => posthog.identify(user.id, traits));
     Sentry.setUser({ id: user.id, ...(email ? { email } : {}) });
-  }, [user, profile, analytics]);
+  }, [user, profile]);
 
   return <>{children}</>;
 }
