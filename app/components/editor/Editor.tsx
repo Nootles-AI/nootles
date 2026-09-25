@@ -42,6 +42,7 @@ import { initEmptyYDoc, migrateLegacyDoc } from "@/app/lib/sync/migrate";
 import { collabColor } from "@/app/lib/sync/colors";
 import { schema } from "./schema";
 import { armBlock, SERVICES } from "./media/search";
+import { insertCodeBlock } from "./blocks/codeBlockKeys";
 import { usePages, type PageRef } from "../PagesContext";
 import { pageTitle } from "./inline/PageMention";
 import { useRegisterEditor } from "./EditorRegistry";
@@ -464,6 +465,7 @@ export function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[]
     ...restyle(d.code_block.title, COMPUTE, <Icon.CodeBlock />, {
       title: "Code block",
       subtext: "Syntax-highlighted, in any language",
+      onItemClick: () => insertCodeBlock(editor),
     }),
   ];
 }

@@ -69,6 +69,7 @@ function LanguageDropdown({
 }
 
 type CodeBlockViewProps = {
+  id: string;
   language: string;
   code: string;
   onChangeCode: (value: string) => void;
@@ -81,6 +82,7 @@ type CodeBlockViewProps = {
 };
 
 function CodeBlockView({
+  id,
   language,
   code,
   onChangeCode,
@@ -122,6 +124,7 @@ function CodeBlockView({
         onChange={persist.schedule}
         onBlur={persist.flush}
         readOnly={readOnly}
+        blockId={id}
         // The page title is a page-level fact and this block sits deep in the
         // editor tree, so it comes from context and is handed back up.
         getFimContext={
@@ -144,6 +147,7 @@ export const codeBlockSpec = createReactBlockSpec(
   {
     render: ({ block, editor }) => (
       <CodeBlockView
+        id={block.id}
         language={block.props.language}
         code={block.props.code}
         onChangeCode={(value) =>

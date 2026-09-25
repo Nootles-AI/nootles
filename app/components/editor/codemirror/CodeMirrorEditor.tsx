@@ -9,6 +9,7 @@ import { useCompletionProject } from "../ai/CompletionContext";
 import { eveningExtensions } from "./theme";
 import { codeGhostExtension, setCodeGhost } from "./ghost";
 import { loadLanguage } from "./languages";
+import { registerCodeBlock } from "./focusRequests";
 
 /**
  * A thin React wrapper around a CodeMirror 6 EditorView. CodeMirror owns the
@@ -26,6 +27,7 @@ export function CodeMirrorEditor({
   getFimContext,
   reasserted = 0,
   readOnly = false,
+  blockId,
 }: {
   initialValue: string;
   language: string;
@@ -42,6 +44,8 @@ export function CodeMirrorEditor({
   reasserted?: number;
   /** Fixed for the life of the editor — the share viewer never becomes an author. */
   readOnly?: boolean;
+  /** The block this edits, so the page can put the caret in it (see `focusRequests`). */
+  blockId?: string;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -96,7 +100,19 @@ export function CodeMirrorEditor({
       }),
     });
     viewRef.current = view;
+    const unregister =
+      blockId && !readOnly
+        ? registerCodeBlock(blockId, host.current, (at) => {
+            const pos = at === "start" ? 0 : view.state.doc.length;
+            const { main } = view.state.selection;
+            if (!main.empty || main.head !== pos) {
+              view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
+            }
+            view.focus();
+          })
+        : null;
     return () => {
+      unregister?.();
       view.destroy();
       viewRef.current = null;
     };
