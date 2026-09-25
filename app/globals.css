@@ -1931,10 +1931,6 @@ textarea.nt-input {
 .nt-turn-text + .nt-turn-text {
   margin-top: 0.6em;
 }
-/* A note on the way, not the answer: the same voice, a step quieter. */
-.nt-turn-note {
-  color: var(--muted);
-}
 
 /* ---- Markdown in a reply -----------------------------------------------
    The panel is a column of a few hundred pixels, so this is emphasis rather
@@ -2042,10 +2038,21 @@ ol.nt-md-list {
    label itself holds still: the movement is the dot's job, and a word that
    breathes is a word you read twice. */
 .nt-turn-pending {
-  display: flex;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  column-gap: 10px;
   align-items: center;
-  gap: 7px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
   animation: nt-turn-in 360ms var(--ease) backwards;
+}
+/* The dot in the rail's column, so a thread still waiting on its next act
+   reads as the same thread. */
+.nt-pending-bead {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
 }
 .nt-thinking-dot {
   flex: none;
@@ -2058,45 +2065,312 @@ ol.nt-md-list {
     0 0 10px color-mix(in oklch, var(--accent-soft) 60%, transparent);
   animation: nt-pulse 1.15s var(--ease) infinite;
 }
-/* What the agent did on the way to answering. The mono voice files it with the
-   section labels and page counts — a record of work, not part of the reply. */
-.nt-turn-step {
+/* ---- The work behind an answer ------------------------------------------
+   A rail down the gutter with one bead per act. The rail and beads are chrome —
+   hairline and paper — so the thread reads as a record rather than as content;
+   the one live bead wears the amber, because it is the AI at work. Beads sit on
+   the panel's own surface so the rail passes behind them, not through. */
+.nt-trace-list {
   margin: 0;
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: var(--text-meta-lg);
+  padding: 0;
+  list-style: none;
+}
+.nt-trace-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: start;
+  padding: 3px 0;
+}
+/* The thread. Each item draws its own length of it, down from the one above,
+   so the rail grows to meet every bead as it arrives. It runs bead-centre to
+   bead-centre: nothing dangles past the first act or the last. */
+.nt-trace-item::before {
+  content: "";
+  position: absolute;
+  left: 8.5px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border-strong);
+  transform-origin: top;
+  animation: nt-rail-grow var(--dur-slow) var(--ease) backwards;
+}
+.nt-trace-item:first-child::before {
+  top: 12px;
+}
+.nt-trace-item:last-child::before {
+  bottom: calc(100% - 12px);
+}
+.nt-trace-item:only-child::before {
+  display: none;
+}
+@keyframes nt-rail-grow {
+  from {
+    transform: scaleY(0);
+  }
+}
+.nt-bead {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
   color: var(--muted);
-  overflow-wrap: anywhere;
-  /* Each step is filed as it happens, so each arrives on its own — a shorter
-     travel than a turn's, since it is a line being added to one. */
-  animation: nt-step-in 270ms var(--ease) backwards;
+  /* A bead lands a beat after its length of rail begins, and settles rather
+     than pops: the thread arrives, then the act on it. */
+  animation: nt-bead-in var(--dur-slow) var(--ease) 60ms backwards;
+  transition:
+    color var(--dur-slow) var(--ease),
+    box-shadow var(--dur-slow) var(--ease);
+}
+.nt-bead svg {
+  display: block;
+}
+@keyframes nt-bead-in {
+  from {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+}
+/* A note is the agent's own voice between acts: no glyph, just a mark on the
+   thread, ringed in the panel's colour so the rail breaks around it. */
+.nt-bead.is-note {
+  background: transparent;
+  box-shadow: none;
+}
+.nt-bead.is-note::after {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--faint);
+  box-shadow: 0 0 0 3px var(--surface);
+}
+/* The act under way. The glow breathes on the same beat as the thinking dot —
+   one pulse for AI at work, wherever it shows. */
+.nt-trace-item.is-running > .nt-bead {
+  color: var(--accent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklch, var(--accent) 60%, transparent),
+    0 0 0 3px color-mix(in oklch, var(--accent-soft) 16%, transparent);
+  animation:
+    nt-bead-in var(--dur-slow) var(--ease) 60ms backwards,
+    nt-bead-glow 1.15s var(--ease) infinite;
+}
+@keyframes nt-bead-glow {
+  50% {
+    box-shadow:
+      inset 0 0 0 1px var(--accent),
+      0 0 0 4px color-mix(in oklch, var(--accent-soft) 30%, transparent),
+      0 0 10px color-mix(in oklch, var(--accent-soft) 45%, transparent);
+  }
+}
+.nt-trace-item.is-failed > .nt-bead {
+  color: var(--danger);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--danger) 45%, transparent);
+}
+
+/* What each act came to. The mono voice files it with the section labels and
+   page counts — a record of work, not part of the reply — and the line under
+   way is set in full ink, since it is the one saying what is happening now. */
+.nt-trace-step {
+  min-width: 0;
+  animation: nt-step-in var(--dur-slow) var(--ease) 90ms backwards;
 }
 @keyframes nt-step-in {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateX(-3px);
   }
 }
-/* One after another rather than a paragraph of them. */
-.nt-turn-step + .nt-turn-step {
-  margin-top: 2px;
-}
-.nt-turn-step + .nt-turn-text,
-.nt-turn-text + .nt-turn-step {
-  margin-top: 0.6em;
-}
-.nt-turn-step.is-failed {
-  color: var(--danger);
-}
-/* The step still going. Baseline-aligned rather than centred: the dot belongs
-   with the first line of the label, not halfway down a wrapped one. */
-.nt-turn-step.is-running {
+.nt-trace-label {
   display: flex;
   align-items: baseline;
-  gap: 7px;
+  gap: 5px;
+  margin: 0;
+  padding: 1px 0;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  line-height: 16px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  text-align: left;
+  transition: color var(--dur) var(--ease);
 }
-.nt-turn-step.is-running .nt-thinking-dot {
-  position: relative;
-  top: -1px;
+.nt-trace-item.is-running .nt-trace-label {
+  color: var(--foreground);
+}
+.nt-trace-item.is-failed .nt-trace-label {
+  color: var(--danger);
+}
+button.nt-trace-label {
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+button.nt-trace-label:hover {
+  color: var(--foreground);
+}
+.nt-trace-chevron {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  align-self: center;
+  color: var(--faint);
+  transition:
+    transform var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+button.nt-trace-label:hover .nt-trace-chevron,
+.nt-trace-fold:hover .nt-trace-chevron {
+  color: var(--muted);
+}
+.is-open > .nt-trace-chevron {
+  transform: rotate(90deg);
+}
+
+/* Each call of a grouped act, a click away. Revealed by its grid row rather
+   than by measuring a height, so it opens to whatever it holds. */
+.nt-trace-detail {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--dur-slow) var(--ease),
+    opacity var(--dur) var(--ease);
+}
+.nt-trace-detail.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.nt-trace-detail > ul {
+  min-height: 0;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nt-trace-detail li {
+  padding: 2px 0 0;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta);
+  line-height: 15px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.nt-trace-detail li:first-child {
+  padding-top: 4px;
+}
+.nt-trace-detail li.is-failed {
+  color: var(--danger);
+}
+
+/* A note on the way, not the answer: the same voice as the reply, a step
+   quieter. A long one opens to three lines and gives the rest on a click. */
+.nt-trace-note {
+  min-width: 0;
+  padding: 1px 0 2px;
+  animation: nt-step-in var(--dur-slow) var(--ease) 90ms backwards;
+}
+.nt-turn-note {
+  color: var(--muted);
+  line-height: 1.55;
+}
+.nt-trace-note.is-long {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.nt-trace-note.is-long:hover .nt-turn-note {
+  color: var(--foreground);
+}
+.nt-trace-note.is-clamped .nt-turn-note {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+
+/* The work folded behind its answer: one line saying how much, and what came
+   of it. */
+.nt-trace-fold {
+  display: inline-flex;
+  max-width: calc(100% + 6px);
+  align-items: center;
+  gap: 6px;
+  margin: -2px 0 0 -6px;
+  padding: 3px 9px 3px 6px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  line-height: 16px;
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+  animation: nt-fade-in var(--dur-slow) var(--ease) backwards;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+/* One line, however narrow the panel: a summary that wraps stops reading as one. */
+.nt-trace-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nt-trace-fold:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+.nt-trace-fold:active {
+  background: var(--active);
+}
+.nt-trace-body {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows 320ms var(--ease),
+    opacity var(--dur-slow) var(--ease);
+}
+.nt-trace-body > * {
+  min-height: 0;
+  overflow: hidden;
+}
+.nt-trace.is-folded .nt-trace-body {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+.nt-trace.is-folded .nt-trace-body.is-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.nt-trace.is-folded .nt-trace-body.is-open > * {
+  padding-top: 6px;
+}
+
+/* The answer, in the document's voice, set off from the work above it. */
+.nt-trace + .nt-answer {
+  margin-top: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-trace-item::before,
+  .nt-bead,
+  .nt-trace-step,
+  .nt-trace-note {
+    animation-name: nt-fade-in;
+  }
+  .nt-trace-item.is-running > .nt-bead {
+    animation: none;
+  }
 }
 /* The one thing in the transcript that acts on the project when clicked, so it
    is given the delete dialog's surface rather than the conversation's. */
