@@ -22,6 +22,16 @@ type Props = Parameters<typeof CodeMirrorEditor>[0];
 let cached: typeof CodeMirrorEditor | null = null;
 let loading: Promise<typeof CodeMirrorEditor> | null = null;
 
+/**
+ * Fetch the editor ahead of the first block that needs it. A block made from
+ * the keyboard wants the caret straight away, and every key typed before the
+ * editor arrives has to be held for it (see `focusRequests`), so the page asks
+ * for it once it is idle, and again at the first sign of code on the way.
+ */
+export function preloadCodeEditor(): void {
+  void load();
+}
+
 function load(): Promise<typeof CodeMirrorEditor> {
   loading ??= import("./CodeMirrorEditor").then(
     (m) => (cached = m.CodeMirrorEditor),

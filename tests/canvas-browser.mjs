@@ -36,6 +36,8 @@ const HARNESSES = [
   // And the projects screen: New project's closed menu taking no pointer
   // outside the button it is clipped to (NT-79).
   "projects-screen-hit",
+  // And the code block's keyboard: the ways into its editor and out of it.
+  "editor-code-block",
 ];
 
 function run(name) {

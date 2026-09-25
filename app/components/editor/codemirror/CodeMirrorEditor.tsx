@@ -9,6 +9,8 @@ import { useCompletionProject } from "../ai/CompletionContext";
 import { eveningExtensions } from "./theme";
 import { codeGhostExtension, setCodeGhost } from "./ghost";
 import { loadLanguage } from "./languages";
+import { codeExit, EXIT_KEYS, type CodeExit } from "./exits";
+import { registerCodeBlock } from "./focusRequests";
 
 /**
  * A thin React wrapper around a CodeMirror 6 EditorView. CodeMirror owns the
@@ -26,6 +28,8 @@ export function CodeMirrorEditor({
   getFimContext,
   reasserted = 0,
   readOnly = false,
+  blockId,
+  onExit,
 }: {
   initialValue: string;
   language: string;
@@ -42,6 +46,13 @@ export function CodeMirrorEditor({
   reasserted?: number;
   /** Fixed for the life of the editor — the share viewer never becomes an author. */
   readOnly?: boolean;
+  /** The block this edits, so the page can put the caret in it (see `focusRequests`). */
+  blockId?: string;
+  /**
+   * A key that leaves the block, for the page to act on, with the caret's
+   * horizontal position when it leaves up or down. False keeps it here.
+   */
+  onExit?: (exit: CodeExit, x?: number) => boolean;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -54,9 +65,11 @@ export function CodeMirrorEditor({
   // so we never write refs during render).
   const onChangeRef = useRef(onChange);
   const onBlurRef = useRef(onBlur);
+  const onExitRef = useRef(onExit);
   useEffect(() => {
     onChangeRef.current = onChange;
     onBlurRef.current = onBlur;
+    onExitRef.current = onExit;
   });
 
   useEffect(() => {
@@ -70,6 +83,24 @@ export function CodeMirrorEditor({
           ...(readOnly
             ? [EditorState.readOnly.of(true), EditorView.editable.of(false)]
             : []),
+          // Ahead of the default keymap, which would otherwise take the arrows
+          // at the edges and go nowhere. The ghost's Escape still comes first.
+          // A read-only page has no caret to hand on, and nothing to unwrap.
+          keymap.of(
+            (readOnly ? [] : EXIT_KEYS).map((key) => ({
+              key,
+              run: (v: EditorView) => {
+                const exit = codeExit(key, v.state);
+                if (!exit || !onExitRef.current) return false;
+                // Up and down keep the caret's column, as between lines of text.
+                const vertical = key === "ArrowUp" || key === "ArrowDown";
+                const x = vertical
+                  ? v.coordsAtPos(v.state.selection.main.head)?.left
+                  : undefined;
+                return onExitRef.current(exit, x);
+              },
+            })),
+          ),
           // No CodeMirror-local history: code edits persist onto the block
           // prop and live on the workspace timeline like everything else.
           // A second stack here meant ⌘Z answered differently depending on
@@ -132,6 +163,28 @@ export function CodeMirrorEditor({
       changes: { from: start, to: prevEnd, insert: next.slice(start, nextEnd) },
     });
   }, [initialValue, reasserted]);
+
+  // After the reconcile above, which on mount would otherwise take back what
+  // a waiting request types in, reading it as the seed being overwritten.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !blockId || readOnly) return;
+    return registerCodeBlock(blockId, host.current, (at, typed) => {
+      const pos = at === "start" ? 0 : view.state.doc.length;
+      const { main } = view.state.selection;
+      if (typed) {
+        view.dispatch({
+          changes: { from: pos, insert: typed },
+          selection: { anchor: pos + typed.length },
+          scrollIntoView: true,
+          userEvent: "input.type",
+        });
+      } else if (!main.empty || main.head !== pos) {
+        view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
+      }
+      view.focus();
+    });
+  }, [blockId, readOnly]);
 
   // Completion inside the block. The document is serialized into the Nootles
   // HTML language with the caret placed inside this <nt-code-block>, so the model
