@@ -528,7 +528,6 @@ export const userList = query({
             useCase: p.useCase ?? null,
             status: p.status,
             createdAt: p.createdAt,
-            letterSeen: (p.hints ?? []).includes("tester-note"),
             lastActiveAt: lastCall?.createdAt ?? null,
           };
         }),
@@ -635,7 +634,6 @@ export const userDetail = query({
         status: profile.status,
         createdAt: profile.createdAt,
         hints: profile.hints ?? [],
-        letterSeen: (profile.hints ?? []).includes("tester-note"),
         hasSeed: !!profile.seed,
       },
       tutorial,

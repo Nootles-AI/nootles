@@ -251,7 +251,7 @@ describe("decideRequest", () => {
 });
 
 describe("claim", () => {
-  test("an account born from a link is spared first run and the letter", async () => {
+  test("an account born from a link is spared first run", async () => {
     const t = convexTest(schema, modules);
     const projectId = await world(t);
 
@@ -264,7 +264,7 @@ describe("claim", () => {
         .withIndex("by_owner", (q) => q.eq("ownerId", STRANGER.subject))
         .unique(),
     );
-    expect(born).toMatchObject({ status: "skipped", hints: ["tester-note"] });
+    expect(born).toMatchObject({ status: "skipped" });
     expect(
       await t.withIdentity(STRANGER).query(api.projects.myRole, { projectId }),
     ).toBe("viewer");

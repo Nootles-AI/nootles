@@ -80,7 +80,7 @@ try {
   for (const who of Object.keys(PEOPLE)) {
     await as(who).mutation(anyApi.profiles.skip, {});
     await as(who).action(anyApi.identity.sync, {});
-    for (const id of ["tester-note", "chat", "slash", "write"]) await as(who).mutation(anyApi.profiles.seen, { id });
+    for (const id of ["chat", "slash", "write"]) await as(who).mutation(anyApi.profiles.seen, { id });
   }
   const olive = as("olive");
 
