@@ -2,6 +2,7 @@
 
 import { memo, type ReactNode } from "react";
 import { safeHref } from "@/app/lib/ai/html/parse";
+import { PageChip } from "@/app/components/PageChip";
 
 /**
  * The assistant's reply, with its markdown rendered.
@@ -27,6 +28,15 @@ import { safeHref } from "@/app/lib/ai/html/parse";
  */
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
   return <>{blocksOf(text)}</>;
+});
+
+/**
+ * A progress note the agent wrote between tool calls: one line in its own
+ * voice, so inline marks only — a note that opened a list or a heading would
+ * be an answer, and answers arrive as text.
+ */
+export const Note = memo(function Note({ text }: { text: string }) {
+  return <p className="nt-turn-text nt-turn-note">{inlineOf(text.trim())}</p>;
 });
 
 const HEADING = /^ {0,3}(#{1,6})\s+(.*)$/;
@@ -143,6 +153,14 @@ type Rule = {
  * listed wins the tie, which is why bold is above italic.
  */
 const RULES: Rule[] = [
+  // A page the agent names, as the same chip the document shows: live title,
+  // the page's icon, a click to open it. Only a finished element with an id of
+  // the shape Convex mints — anything else is left as the characters it is.
+  {
+    match: /<nt-ref page="([a-z0-9]{20,40})">([^<\n]*)<\/nt-ref>/,
+    nested: false,
+    render: (m, _b, key) => <PageChip key={key} pageId={m[1]} title={m[2]} />,
+  },
   {
     match: /`([^`\n]+)`/,
     nested: false,

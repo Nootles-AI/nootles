@@ -96,6 +96,7 @@ function num(el: Element, name: string): number | undefined {
 
 /** Schemes that cannot do anything but navigate. */
 import { safeHref } from "@/app/lib/safeHref";
+import { editorMarks } from "@/app/lib/nml/normalize";
 
 export { safeHref };
 
@@ -110,12 +111,16 @@ function isChecked(el: Element): boolean {
 }
 
 /** Inline children → typed runs, accumulating marks down the tree. */
-function runsOf(node: Node, marks: Mark[] = []): Run[] {
+function runsOf(node: Node, marks: Mark[] = [], inLink = false): Run[] {
   const out: Run[] = [];
   node.childNodes.forEach((child) => {
     if (child.nodeType === 3) {
       const text = child.textContent ?? "";
-      if (text) out.push({ type: "text", text, ...(marks.length ? { marks: [...marks] } : {}) });
+      // Marks the editor can hold together, and no others: read as written,
+      // bolded code is a change against the code the page already has, and
+      // an echo the model did not mean to change would be offered for review.
+      const legal = editorMarks(marks, inLink);
+      if (text) out.push({ type: "text", text, ...(legal.length ? { marks: legal } : {}) });
       return;
     }
     if (child.nodeType !== 1) return;
@@ -130,7 +135,7 @@ function runsOf(node: Node, marks: Mark[] = []): Run[] {
       // A ref that names no page has no destination to carry — its text is
       // still words the block said, exactly like a link we cannot make.
       if (pageId) out.push({ type: "pageRef", pageId, title: textOf(el) });
-      else out.push(...runsOf(el, marks));
+      else out.push(...runsOf(el, marks, inLink));
       return;
     }
     if (canonicalTag(tag) === "nt-check") {
@@ -154,7 +159,7 @@ function runsOf(node: Node, marks: Mark[] = []): Run[] {
     if (tag === "ul" || tag === "ol") return;
     if (tag === "a") {
       const href = safeHref(el.getAttribute("href") ?? "");
-      const inner = runsOf(el, marks);
+      const inner = runsOf(el, marks, true);
       // A link holds text and nothing else. Anything else the model put inside
       // one has no destination to carry, so it stays beside it — an <a> we
       // cannot make a link of is still words the block said.
@@ -163,11 +168,11 @@ function runsOf(node: Node, marks: Mark[] = []): Run[] {
         out.push({ type: "link", href, content: text });
         return;
       }
-      out.push(...inner);
+      out.push(...runsOf(el, marks, inLink));
       return;
     }
     const mark = TAG_TO_MARK[tag];
-    out.push(...runsOf(el, mark && !marks.includes(mark) ? [...marks, mark] : marks));
+    out.push(...runsOf(el, mark && !marks.includes(mark) ? [...marks, mark] : marks, inLink));
   });
   // Merge adjacent runs that carry identical marks — keeps output tidy.
   return out.reduce<Run[]>((acc, run) => {
@@ -278,7 +283,7 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
       return {
         type: "checkListItem",
         id,
-        checked: checkbox.hasAttribute("checked"),
+        checked: isChecked(checkbox),
         content: normalizeRuns(runsOf(el)),
         ...nested,
       };

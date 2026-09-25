@@ -13,6 +13,18 @@ function normalizedMarks(marks: readonly NmlMark[]): NmlMark[] {
   return [...new Set(marks)].sort((a, b) => markOrder.get(a)! - markOrder.get(b)!);
 }
 
+/**
+ * The marks a run can actually carry in the editor. Inline code excludes every
+ * other mark — links included — and ProseMirror throws on a set that breaks
+ * that, refusing a whole insert over one bolded identifier. Code wins over
+ * emphasis, because it says what the text is; a link wins over code, because
+ * it says what the text does.
+ */
+export function editorMarks<M extends NmlMark>(marks: readonly M[], inLink: boolean): M[] {
+  if (!marks.includes("code" as M)) return [...marks];
+  return inLink ? marks.filter((m) => m !== "code") : (["code"] as M[]);
+}
+
 function prose(text: string): string {
   return text.replace(/[\t\n\f\r ]+/g, " ");
 }

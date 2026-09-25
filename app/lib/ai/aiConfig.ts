@@ -161,15 +161,32 @@ export const AI = {
    * and collapses to 41.3% on that same recall benchmark — the one thing a loop
    * that reads pages cannot give up.
    *
-   * Now on Muse Spark 1.3 at the top of its dial, a trial for the one job this
-   * lane is weakest at: reading a whole design board (130K+ of grammar) and
-   * carrying its logo and icons onto a screen it adds. OpenRouter only — there
-   * is no direct route for it, so this lane needs `USE_OPENROUTER`.
+   * On GPT-6 Sol (2026-09), chosen in a bake-off on one architecture-overview
+   * prompt, each model planning while Flash wrote: Sol read the code most
+   * (25 files) and checked its own page most, at $1.09 a turn once research is
+   * folded after writing (`foldResearch`) — against Opus 5.5's $2.47, Kimi
+   * K3's $0.64 with no self-check, GLM-5.3's $0.24 with an invented code block,
+   * and Grok 4.7's 320s request, past the route's 300s. OpenRouter only: there
+   * is no direct route for it here.
    */
   chat: {
-    model: "meta/muse-spark-1.3",
-    /** The dial above, traded against time-to-first-token. */
-    effort: "xhigh",
+    model: "openai/gpt-6-sol",
+    /**
+     * The OpenRouter hosts to try, in order, for the model above — change them
+     * together. Sol is served by OpenAI, Azure and Bedrock, each with its own
+     * prompt cache, and left to route freely one request of a measured turn
+     * landed cold: 110K tokens at full price, a fifth of the turn's bill,
+     * between two requests that were 97% cached. Other hosts are still tried
+     * if this one fails.
+     */
+    hosts: ["openai"],
+    /**
+     * How hard the planner thinks. Medium: on Opus 5.5, low planned from search
+     * briefs alone — no file read, thin briefs, no review — and the depth is
+     * what this dial buys; the time went on researching one lookup at a time,
+     * which the prompt now asks it not to.
+     */
+    effort: "medium",
     /**
      * Ceiling on tool round-trips in one turn. Editing several pages costs a
      * step each for open/read/edit, so this is roughly "touch six pages", with
@@ -203,6 +220,24 @@ export const AI = {
      * the turn behind it.
      */
     editorWaitMs: 10_000,
+    /**
+     * The writer the agent hands long content to (`write`): it plans, this
+     * drafts each section from a brief and the sources it names. A cheap, fast
+     * line on purpose — the agent's own output is its most expensive token, and
+     * a page of prose and diagrams is almost all output.
+     */
+    writer: {
+      model: "google/gemini-3.7-flash",
+      /** Low, like the diagram lane: the brief already holds the thinking. */
+      effort: "low",
+      /** One section's blocks — a screen or two of prose, a table, one diagram. */
+      maxTokens: 12_000,
+      /** Flash reasons inside its output cap; see `diagram.thinkingHeadroom`. */
+      thinkingHeadroom: 2048,
+      /** Sources a brief may name, and how much of each the writer is shown. */
+      maxSources: 8,
+      sourceChars: 40_000,
+    },
     /**
      * The web search behind `search_web`. A separate, cheap model on purpose:
      * the searching model only has to read result pages and answer from them,
@@ -314,7 +349,7 @@ export const AI = {
      * price and chat-lane latency; if a "redraw this frame beautifully" action
      * ever ships, it is the model for that button, not for this lane.
      */
-    model: "meta/muse-spark-1.3",
+    model: "google/gemini-3.7-flash",
     /**
      * Reasoning budget. Low, like every other lane that answers a pause in
      * typing: medium was measured in the ledger at 13-49s per diagram with
@@ -323,17 +358,15 @@ export const AI = {
      * hide. 2.5 Flash drew a whole diagram in under 5s; low is the closest a
      * reasoning model can be pinned to that.
      *
-     * On Muse Spark as a trial (2026-09): Flash drew inline mockups the chat
-     * lane on Muse then out-designed, so the same model is tried here at the
-     * bottom of its dial. The ledger records latency and cost per diagram;
-     * if it cannot hold near Flash's 14s, this is the line to put back.
+     * Back on Flash (2026-09) after a Muse Spark trial: this lane writes a lot
+     * and reasons little, which is the shape a cheap fast model is for.
      */
     effort: "low",
     /**
-     * Room to think, on top of `maxTokens`. Muse spends its reasoning inside
-     * the output cap the way Gemini does (see `THINKING_HEADROOM` in
-     * providers.ts); without this a cap written for the drawing alone is spent
-     * before the first shape and the diagram arrives cut off.
+     * Room to think, on top of `maxTokens`. Flash spends its reasoning inside
+     * the output cap (see `THINKING_HEADROOM` in providers.ts); without this a
+     * cap written for the drawing alone is spent before the first shape and the
+     * diagram arrives cut off.
      */
     thinkingHeadroom: 2048,
     /**
@@ -467,6 +500,8 @@ export const AI = {
     "google/gemini-2.5-flash": { in: 0.3, out: 2.5 },
     "google/gemini-3.7-flash": { in: 0.375, out: 1.875 },
     "openai/gpt-5.6-terra": { in: 1, out: 6, cacheRead: 0.1, cacheWrite: 1.25 },
+    "anthropic/claude-opus-5.5": { in: 4, out: 20, cacheRead: 0.2, cacheWrite: 5 },
+    "openai/gpt-6-sol": { in: 2, out: 10, cacheRead: 0.2 },
     // OpenRouter's list price; no cache tier is published for it.
     "meta/muse-spark-1.3": { in: 1.25, out: 4.25 },
     // Flat per image, not per token — `perCall` is the whole price. This is the

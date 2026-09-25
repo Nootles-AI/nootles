@@ -3,7 +3,6 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { AI } from "@/app/lib/ai/aiConfig";
 import { streamDiagram } from "@/app/lib/ai/diagram";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
-import { stagedDiagram } from "@/app/lib/ai/staged/diagram";
 import { asUser } from "@/app/lib/convexServer";
 import { refuseIfSpent } from "@/app/lib/entitlementGate";
 import { refuseIfLimited } from "@/app/lib/requestLimitGate";
@@ -43,12 +42,6 @@ export async function POST(req: Request) {
   if (typeof brief !== "string" || !brief.trim()) {
     return new Response("`brief` must be a non-empty string", { status: 400 });
   }
-
-  // Ahead of the limiter and the model both: a staged expansion calls neither,
-  // and a demo must not throttle. Null unless the flag is on and the brief is
-  // the one T-10 writes, so every other diagram takes the ordinary path.
-  const canned = stagedDiagram(brief);
-  if (canned) return canned;
 
   // Before the model, after the body is known to be worth sending: a diagram is
   // one `agentGeneration`, and a burst of them spends the key as fast as chat.

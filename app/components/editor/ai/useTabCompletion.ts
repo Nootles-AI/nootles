@@ -28,6 +28,7 @@ import { asListItems } from "@/app/lib/ai/html/listify";
 import type { DocNode } from "@/app/lib/ai/html/grammar";
 import { compileDocHtml } from "@/app/lib/ai/html/compile";
 import { completionsSuspended } from "@/app/lib/ai/tourDrive";
+import { watchMachineEdits } from "./machineEdits";
 import { INLINE_TAGS, grounding, type Run } from "@/app/lib/ai/html/grammar";
 import type { Batch } from "@/convex/ai/operations";
 import { useCompletionContext, useCompletionProject } from "./CompletionContext";
@@ -1596,6 +1597,7 @@ export function useTabCompletion(
      */
     let seenDoc: unknown = null;
     let seenSel: { from: number; to: number } | null = null;
+    const machine = watchMachineEdits(editor._tiptapEditor);
 
     const schedule = () => {
       if (isSuggestionDispatch()) return; // our own suggestion transaction
@@ -1616,6 +1618,9 @@ export function useTabCompletion(
         seenSel = sel;
         if (same) return; // a suggestion being drawn, not an edit
       }
+      // The agent's edits, and steps replayed from elsewhere, are not a pause in
+      // the person's writing: what was pending is stale, but nothing new is asked.
+      const theirs = !(docChanged && state && machine.isMachineDoc(state.doc));
       checkUndo();
       if (timer) clearTimeout(timer);
       abort?.abort();
@@ -1636,13 +1641,14 @@ export function useTabCompletion(
       defer(() => {
         if (mySeq === seq) clearSuggestion(view());
       });
-      timer = setTimeout(() => void run(mySeq), AI.modes[mode].debounceMs);
+      if (theirs) timer = setTimeout(() => void run(mySeq), AI.modes[mode].debounceMs);
     };
 
     const unsubChange = editor.onChange(schedule, false);
     const unsubSelection = editor.onSelectionChange(schedule, false);
 
     return () => {
+      machine.stop();
       unsubChange?.();
       unsubSelection?.();
       if (timer) clearTimeout(timer);

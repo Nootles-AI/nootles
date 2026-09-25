@@ -16,14 +16,12 @@ import type { Thread } from "@/app/lib/comments/types";
  * the prompt asserted is the one a provider would receive. The gate is the
  * real one on its real wire, with the vendor replaced at `fetch`: the stand-in
  * answers the Gemini endpoint and throws for anything else, so nothing leaves
- * the process. Convex, the session, the rate limiter and the staged-demo seam
- * are stubs.
+ * the process. Convex, the session and the rate limiter are stubs.
  */
 
-const { session, refuseIfLimited, stageTurn, recordAiCall, convex, chatModel } = vi.hoisted(() => ({
+const { session, refuseIfLimited, recordAiCall, convex, chatModel } = vi.hoisted(() => ({
   session: vi.fn(),
   refuseIfLimited: vi.fn(),
-  stageTurn: vi.fn(),
   recordAiCall: vi.fn(),
   convex: { query: vi.fn(), mutation: vi.fn() },
   chatModel: vi.fn(),
@@ -31,7 +29,6 @@ const { session, refuseIfLimited, stageTurn, recordAiCall, convex, chatModel } =
 
 vi.mock("@/app/lib/session", () => ({ session }));
 vi.mock("@/app/lib/requestLimitGate", () => ({ refuseIfLimited }));
-vi.mock("@/app/lib/ai/staged/stage", () => ({ stageTurn }));
 vi.mock("@/app/lib/ai/recordCall", () => ({ recordAiCall }));
 vi.mock("@/app/lib/convexServer", () => ({ asSession: () => convex }));
 vi.mock("@/app/lib/ai/chat/provider", () => ({ chatModel }));
@@ -176,7 +173,6 @@ beforeEach(() => {
   vi.stubEnv("NODE_ENV", "production");
   session.mockResolvedValue({ token: "tok", sessionId: "sess", userId: "user_owner" });
   refuseIfLimited.mockResolvedValue(null);
-  stageTurn.mockResolvedValue(null);
   convex.query.mockResolvedValue(inputs);
   convex.mutation.mockResolvedValue(undefined);
   model = mockModel();
@@ -347,12 +343,6 @@ describe("when the gate is not asked", () => {
 
   test("no open page: no call", async () => {
     await run(post({ pageId: undefined, comments: digest() }));
-    expect(gate).not.toHaveBeenCalled();
-  });
-
-  test("a staged turn: no call", async () => {
-    stageTurn.mockResolvedValue({ model, stagedId: "demo" });
-    await run(post({ comments: digest() }));
     expect(gate).not.toHaveBeenCalled();
   });
 

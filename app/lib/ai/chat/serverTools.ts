@@ -12,8 +12,10 @@ import { generateVectorDrawing } from "../vectorDraw";
 import { reason } from "@/app/lib/github";
 import { findSongs } from "@/app/lib/songs";
 import { configured as placesConfigured, search as findPlaces } from "@/app/lib/places";
-import { searchModel } from "./provider";
+import { searchModel, writerModel } from "./provider";
+import { WRITER } from "./prompt";
 import { CANVAS_TOOLS, noSuchPage, TOOLS, type CanvasToolName } from "./tools";
+import { cleanSection, outlineOf, splitSection } from "./writer";
 
 /**
  * A no-`execute` stub for each name — see `CLIENT_TOOLS` in `./tools`: a tool
@@ -72,16 +74,72 @@ export function chatTools(
 
     read_context: tool({
       ...TOOLS.read_context,
-      // A file is read whole, from GitHub, on top of its summary: the summary
-      // says what it is, and the question being asked is usually about how.
-      execute: async ({ id }) => {
-        const item =
-          (await convex.query(api.context.read.read, { projectId, id })) ?? noSuchContext(id);
-        if (item.kind !== "file") return item;
-        const body = await convex
-          .action(api.github.read.nodeFile, { projectId, nodeId: item.id })
-          .catch((error) => ({ unreadable: reason(error, "GitHub would not return the file.") }));
-        return { ...item, ...body };
+      execute: async ({ id }) =>
+        (await readContextItem(convex, projectId, id)) ?? noSuchContext(id),
+    }),
+
+    write: tool({
+      ...TOOLS.write,
+      /**
+       * The writer, as a tool: the agent plans a section and this drafts it, so
+       * a page's worth of output is spent at the writer's price rather than the
+       * agent's. Shaped like `draw` for the same reasons — the section waits in
+       * the holding pen and the result is a name, so its HTML never rides the
+       * agent's context; and the name is the brief's fingerprint, so a retry
+       * after a dropped request finds the finished section instead of paying
+       * for it again. The work deliberately ignores the request's abort signal
+       * for that same reason.
+       */
+      execute: async ({ brief, sources = [] }) => {
+        const ref = `w${createHash("sha256")
+          .update(JSON.stringify([brief, sources, AI.chat.writer.model]))
+          .digest("hex")
+          .slice(0, 10)}`;
+        const kept = await convex.query(api.ai.drawings.get, { refs: [ref] });
+        if (kept[ref]) return described(ref, kept[ref]);
+
+        const read = await Promise.all(
+          sources.slice(0, AI.chat.writer.maxSources).map(async (id, i) => {
+            const item = await readContextItem(convex, projectId, id).catch(() => null);
+            return sourceText(i + 1, id, item);
+          }),
+        );
+        const started = Date.now();
+        const { model, providerOptions } = writerModel();
+        const written = await generateText({
+          model,
+          providerOptions,
+          instructions: WRITER,
+          prompt: [`THE BRIEF\n${brief}`, ...read].join("\n\n"),
+          maxOutputTokens: AI.chat.writer.maxTokens + AI.chat.writer.thinkingHeadroom,
+        }).catch((error: unknown) => error as Error);
+
+        const failed = written instanceof Error;
+        recordAiCall(convex, {
+          ownerId,
+          feature: "chat",
+          model: AI.chat.writer.model,
+          projectId,
+          ...(failed
+            ? { status: "error" as const, errorCode: "writer_failed" }
+            : {
+                status: "ok" as const,
+                promptTokens: written.usage.inputTokens,
+                completionTokens: written.usage.outputTokens,
+              }),
+          latencyMs: Date.now() - started,
+        });
+        const html = failed ? "" : cleanSection(written.text);
+        if (!html) {
+          return {
+            error:
+              "The writer did not answer for this brief. Call write again with the " +
+              "SAME brief — a finished section is kept, so a retry costs nothing once " +
+              "it lands. If it misses again, write that section yourself.",
+          };
+        }
+        await convex.mutation(api.ai.drawings.put, { ref, data: html });
+        return described(ref, html);
       },
     }),
 
@@ -385,6 +443,46 @@ export function chatTools(
       },
     }),
   };
+}
+
+/**
+ * A section as the agent is told of it: its name, its outline, and what the
+ * writer said it could not source — the agent checks those before it trusts
+ * them, which is cheaper than checking everything.
+ */
+function described(ref: string, stored: string) {
+  const { html, unsourced } = splitSection(stored);
+  return { ref, ...outlineOf(html), ...(unsourced.length ? { unsourced } : {}) };
+}
+
+/**
+ * A context item at summary resolution, and a file's whole text on top: the
+ * summary says what it is, and the question being asked is usually about how.
+ * Null when the id names nothing this project has.
+ */
+async function readContextItem(convex: ConvexHttpClient, projectId: Id<"projects">, id: string) {
+  const item = await convex.query(api.context.read.read, { projectId, id });
+  if (!item || item.kind !== "file") return item;
+  const body = await convex
+    .action(api.github.read.nodeFile, { projectId, nodeId: item.id })
+    .catch((error) => ({ unreadable: reason(error, "GitHub would not return the file.") }));
+  return { ...item, ...body };
+}
+
+/** One source as the writer is shown it: what it is, then as much of it as fits. */
+function sourceText(
+  n: number,
+  id: string,
+  item: Awaited<ReturnType<typeof readContextItem>>,
+): string {
+  if (!item) return `SOURCE ${n}: ${id} — not in this project's context; write without it.`;
+  const body =
+    ("content" in item && typeof item.content === "string" && item.content) ||
+    ("text" in item && typeof item.text === "string" && item.text) ||
+    item.summary ||
+    item.brief;
+  const where = "repo" in item && item.repo ? `, ${item.repo}` : "";
+  return `SOURCE ${n}: ${item.title} (${item.kind}${where})\n${body.slice(0, AI.chat.writer.sourceChars)}`;
 }
 
 function noSuchContext(id: string): never {

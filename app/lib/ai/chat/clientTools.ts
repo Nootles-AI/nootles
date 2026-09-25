@@ -35,6 +35,7 @@ import {
 } from "./commentTools";
 import { CANVAS_TOOLS, noSuchPage, TOOLS, type CanvasToolName, type ClientToolName } from "./tools";
 import { lastContentBlock } from "@/app/lib/documentTail";
+import { SECTION_REF, splitSection } from "./writer";
 
 /** The surface the agent acts on: the page on screen, and its live editor. */
 export type ToolContext = {
@@ -115,6 +116,25 @@ export function expandRefs(html: string, drawings: ReadonlyMap<string, string>):
   return { html: out, missing };
 }
 
+/**
+ * Every `<nt-section ref>` in the model's HTML, swapped for the section the
+ * writer drafted under that name — or the names that have nothing behind them.
+ * Fetched only when the edit places any; the holding pen is the draw tool's.
+ */
+export async function redeemSections(
+  ctx: ToolContext,
+  html: string,
+): Promise<{ html: string } | { missing: string[] }> {
+  const named = [...html.matchAll(SECTION_REF)].map((m) => m[1]);
+  if (!named.length) return { html };
+  const kept = await ctx.convex.query(api.ai.drawings.get, { refs: [...new Set(named)] });
+  const missing = named.filter((ref) => !kept[ref]);
+  if (missing.length) return { missing: [...new Set(missing)] };
+  return {
+    html: html.replace(SECTION_REF, (_whole, ref: string) => splitSection(kept[ref]).html),
+  };
+}
+
 /** One tool's browser-side body: parse `input`, do the work. */
 type Executor = (input: unknown, ctx: ToolContext, call: ToolCallInfo) => Promise<unknown>;
 
@@ -131,16 +151,16 @@ type Executor = (input: unknown, ctx: ToolContext, call: ToolCallInfo) => Promis
  */
 const CLIENT_EXECUTORS: Record<ClientToolName, Executor> = {
   read_page: async (input, ctx) => {
-    const { pageId, expand } = TOOLS.read_page.inputSchema.parse(input);
-    return await readPage(ctx, pageId as Id<"pages">, expand);
+    const { pageId, expand, after } = TOOLS.read_page.inputSchema.parse(input);
+    return await readPage(ctx, pageId as Id<"pages">, { expand, after });
   },
   open_page: async (input, ctx) => {
     const { pageId } = TOOLS.open_page.inputSchema.parse(input);
     return await openPage(ctx, pageId as Id<"pages">);
   },
   read_open_page: async (input, ctx) => {
-    const { expand } = TOOLS.read_open_page.inputSchema.parse(input ?? {});
-    return await readOpenPage(ctx, expand);
+    const { expand, after } = TOOLS.read_open_page.inputSchema.parse(input ?? {});
+    return await readOpenPage(ctx, { expand, after });
   },
   edit_page: async (input, ctx) => {
     const { pageId, html, replacing } = TOOLS.edit_page.inputSchema.parse(input);
@@ -432,12 +452,25 @@ function findAlbum(blocks: AnyBlock[], id: string): AnyBlock | null {
 async function editPage(
   ctx: ToolContext,
   pageId: Id<"pages">,
-  html: string,
+  written: string,
   replacing: string[] | undefined,
 ): Promise<string> {
   // The model's HTML may place icons; the registry must be able to answer
   // before anything parses it.
   await loadIconCatalog();
+  // Sections the writer drafted come first: once redeemed they are the model's
+  // HTML like any other, and everything below — drawings, stubs, the id guard,
+  // the review — treats them the same.
+  const sections = await redeemSections(ctx, written);
+  if ("missing" in sections) {
+    return [
+      `That edit was not applied, and nothing on the page changed. There ${
+        sections.missing.length === 1 ? "is no section" : "are no sections"
+      } named ${sections.missing.map((r) => `"${r}"`).join(", ")}.`,
+      "Use the ref each write call returned, exactly as it came back — or call write again.",
+    ].join("\n");
+  }
+  const html = sections.html;
   const loose = refsOutsideShots(html);
   if (loose.length) {
     return [
@@ -547,6 +580,18 @@ async function editPage(
     if (process.env.NODE_ENV !== "production") {
       console.warn("[edit_page] stage failed\n  ", error);
     }
+    // Except the one failure that is the content: ProseMirror refuses what its
+    // schema cannot hold with a RangeError, and the same HTML will be refused
+    // the same way every time. Told to resend it unchanged, the agent did —
+    // twice, at a full page of output each.
+    if (error instanceof RangeError) {
+      return [
+        "The edit was not applied — nothing on the page changed. The editor could",
+        `not hold part of this content: ${error.message}. Change that part and call`,
+        "edit_page again; if the edit was long, send it a section at a time so one",
+        "fault cannot cost the rest.",
+      ].join("\n");
+    }
     return [
       "The edit could not be applied just now — nothing on the page changed, and",
       "this was not a problem with your HTML. Call edit_page once more with the",
@@ -620,7 +665,7 @@ async function openPage(
  * way is a page as it was a moment ago — and an edit written against that reads
  * the last thing typed as a block to delete.
  */
-async function readOpenPage(ctx: ToolContext, expand?: string[]): Promise<string> {
+async function readOpenPage(ctx: ToolContext, read: PageReadOptions = {}): Promise<string> {
   const pageId = ctx.openPageId();
   if (!pageId) {
     throw new Error("No page is open. Call list_pages, then open_page.");
@@ -629,7 +674,7 @@ async function readOpenPage(ctx: ToolContext, expand?: string[]): Promise<string
     fetchPage(ctx, pageId),
     ctx.editorFor(pageId),
   ]);
-  return await pageRead(ctx, editor.document as unknown as AnyBlock[], page.title, expand);
+  return await pageRead(ctx, editor.document as unknown as AnyBlock[], page.title, read);
 }
 
 /**
@@ -644,9 +689,10 @@ async function pageRead(
   ctx: ToolContext,
   blocks: AnyBlock[],
   title: string,
-  expand?: string[],
+  read: PageReadOptions = {},
 ): Promise<string> {
-  const html = pageHtml(blocks, title, expand);
+  const html = pageHtml(blocks, title, read);
+  const { expand } = read;
   if (!expand?.length) return html;
   const index = await albumIndex(ctx.convex, ctx.projectId, blocks, expand).catch(() => "");
   return index ? `${html}\n\n${index}` : html;
@@ -655,7 +701,7 @@ async function pageRead(
 async function readPage(
   ctx: ToolContext,
   pageId: Id<"pages">,
-  expand?: string[],
+  read: PageReadOptions = {},
 ): Promise<string> {
   // The open page is read from the editor itself. The stored copy trails the
   // caret by a debounce, and `edit_page` diffs against the live document — so
@@ -663,10 +709,10 @@ async function readPage(
   // the user has since typed into, and echoing it back unchanged compiles to a
   // setBlockContent that reverts them. Valid ids throughout, so neither the
   // id guard nor `resolveBatch` catches it.
-  if (ctx.openPageId() === pageId) return await readOpenPage(ctx, expand);
+  if (ctx.openPageId() === pageId) return await readOpenPage(ctx, read);
 
   const page = await fetchPage(ctx, pageId);
-  return await pageRead(ctx, await storedBlocks(ctx, page.docId), page.title, expand);
+  return await pageRead(ctx, await storedBlocks(ctx, page.docId), page.title, read);
 }
 
 /**
@@ -724,15 +770,34 @@ export async function fetchPage(ctx: ToolContext, pageId: Id<"pages">) {
   return page;
 }
 
+/** What a read asks for beyond the page: blocks to read whole, and where to start. */
+type PageReadOptions = { expand?: string[]; after?: string };
+
 /**
  * The page in the dialect, bounded so one page cannot eat the context window.
  *
- * Whole blocks only, and it says how many it left out — a page that just stops
- * otherwise reads as a page that ends there, and the model writes the rest of it
- * back over the part it never saw.
+ * Whole blocks only, and it says how many it left out and where the rest
+ * begins — a page that just stops otherwise reads as a page that ends there,
+ * and the model writes the rest of it back over the part it never saw. It used
+ * to say only how many: past the first 24K characters a page could not be read
+ * at all, so the agent could not check what it had just written at the bottom
+ * of a long one. `after` reads on from a block.
  */
-function pageHtml(blocks: AnyBlock[], title: string, expand?: string[]): string {
-  const { html, dropped } = toDocHtmlWithin(blocks, AI.chat.maxPageChars, {
+export function pageHtml(blocks: AnyBlock[], title: string, read: PageReadOptions = {}): string {
+  const { expand, after } = read;
+  let start = 0;
+  if (after) {
+    const at = blocks.findIndex((b) => b.id === after);
+    if (at < 0) {
+      throw new Error(
+        `This page has no top-level block "${after}". Use the id a read told you to continue ` +
+          "after, or read the page from the start.",
+      );
+    }
+    start = at + 1;
+  }
+  const shown = blocks.slice(start);
+  const { html, dropped } = toDocHtmlWithin(shown, AI.chat.maxPageChars, {
     title,
     // Every diagram reads as a stub carrying its words, and a block the model
     // names in `expand` reads whole, however large. Two states and nothing
@@ -748,16 +813,21 @@ function pageHtml(blocks: AnyBlock[], title: string, expand?: string[]): string 
   // with nothing reads as a tool that failed.
   if (!blocks.length) return `${html}\n<!-- this page is empty -->`.trim();
   const notes: string[] = [];
+  if (start) {
+    notes.push(
+      `<!-- read from after block ${after}: the ${start} block${start === 1 ? "" : "s"} before it are not shown -->`,
+    );
+  }
   if (html.includes(' holds="')) {
     notes.push(
       '<!-- A diagram reads as a stub: at names it, holds says how big it is, text is every word on it. Return it as given to keep it where it is; write new shapes inside it to add them to it; pass its block id in expand to read it whole — every shape, style and path — which is what matching its look, copying its logo or icons, or editing it takes. -->',
     );
   }
   if (dropped) {
+    const last = shown[shown.length - dropped - 1]?.id;
     notes.push(
-      `<!-- ${dropped} further block${
-        dropped === 1 ? "" : "s"
-      } on this page, not shown: it is too long to read in one go -->`,
+      `<!-- ${dropped} further block${dropped === 1 ? "" : "s"} on this page, not shown. ` +
+        `Read on with after: "${last}". -->`,
     );
   }
   return notes.length ? `${html}\n${notes.join("\n")}` : html;

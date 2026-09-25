@@ -8,12 +8,6 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  getToolName,
-  isToolUIPart,
-  type DynamicToolUIPart,
-  type ToolUIPart,
-} from "ai";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -26,6 +20,8 @@ import type { DrawChoice } from "@/app/lib/ai/drawStyles";
 import { retryNotice } from "@/app/lib/ai/chat/retryNotice";
 import { DrawStylePicker } from "./DrawStylePicker";
 import { Markdown } from "./Markdown";
+import { isWorking, planTurn } from "./steps";
+import { Trace } from "./Trace";
 
 /**
  * The conversation.
@@ -134,6 +130,7 @@ export function ChatTranscript({
           key={message.id}
           message={message}
           dropping={from >= 0 && index > from}
+          live={busy && index === messages.length - 1}
           drafting={message.id === rewinding}
           rewindable={message.role === "user" && !busy && !rewinding}
           pageCount={
@@ -162,9 +159,11 @@ export function ChatTranscript({
         // going on when there is one.
         busy &&
         !drawApprovals.length &&
-        !messages[messages.length - 1]?.parts.some(isRunning) && (
+        !messages[messages.length - 1]?.parts.some(isWorking) && (
           <div className="nt-turn-pending" role="status">
-            <span className="nt-thinking-dot" aria-hidden />
+            <span className="nt-pending-bead" aria-hidden>
+              <span className="nt-thinking-dot" />
+            </span>
             Thinking…
           </div>
         )
@@ -189,6 +188,7 @@ export function ChatTranscript({
 const MessageRow = memo(function MessageRow({
   message,
   dropping,
+  live,
   drafting,
   rewindable,
   pageCount,
@@ -199,6 +199,8 @@ const MessageRow = memo(function MessageRow({
   message: AbMessage;
   /** On its way out with a rewind that has not been confirmed yet. */
   dropping: boolean;
+  /** The turn still being written. */
+  live: boolean;
   /** This is the message the rewind winds back to, open for editing. */
   drafting: boolean;
   rewindable: boolean;
@@ -216,88 +218,44 @@ const MessageRow = memo(function MessageRow({
           onCommit={onRewindCommit}
         />
       ) : (
-        groupParts(message.parts).map((item) => {
-          const i = item.key;
-          if ("draws" in item) {
-            // A board's shots arrive as one salvo of parallel calls; nine
-            // near-identical lines read as a stutter, one count reads as
-            // work. A lone call keeps its quoted brief — detail is only
-            // noise in a crowd. A salvo still waiting on its style says
-            // nothing here: the picker below is the statement.
-            if (item.draws.every((p) => p.state === "approval-requested")) {
-              return null;
+        message.role === "assistant" ? (
+          <AssistantTurn parts={message.parts} live={live} />
+        ) : (
+          message.parts.map((part, i) => {
+            if (part.type === "text") {
+              // A question is shown as it was typed — someone who wrote an
+              // asterisk meant an asterisk, and reformatting their own words
+              // back at them is the one place this would be wrong.
+              return (
+                <p key={i} className="nt-turn-text">
+                  {part.text}
+                </p>
+              );
             }
-            const running = item.draws.some(isRunning);
-            return (
-              <p
-                key={i}
-                className={`nt-turn-step${running ? " is-running" : ""}`}
-              >
-                {running && <span className="nt-thinking-dot" aria-hidden />}
-                {item.draws.length === 1
-                  ? stepLine(item.draws[0])
-                  : drawsLine(item.draws)}
-              </p>
-            );
-          }
-          const part = item.part;
-          if (part.type === "text") {
-            // Only what the agent wrote is read as markdown. A question is
-            // shown as it was typed — someone who wrote an asterisk meant an
-            // asterisk, and reformatting their own words back at them is the
-            // one place this would be wrong.
-            return message.role === "assistant" ? (
-              <Markdown key={i} text={part.text} />
-            ) : (
-              <p key={i} className="nt-turn-text">
-                {part.text}
-              </p>
-            );
-          }
-          // What came with the question. A mention keeps its "@" because that
-          // is how it was written; a file gets the clip it was attached with.
-          if (part.type === "data-mention") {
-            const { data } = part;
-            return (
-              <span key={i} className="nt-chip">
-                @{data.kind === "page" ? data.title.trim() || "Untitled" : data.filename}
-              </span>
-            );
-          }
-          if (part.type === "data-attachment") {
-            return <FileChip key={i} filename={part.data.filename} />;
-          }
-          // An image lives in storage rather than in the message, so the chip
-          // is the way back to it.
-          if (part.type === "file") {
-            return (
-              <FileChip key={i} filename={part.filename ?? "Image"} href={part.url} />
-            );
-          }
-          if (isToolUIPart(part)) {
-            // A call waiting to be allowed is shown as the question below,
-            // not as a line claiming it is under way.
-            if (part.state === "approval-requested") return null;
-            const failed = part.state === "output-error";
-            // The step that is still running carries the pulse, because it is
-            // the one that knows what is happening: "Writing…" beside a live
-            // dot says more than "Thinking…" ever did, and there is only ever
-            // one of them on screen.
-            const running = isRunning(part);
-            return (
-              <p
-                key={i}
-                className={`nt-turn-step${failed ? " is-failed" : ""}${
-                  running ? " is-running" : ""
-                }`}
-              >
-                {running && <span className="nt-thinking-dot" aria-hidden />}
-                {stepLine(part)}
-              </p>
-            );
-          }
-          return null;
-        })
+            // What came with the question. A mention keeps its "@" because
+            // that is how it was written; a file gets the clip it was
+            // attached with.
+            if (part.type === "data-mention") {
+              const { data } = part;
+              return (
+                <span key={i} className="nt-chip">
+                  @{data.kind === "page" ? data.title.trim() || "Untitled" : data.filename}
+                </span>
+              );
+            }
+            if (part.type === "data-attachment") {
+              return <FileChip key={i} filename={part.data.filename} />;
+            }
+            // An image lives in storage rather than in the message, so the
+            // chip is the way back to it.
+            if (part.type === "file") {
+              return (
+                <FileChip key={i} filename={part.filename ?? "Image"} href={part.url} />
+              );
+            }
+            return null;
+          })
+        )
       )}
       {rewindable && (
         <Rewind pageCount={pageCount} onRewind={(what) => onRewind(message, what)} />
@@ -305,6 +263,31 @@ const MessageRow = memo(function MessageRow({
     </div>
   );
 });
+
+/**
+ * An answer and the work behind it. The work folds away once there is an
+ * answer to read and enough of it to be worth folding — a turn that read one
+ * page and replied has nothing to hide.
+ */
+function AssistantTurn({ parts, live }: { parts: AbMessage["parts"]; live: boolean }) {
+  const { trace, answer } = planTurn(parts);
+  const foldable = answer.length > 0 && trace.length >= FOLD_AT;
+  return (
+    <>
+      <Trace trace={trace} live={live} foldable={foldable} />
+      {answer.length > 0 && (
+        <div className="nt-answer">
+          {answer.map((part) => (
+            <Markdown key={part.key} text={part.text} />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** How much work a turn shows before it folds behind its answer. */
+const FOLD_AT = 3;
 
 /**
  * The question, open for editing, with the rewind already showing.
@@ -529,204 +512,4 @@ function DeleteApproval({
   );
 }
 
-type DrawPart = ToolUIPart | DynamicToolUIPart;
-type PartItem =
-  | { key: number; draws: DrawPart[] }
-  | { key: number; part: AbMessage["parts"][number] };
 
-/**
- * The parts as render items, with runs of draw calls gathered into one.
- *
- * "Consecutive" reaches across step-start markers: a retry after a miss is a
- * new step, and splitting the group there would bring the stutter back as two
- * smaller stutters.
- */
-function groupParts(parts: AbMessage["parts"]): PartItem[] {
-  const out: PartItem[] = [];
-  let i = 0;
-  while (i < parts.length) {
-    const part = parts[i];
-    if (isToolUIPart(part) && getToolName(part) === "draw") {
-      const draws: DrawPart[] = [part];
-      let j = i + 1;
-      while (j < parts.length) {
-        const next = parts[j];
-        if (next.type === "step-start") {
-          j++;
-          continue;
-        }
-        if (isToolUIPart(next) && getToolName(next) === "draw") {
-          draws.push(next);
-          j++;
-          continue;
-        }
-        break;
-      }
-      out.push({ key: i, draws });
-      i = j;
-    } else {
-      out.push({ key: i, part });
-      i++;
-    }
-  }
-  return out;
-}
-
-/** The salvo as one line: a count while it runs, a tally when it settles. */
-function drawsLine(draws: DrawPart[]): string {
-  const n = draws.length;
-  // Refused at the picker — read off the click, like a lone call's stepLine,
-  // so the line does not sit on "Drawing…" while the denial makes its round
-  // trip to the server.
-  const denied = draws.filter(
-    (p) => p.state === "output-denied" || p.approval?.approved === false,
-  ).length;
-  if (denied === n) return "Left the drawings undrawn";
-  const drawn = draws.filter(
-    (p) =>
-      p.state === "output-available" &&
-      !(p.output as { error?: string } | undefined)?.error,
-  ).length;
-  const settled =
-    draws.filter(
-      (p) => p.state === "output-available" || p.state === "output-error",
-    ).length + denied;
-  // A shot is a draw that named a board ratio; anything else is a drawing.
-  const what = draws.every((p) => (p.input as { ratio?: string } | undefined)?.ratio)
-    ? "shot"
-    : "drawing";
-  if (settled < n) return `Drawing ${n} ${what}s — ${drawn} done…`;
-  if (drawn === n) return `Drew ${n} ${what}s`;
-  return `Drew ${drawn} of ${n} ${what}s`;
-}
-
-/** Present tense while the tool runs; what it produced is read off the result. */
-const STEPS: Record<string, { doing: string; failed: string }> = {
-  list_pages: { doing: "Listing pages…", failed: "Couldn't list the pages" },
-  read_page: { doing: "Reading…", failed: "Couldn't read that page" },
-  open_page: { doing: "Opening…", failed: "Couldn't open that page" },
-  read_open_page: { doing: "Reading…", failed: "Couldn't read the open page" },
-  edit_page: { doing: "Writing…", failed: "Couldn't edit that page" },
-  draw: { doing: "Drawing…", failed: "Couldn't draw that" },
-  search_web: { doing: "Searching the web…", failed: "Couldn't search the web" },
-  create_page: { doing: "Adding a page…", failed: "Couldn't add the page" },
-  rename_page: { doing: "Retitling…", failed: "Couldn't retitle that page" },
-  delete_page: { doing: "Deleting…", failed: "Couldn't delete that page" },
-};
-
-/**
- * One quiet line per tool call, in the same metadata voice as the section
- * labels — what the agent did, never the arguments it did it with. A JSON dump
- * is noise to everyone except the person debugging the prompt.
- */
-/**
- * States in which a step is still going, and its line therefore ends in "…".
- *
- * Named rather than derived from "not finished": `approval-requested` is a
- * question waiting on the user, which is not the agent working, and a spinner
- * against it would say the opposite of what is true.
- */
-const RUNNING: ReadonlySet<string> = new Set([
-  "input-streaming",
-  "input-available",
-  "approval-responded",
-]);
-
-/** Whether this part is a tool call that has not finished yet. */
-function isRunning(part: AbMessage["parts"][number]): boolean {
-  // An approval that was refused is settled, whatever its state still reads as.
-  return (
-    isToolUIPart(part) && RUNNING.has(part.state) && part.approval?.approved !== false
-  );
-}
-
-function stepLine(part: ToolUIPart | DynamicToolUIPart): string {
-  const name = getToolName(part);
-  const step = STEPS[name];
-  const query = (part.input as { query?: string } | undefined)?.query;
-
-  if (part.state === "output-error") return step?.failed ?? `${name} failed`;
-  // A refusal has to read off the click. `output-denied` is the server agreeing,
-  // and it is a whole request away — long enough for "Deleting…" to sit under a
-  // button the user pressed to stop exactly that, and forever if that request
-  // never lands.
-  if (part.state === "output-denied" || part.approval?.approved === false) {
-    return "Left it alone";
-  }
-  if (part.state !== "output-available") {
-    if (query) return `Searching for “${query}”…`;
-    // The brief is the one argument worth quoting: six parallel draw calls as
-    // six bare "draw…" lines read as a stutter, where six briefs read as a
-    // shot list assembling itself.
-    const brief = (part.input as { brief?: string } | undefined)?.brief;
-    if (name === "draw" && brief) return `Drawing ${clause(brief)}…`;
-    return step?.doing ?? `${name}…`;
-  }
-
-  switch (name) {
-    case "list_pages": {
-      const n = Array.isArray(part.output) ? part.output.length : 0;
-      return `Listed ${n} page${n === 1 ? "" : "s"}`;
-    }
-    case "read_page":
-    case "read_open_page":
-      return `Read ${pageTitle(part.output) ?? "an untitled page"}`;
-    case "edit_page": {
-      // The tool opens a successful answer with "Done:", whatever the page is
-      // called — judging by title alone read every edit of an UNTITLED page as
-      // "left it as it was", straight-faced, under six drawings it had placed.
-      const done =
-        typeof part.output === "string" && part.output.startsWith("Done:");
-      if (!done) return "Left the page as it was";
-      return `Edited ${pageTitle(part.output) ?? "the page"}`;
-    }
-    case "open_page": {
-      const title = (part.output as { title?: string } | undefined)?.title;
-      return `Opened ${title?.trim() || "an untitled page"}`;
-    }
-    case "draw": {
-      const brief = (part.input as { brief?: string } | undefined)?.brief;
-      // The tool answers {error} when nothing worth drawing came back — an
-      // ordinary result to the protocol, a miss to the reader.
-      if ((part.output as { error?: string } | undefined)?.error) {
-        return "Nothing came of that drawing";
-      }
-      return brief ? `Drew ${clause(brief)}` : "Drew a canvas";
-    }
-    case "search_web":
-      return query ? `Searched for “${query}”` : "Searched the web";
-    case "create_page":
-      return `Added ${named(part.output)}`;
-    case "rename_page": {
-      const title = (part.output as { title?: string }).title?.trim();
-      return title ? `Retitled to “${title}”` : "Cleared a page's title";
-    }
-    case "delete_page":
-      return `Deleted ${named(part.output)}`;
-    default:
-      return name;
-  }
-}
-
-/**
- * A brief's opening clause, quoted — enough to tell six draw lines apart
- * without the transcript becoming the prompt. Cut at a word, never mid-one.
- */
-function clause(text: string): string {
-  const flat = text.replace(/\s+/g, " ").trim();
-  if (flat.length <= 48) return `“${flat}”`;
-  return `“${flat.slice(0, 48).replace(/\s+\S*$/, "")}…”`;
-}
-
-/** The page tools answer with HTML, and a page with a title says so in one. */
-function pageTitle(output: unknown): string | null {
-  const title =
-    typeof output === "string" ? /<title>([^<]*)<\/title>/.exec(output)?.[1] : null;
-  return title?.trim() || null;
-}
-
-/** The page tools answer with the title they left behind. */
-function named(output: unknown): string {
-  const title = (output as { title?: string } | undefined)?.title?.trim();
-  return title ? `“${title}”` : "an untitled page";
-}

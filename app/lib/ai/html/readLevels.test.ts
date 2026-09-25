@@ -70,7 +70,9 @@ describe("a diagram reads in one of two states", () => {
 
   it("an expanded read is never cut, whatever the budget", () => {
     expect(toDocHtmlWithin([canvas], 10, { ...read, expandDrawn: new Set(["C1"]) })).toEqual({ html: full, dropped: 0 });
-    expect(toDocHtmlWithin([canvas], 10, read)).toEqual({ html: "", dropped: 1 });
+    // Unexpanded, a block past the budget still reads — at least one always
+    // does, so a read can say where to go on from rather than show nothing.
+    expect(toDocHtmlWithin([canvas], 10, read)).toEqual({ html: toDocHtml([canvas], read), dropped: 0 });
   });
 
   it("a stub returned as given redeems byte for byte", () => {

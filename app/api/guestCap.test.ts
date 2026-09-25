@@ -31,7 +31,10 @@ vi.mock("@/app/lib/ai/context/name", () => ({ nameRepository: models.nameReposit
 vi.mock("@/app/lib/entitlementGate", () => ({ refuseIfSpent }));
 vi.mock("@/app/lib/requestLimitGate", () => ({ refuseIfLimited }));
 vi.mock("@/app/lib/session", () => ({ session }));
-vi.mock("@/app/lib/convexServer", () => ({ asUser: () => ({ mutation }) }));
+vi.mock("@/app/lib/convexServer", () => ({
+  asUser: () => ({ mutation }),
+  asSession: () => ({ mutation }),
+}));
 vi.mock("@/app/lib/ai/recordCall", () => ({ recordAiCall: vi.fn() }));
 
 import { POST as album } from "./album/index/route";

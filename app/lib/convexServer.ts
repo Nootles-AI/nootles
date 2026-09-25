@@ -23,11 +23,26 @@ export function asUser(token: string): ConvexHttpClient {
 }
 
 /**
- * A Clerk session token is minted for sixty seconds; this is how long one is
- * trusted before the next call re-mints. Well inside the minute, so a call
+ * How long before its own expiry a token is given up and re-minted, so a call
  * that starts on a token nearly spent does not arrive on one already dead.
  */
-const TOKEN_SAFE_MS = 40_000;
+const TOKEN_MARGIN_MS = 15_000;
+
+/**
+ * When a token expires, off its own `exp`. Read rather than assumed: the token
+ * a request arrives with is the browser's, already partway through its minute
+ * — timing it from when this client was made trusted a token for up to fifty
+ * seconds past its death, and the chat loop's Convex calls failed mid-turn as
+ * an unverifiable OIDC token. Unreadable reads as expired, so it is re-minted.
+ */
+function expiresAt(jwt: string): number {
+  try {
+    const payload = JSON.parse(Buffer.from(jwt.split(".")[1], "base64url").toString("utf8"));
+    return typeof payload.exp === "number" ? payload.exp * 1000 : 0;
+  } catch {
+    return 0;
+  }
+}
 
 /**
  * A client that stays the caller for as long as the request runs.
@@ -46,7 +61,7 @@ export function asSession(session: { token: string; sessionId: string }): Convex
 }
 
 class SessionClient extends ConvexHttpClient {
-  private mintedAt = Date.now();
+  private expiresAt: number;
   private minting: Promise<void> | null = null;
 
   constructor(
@@ -56,16 +71,17 @@ class SessionClient extends ConvexHttpClient {
     const url = requireConvexDeploymentUrl(process.env.NEXT_PUBLIC_CONVEX_URL);
     super(url);
     this.setAuth(token);
+    this.expiresAt = expiresAt(token);
   }
 
   private fresh(): Promise<void> {
-    if (Date.now() - this.mintedAt < TOKEN_SAFE_MS) return Promise.resolve();
+    if (Date.now() < this.expiresAt - TOKEN_MARGIN_MS) return Promise.resolve();
     // One mint for however many calls are waiting on it.
     this.minting ??= (async () => {
       try {
         const { jwt } = await (await clerkClient()).sessions.getToken(this.sessionId);
         this.setAuth(jwt);
-        this.mintedAt = Date.now();
+        this.expiresAt = expiresAt(jwt);
       } finally {
         this.minting = null;
       }

@@ -131,10 +131,4 @@ The diagram sits in a document column about ${COLUMN_WIDTH}px wide and is shown 
 corner, so lay it out there: start at about x=40, y=40, keep the whole thing within ${COLUMN_WIDTH}px
 across, and set w/h on <nt-diagram> to just contain the content plus that margin. A canvas
 far wider than what is in it puts the drawing off to one side of the column, and content
-past ${COLUMN_WIDTH}px is off the edge. Keep 40px between things that are not related.
-
-A DRAWN canvas — one the draw tool painted — reads back as a stub, <nt-diagram id="…"
-drawn="240 shapes" at="…"></nt-diagram>, because its shapes are too many to be worth
-showing you. The stub IS the picture: return it exactly as it came to keep it, leave it
-out to delete it, or place a fresh draw ref to redraw it. Never write shapes into a stub.
-To hand-edit those shapes, read the page again with expand: [that block id].`;
+past ${COLUMN_WIDTH}px is off the edge. Keep 40px between things that are not related.`;

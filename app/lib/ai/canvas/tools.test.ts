@@ -26,7 +26,9 @@ describe("TOOLS table invariants", () => {
     expect([...CLIENT_TOOLS].sort()).toEqual(expected);
   });
 
-  it("T3 every CLIENT_TOOLS name has a registered executor", async () => {
+  // The whole browser tool module is imported here, and under a full parallel
+  // run that alone overran the default 5s (it takes ~0.7s on its own).
+  it("T3 every CLIENT_TOOLS name has a registered executor", { timeout: 20_000 }, async () => {
     const { runClientTool } = await import("../chat/clientTools");
     for (const name of CLIENT_TOOLS) {
       await expect(runClientTool(name, {}, {} as never)).rejects.not.toThrow(

@@ -94,6 +94,65 @@ export function shortenStaleReads(messages: ModelMessage[]): ModelMessage[] {
 }
 
 /**
+ * Folds the research a turn has finished with.
+ *
+ * Once the writer has drafted, what the agent read to brief it is spent: the
+ * writer read the sources itself, and what is left of the turn — placing,
+ * reading the page back, fixing — works from the page. Left whole, it was
+ * re-sent with every step after: a codebase overview that read twenty-five
+ * files carried ~500K tokens into each fix-up, and resending that was nine
+ * tenths of the turn's bill, where the agent's own writing was a twelfth.
+ *
+ * So everything before the last `write` result is folded, once: a file or
+ * document read keeps what it is and says how to get the text back, and a page
+ * copy keeps its first line, as {@link shortenStaleReads} leaves one. The fold
+ * moves the prompt's prefix a single time, and the smaller context caches from
+ * there. Searches and expansions stay — they are small, and they are where the
+ * ids are.
+ */
+export function foldResearch(messages: ModelMessage[]): ModelMessage[] {
+  const written = lastIndexOf(
+    messages,
+    (message) =>
+      message.role === "tool" &&
+      message.content.some((part) => part.type === "tool-result" && part.toolName === "write"),
+  );
+  if (written < 0) return messages;
+
+  return messages.map((message, i) => {
+    if (i >= written || message.role !== "tool") return message;
+    let folded = false;
+    const content = message.content.map((part) => {
+      if (part.type !== "tool-result") return part;
+      const output =
+        part.toolName === "read_context"
+          ? foldRead(part.output)
+          : PAGE_SNAPSHOTS.has(part.toolName)
+            ? clip(part.output)
+            : part.output;
+      if (output === part.output) return part;
+      folded = true;
+      return { ...part, output };
+    });
+    return folded ? { ...message, content } : message;
+  });
+}
+
+/** A context read without its body: what it is, and the way back to the text. */
+function foldRead(output: ToolResultOutput): ToolResultOutput {
+  if (output.type !== "json" || !isRecord(output.value)) return output;
+  if (!("content" in output.value) && !("text" in output.value)) return output;
+  const { content: _content, text: _text, ...kept } = output.value;
+  return {
+    ...output,
+    value: {
+      ...kept,
+      folded: "The text was folded once the sections were written. read_context has it again.",
+    },
+  };
+}
+
+/**
  * Takes the drawings out of what the model reads.
  *
  * A `draw` result carries the finished markup so the BROWSER can place it —
@@ -131,12 +190,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /**
  * Where the provider may cache what it has already read.
  *
- * Only Anthropic and Qwen read these. The model this loop runs on caches on its
- * own, and OpenRouter passes the annotation through to a provider that ignores
- * it — verified, not assumed — so the marks are inert rather than wrong, and
- * they are kept because they are what makes an Anthropic model cheap again the
- * moment `AI.chat.model` names one.
- *
  * Anthropic caches by prefix, so a breakpoint stands for everything before it as
  * well, and two are enough to cover how this loop actually grows:
  *
@@ -147,6 +200,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  *  - the end of the transcript, so the step just taken is cached for the step
  *    after it, which will re-send it verbatim.
  *
+ * Run before every step (the route's `prepareStep`), so marks already placed are
+ * cleared first: what one step marked is handed to the next, and left to pile up
+ * they pass Anthropic's four breakpoints by the third step and the request is
+ * refused. The system prompt's mark is the caller's and is left alone.
+ *
  * Merged into any provider options the message already carries rather than
  * replacing them: an assistant message holds its `reasoning_details` there, and
  * a reasoning block that loses its signature is dropped from the request.
@@ -156,9 +214,60 @@ export function markCachePoints(messages: ModelMessage[]): ModelMessage[] {
   const question = lastIndexOf(messages, (message) => message.role === "user");
   const at = new Set([messages.length - 1, ...(question < 0 ? [] : [question])]);
 
-  return messages.map((message, i) =>
-    at.has(i) ? { ...message, providerOptions: cached(message.providerOptions) } : message,
-  );
+  return messages.map((message, i) => {
+    if (message.role === "system") return message;
+    const clear = unmark(message);
+    return at.has(i) ? markEnd(clear) : clear;
+  });
+}
+
+/** The message with every breakpoint on it, or on its parts, taken off. */
+function unmark(message: ModelMessage): ModelMessage {
+  const content = Array.isArray(message.content)
+    ? message.content.map((part) =>
+        "providerOptions" in part && part.providerOptions
+          ? { ...part, providerOptions: uncached(part.providerOptions) }
+          : part,
+      )
+    : message.content;
+  return {
+    ...message,
+    ...(message.providerOptions ? { providerOptions: uncached(message.providerOptions) } : {}),
+    content,
+  } as ModelMessage;
+}
+
+function uncached(options: ProviderOptions): ProviderOptions {
+  const out: ProviderOptions = { ...options };
+  for (const vendor of ["openrouter", "anthropic"] as const) {
+    const own = out[vendor];
+    if (!own || !("cacheControl" in own)) continue;
+    const { cacheControl: _drop, ...rest } = own;
+    out[vendor] = rest;
+  }
+  return out;
+}
+
+/**
+ * One breakpoint at the end of a message. A tool message is marked on its last
+ * result, not on itself: OpenRouter sends each result as a message of its own
+ * and copies a message-level mark onto every one, so a step's three parallel
+ * calls spent three of Anthropic's four breakpoints and the request was refused.
+ */
+function markEnd(message: ModelMessage): ModelMessage {
+  if (message.role !== "tool") {
+    return { ...message, providerOptions: cached(message.providerOptions) };
+  }
+  const last = lastIndexOf(message.content, (part) => part.type === "tool-result");
+  if (last < 0) return { ...message, providerOptions: cached(message.providerOptions) };
+  return {
+    ...message,
+    content: message.content.map((part, i) =>
+      i === last && part.type === "tool-result"
+        ? { ...part, providerOptions: cached(part.providerOptions) }
+        : part,
+    ),
+  };
 }
 
 /** A cache breakpoint, kept as its own export so the route can mark the system prompt. */
@@ -166,6 +275,7 @@ export function cached(existing?: ProviderOptions): ProviderOptions {
   return {
     ...existing,
     openrouter: { ...existing?.openrouter, cacheControl: { type: "ephemeral" } },
+    anthropic: { ...existing?.anthropic, cacheControl: { type: "ephemeral" } },
   };
 }
 
