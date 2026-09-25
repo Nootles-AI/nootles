@@ -12,6 +12,15 @@ describe("fenceLanguage", () => {
     expect(fenceLanguage("js")).toBe("javascript");
     expect(fenceLanguage("py")).toBe("python");
     expect(fenceLanguage("txt")).toBe("plaintext");
+    expect(fenceLanguage("jsonc")).toBe("json");
+    expect(fenceLanguage("mjs")).toBe("javascript");
+    expect(fenceLanguage("Py3")).toBe("python");
+  });
+
+  it("names only languages it has", () => {
+    for (const name of ["sh", "bash", "yml", "cpp", "cs", "rb", "golang"]) {
+      expect(fenceLanguage(name)).toBe("plaintext");
+    }
   });
 
   it("is plain text for a language we have no grammar for", () => {

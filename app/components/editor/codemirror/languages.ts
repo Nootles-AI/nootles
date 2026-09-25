@@ -27,12 +27,28 @@ const byId = new Map(LANGUAGES.map((l) => [l.id, l]));
 
 export const languageLabel = (id: string): string => byId.get(id)?.label ?? id;
 
-/** The short names a Markdown fence is usually written with. */
+/**
+ * The other names a Markdown fence is written with, for the languages we
+ * have. Shell, C and the rest have no grammar here, so they are left to fall
+ * through to plain text rather than being named as something they are not.
+ */
 const FENCE_ALIASES: Record<string, string> = {
   ts: "typescript",
+  mts: "typescript",
+  cts: "typescript",
   js: "javascript",
+  mjs: "javascript",
+  cjs: "javascript",
+  node: "javascript",
   py: "python",
+  py3: "python",
+  python3: "python",
+  jsonc: "json",
+  json5: "json",
+  htm: "html",
+  xhtml: "html",
   md: "markdown",
+  mdx: "markdown",
   rs: "rust",
   text: "plaintext",
   txt: "plaintext",
