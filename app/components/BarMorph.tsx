@@ -15,6 +15,11 @@ import { Component, createRef, type ReactNode } from "react";
  * FLIP-style — its surface stretched from the old outline, each button it
  * shares sliding from where it was, the shapes folding into (or fanning out
  * of) their slot, and anything only one bar has fading through.
+ *
+ * Everything the morph draws is placed in the incoming bar's own frame, never
+ * the dock's or the window's: the column the bar centres on can be resizing
+ * under it (entering a diagram with the sidebar put away opens the layers
+ * rail), and a piece pinned anywhere else would slide off the bar it dresses.
  */
 
 type Part = { el: HTMLElement; rect: DOMRect; shape: boolean };
@@ -34,6 +39,7 @@ function partsOf(bar: HTMLElement): Map<string, HTMLElement> {
   const parts = new Map<string, HTMLElement>();
   let sep = 0;
   for (const el of bar.querySelectorAll<HTMLElement>("button, .nt-toolbar-mark, .nt-toolbar-sep")) {
+    if (el.closest(".nt-toolbar-ghost")) continue;
     const name = el.dataset.morph
       ? el.dataset.morph
       : el.classList.contains("nt-toolbar-mark")
@@ -51,7 +57,7 @@ function measure(root: HTMLElement | null): Shot | null {
   if (!bar) return null;
   // Caught mid-morph, the outline is the skin's: the bar itself is already
   // at its destination size with its surface lent out.
-  const skin = bar.parentElement?.querySelector<HTMLElement>(":scope > .nt-toolbar-skin");
+  const skin = bar.querySelector<HTMLElement>(":scope > .nt-toolbar-skin");
   const parts = new Map<string, Part>();
   for (const [name, el] of partsOf(bar)) {
     parts.set(name, { el, rect: el.getBoundingClientRect(), shape: el.dataset.shape !== undefined });
@@ -75,8 +81,7 @@ function offset(from: DOMRect, to: DOMRect, scale = true) {
 
 function play(root: HTMLElement | null, shot: Shot) {
   const bar = root?.querySelector<HTMLElement>(BAR);
-  const dock = bar?.parentElement;
-  if (!bar || !dock) return;
+  if (!bar) return;
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
 
   // It is not arriving, it is changing: no rise from below.
@@ -84,52 +89,53 @@ function play(root: HTMLElement | null, shot: Shot) {
   const spring =
     getComputedStyle(document.documentElement).getPropertyValue("--spring").trim() || EASE;
   const now = bar.getBoundingClientRect();
-  const home = dock.getBoundingClientRect();
   const slotEl = bar.querySelector<HTMLElement>(".nt-toolbar-shapes");
   // Where folded shapes land: under the shape the slot shows, not its middle,
   // which is off towards the caret.
   const slot = slotEl?.querySelector(".nt-toolbar-btn")?.getBoundingClientRect() ?? null;
+  /** Where `r` was, as a box inside the bar. */
+  const box = (r: DOMRect) => ({
+    left: `${r.left - now.left}px`,
+    top: `${r.top - now.top}px`,
+    width: `${r.width}px`,
+    height: `${r.height}px`,
+  });
+  /** The bar's own box, drawn in by as far as it is from `r`. */
+  const inset = (r: DOMRect) => ({
+    top: `${r.top - now.top}px`,
+    right: `${now.right - r.right}px`,
+    bottom: `${now.bottom - r.bottom}px`,
+    left: `${r.left - now.left}px`,
+  });
 
-  // The surface: lent to a skin behind the bar for the length of the morph,
-  // so the outline can stretch while the buttons keep their true size.
+  // The surface: lent to a skin behind the buttons for the length of the
+  // morph, so the outline can stretch while the buttons keep their true size.
   const look = getComputedStyle(bar);
   const skin = document.createElement("div");
   skin.className = "nt-toolbar-skin";
+  skin.setAttribute("aria-hidden", "");
   Object.assign(skin.style, {
-    position: "absolute",
-    pointerEvents: "none",
     background: look.backgroundColor,
     boxShadow: look.boxShadow,
     borderRadius: look.borderRadius,
   });
-  dock.prepend(skin);
-  const lent = { background: bar.style.background, boxShadow: bar.style.boxShadow, position: bar.style.position };
-  Object.assign(bar.style, { background: "transparent", boxShadow: "none", position: "relative" });
-  const box = (r: DOMRect) => ({
-    left: `${r.left - home.left}px`,
-    top: `${r.top - home.top}px`,
-    width: `${r.width}px`,
-    height: `${r.height}px`,
-  });
+  bar.prepend(skin);
+  bar.dataset.morphing = "";
   skin
-    .animate([box(shot.bar), box(now)], { duration: MS, easing: spring, fill: "forwards" })
-    .finished.then(
-      () => {
-        skin.remove();
-        Object.assign(bar.style, lent);
-      },
-      () => skin.remove(),
-    );
-
-  // Shapes fanning out leave the slot one after another, nearest first.
-  const fanned = shot.slot ? [...partsOf(bar).values()].filter((el) => el.dataset.shape !== undefined) : [];
-  const fanOrder = (el: HTMLElement) =>
-    fanned
-      .filter((other) => !shot.parts.has(other.getAttribute("aria-label") ?? ""))
-      .sort((a, b) => distance(a.getBoundingClientRect(), shot.slot!) - distance(b.getBoundingClientRect(), shot.slot!))
-      .indexOf(el);
+    .animate([inset(shot.bar), inset(now)], { duration: MS, easing: spring, fill: "forwards" })
+    .finished.catch(() => {})
+    .finally(() => {
+      skin.remove();
+      if (!bar.querySelector(":scope > .nt-toolbar-skin")) delete bar.dataset.morphing;
+    });
 
   const parts = partsOf(bar);
+  // Shapes fanning out leave the slot one after another, nearest first.
+  const fanned = shot.slot
+    ? [...parts.values()]
+        .filter((el) => el.dataset.shape !== undefined && !shot.parts.has(el.getAttribute("aria-label") ?? ""))
+        .sort((a, b) => distance(a.getBoundingClientRect(), shot.slot!) - distance(b.getBoundingClientRect(), shot.slot!))
+    : [];
   // Shapes fold nearest first, and under the bar's own buttons rather than
   // over them, so each one visibly tucks in behind the shape the slot shows.
   const folding = [...shot.parts.entries()]
@@ -166,7 +172,7 @@ function play(root: HTMLElement | null, shot: Shot) {
           { opacity: 1, offset: 0.15 },
           { translate: "0 0", scale: "1", opacity: 1 },
         ],
-        { duration: MS, delay: fanFrom + fanOrder(el) * STAGGER, easing: spring, fill: "backwards" },
+        { duration: MS, delay: fanFrom + fanned.indexOf(el) * STAGGER, easing: spring, fill: "backwards" },
       );
     } else if (el.classList.contains("nt-toolbar-caret") && slot) {
       // The caret comes out from under the slot once the shapes are in it.
@@ -192,16 +198,14 @@ function play(root: HTMLElement | null, shot: Shot) {
   for (const [name, part] of shot.parts) {
     if (seen.has(name)) continue;
     const ghost = part.el.cloneNode(true) as HTMLElement;
+    ghost.classList.add("nt-toolbar-ghost");
     ghost.setAttribute("inert", "");
+    ghost.setAttribute("aria-hidden", "");
     ghost.removeAttribute("aria-pressed");
-    Object.assign(ghost.style, {
-      position: "absolute",
-      margin: "0",
-      pointerEvents: "none",
-      ...box(part.rect),
-    });
+    Object.assign(ghost.style, { position: "absolute", margin: "0", pointerEvents: "none", ...box(part.rect) });
     const order = folding.indexOf(name);
     if (order >= 0 && slot) {
+      ghost.style.zIndex = "-1";
       skin.after(ghost);
       ghost
         .animate(
@@ -212,10 +216,11 @@ function play(root: HTMLElement | null, shot: Shot) {
           ],
           { duration: FOLD, delay: order * STAGGER, easing: EASE, fill: "both" },
         )
-        .finished.finally(() => ghost.remove());
+        .finished.catch(() => {})
+        .finally(() => ghost.remove());
       continue;
     }
-    dock.append(ghost);
+    bar.append(ghost);
     // The caret goes first when the shapes fan out, so they leave from a
     // plain shape rather than from under the caret.
     ghost
@@ -224,7 +229,8 @@ function play(root: HTMLElement | null, shot: Shot) {
         easing: EASE,
         fill: "forwards",
       })
-      .finished.finally(() => ghost.remove());
+      .finished.catch(() => {})
+      .finally(() => ghost.remove());
   }
 
   // The slot takes the shapes in with a small give, as they land.
