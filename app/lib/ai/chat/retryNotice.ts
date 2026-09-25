@@ -22,9 +22,10 @@ export function guestDaySpent(now: Date = new Date()): string {
  * count of seconds; a `503` becomes a briefer "try again" with no promised time,
  * because there is none to promise. A guest's spent day of a workspace's AI —
  * the one `402` with no wall to raise, since nothing the guest can buy lifts
- * it — says when it opens again. Anything else — a real stream error, a
- * meter's `402`, which the panel walls ahead of sending — returns null and is
- * shown as it was.
+ * it — says when it opens again. A `403` from `beginChat` says the person can
+ * no longer edit the project, or no longer open it. Anything else — a real
+ * stream error, a meter's `402`, which the panel walls ahead of sending —
+ * returns null and is shown as it was.
  *
  * This is the whole of the recovery. A refusal happens before the turn is billed
  * and before the model is called, and the user's message was written to the
@@ -44,6 +45,11 @@ export function retryNotice(message: string): string | null {
   const code = (data as { code?: unknown }).code;
   if (code === "quota" && (data as { meter?: unknown }).meter === "guestAi") {
     return guestDaySpent();
+  }
+  if (code === "chat_refused") {
+    return (data as { reason?: unknown }).reason === "gone"
+      ? "This project is no longer open to you — it may have been moved to the trash, or your access ended."
+      : "You can no longer edit this project, so the assistant can’t work in it. Ask whoever shared it for edit access.";
   }
   if (code === "limiter_unavailable") {
     return "The assistant is briefly unavailable. Try again in a moment.";

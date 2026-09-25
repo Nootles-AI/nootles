@@ -39,7 +39,7 @@ import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { asSession } from "@/app/lib/convexServer";
 import { quotaResponse } from "@/app/lib/entitlementGate";
 import { refuseIfLimited } from "@/app/lib/requestLimitGate";
-import { isQuotaRefusal } from "@/convex/entitlements";
+import { isChatRefusal, isQuotaRefusal } from "@/convex/entitlements";
 import { session } from "@/app/lib/session";
 
 /**
@@ -168,6 +168,9 @@ export async function POST(req: Request) {
       await convex.mutation(api.entitlements.beginChat, { threadId, projectId });
     } catch (e) {
       if (isQuotaRefusal(e)) return quotaResponse(e.data.meter);
+      // Demoted, or the project gone, mid-conversation: theirs to be told,
+      // not a server error (NT-83). `retryNotice` words it in the panel.
+      if (isChatRefusal(e)) return Response.json(e.data, { status: 403 });
       throw e;
     }
   }

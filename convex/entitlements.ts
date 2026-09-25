@@ -9,9 +9,9 @@ import {
   holdsSeat,
   isTrashed,
   readEditable,
-  requireEditable,
-  requireOwned,
+  readOwned,
   requireOwner,
+  standInActor,
   workspaceRole,
 } from "./auth";
 import {
@@ -147,6 +147,30 @@ export function quotaRefusal(meter: Meter): ConvexError<QuotaRefusal> {
 /** A guest who has spent their day of a workspace's AI. See `guestAllowance`. */
 export function guestCapRefusal(capUsd: number): ConvexError<QuotaRefusal> {
   return new ConvexError({ code: "quota", meter: "guestAi", limit: capUsd });
+}
+
+/**
+ * Why a chat turn was refused for who is asking rather than for what they
+ * have spent: `readOnly` — they can still read the project but no longer
+ * write it (a link turned off or run out, a stand-in); `gone` — the thread's
+ * project is no longer theirs to open at all (trashed, or their access ended).
+ * Coded for the same reason as a quota refusal, so the chat route can answer
+ * it as the person's situation rather than as the server breaking (NT-83).
+ */
+export type ChatRefusal = { code: "chat_refused"; reason: "readOnly" | "gone" };
+
+function chatRefusal(reason: ChatRefusal["reason"]): ConvexError<ChatRefusal> {
+  return new ConvexError({ code: "chat_refused", reason });
+}
+
+/** True when `e` is `beginChat` refusing the caller — the route's narrowing hook. */
+export function isChatRefusal(e: unknown): e is ConvexError<ChatRefusal> {
+  return (
+    e instanceof ConvexError &&
+    typeof e.data === "object" &&
+    e.data !== null &&
+    (e.data as { code?: unknown }).code === "chat_refused"
+  );
 }
 
 /** True when `e` is this module's refusal — the client's narrowing hook. */
@@ -888,15 +912,19 @@ export const beginChat = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const thread = await requireOwned(ctx, "chatThreads", args.threadId);
+    if (await standInActor(ctx)) throw chatRefusal("readOnly");
+    const thread = await readOwned(ctx, "chatThreads", args.threadId);
+    if (!thread) throw chatRefusal("gone");
     // A thread from one project carrying another's context would be charged to
-    // a container the conversation is not about.
+    // a container the conversation is not about. A caller's mistake, not a
+    // person's situation, so not a refusal the route explains.
     if (args.projectId !== undefined && args.projectId !== thread.projectId) {
       throw new Error("Not found");
     }
     // Ahead of the paid-for wave-through below: a thread started while the
     // caller could write is no pass once they can only read.
-    const project = await requireEditable(ctx, "projects", thread.projectId);
+    const project = await readEditable(ctx, "projects", thread.projectId);
+    if (!project) throw chatRefusal("readOnly");
     const owner = await requireOwner(ctx);
     const container = containerOf(project, owner);
     // Also ahead of it: a guest's day runs out mid-conversation as surely as
