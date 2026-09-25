@@ -89,7 +89,7 @@ export type UndoHostEditor = {
  * ProseMirror keeps the state field its key already had. So the domain stays
  * wired to the shared doc throughout, which is where a kept change lands.
  */
-function fragmentOf(editor: UndoHostEditor): Y.XmlFragment | null {
+function fragmentOf(editor: Pick<UndoHostEditor, "prosemirrorState">): Y.XmlFragment | null {
   try {
     const state = ySyncPluginKey.getState(
       editor.prosemirrorState as Parameters<typeof ySyncPluginKey.getState>[0],
@@ -110,6 +110,19 @@ function fragmentOf(editor: UndoHostEditor): Y.XmlFragment | null {
 export function endTextHistory(editor: UndoHostEditor) {
   const doc = fragmentOf(editor)?.doc;
   if (doc) managers.get(doc)?.clear();
+}
+
+/**
+ * Ends the doc's current undo step, so the next write starts one of its own.
+ * False when the doc has no history here to end — a legacy doc, whose steps
+ * are ProseMirror's.
+ */
+export function closeTextStep(editor: Pick<UndoHostEditor, "prosemirrorState">): boolean {
+  const doc = fragmentOf(editor)?.doc;
+  const manager = doc && managers.get(doc);
+  if (!manager) return false;
+  manager.stopCapturing();
+  return true;
 }
 
 export function textDomainId(docId: string): string {
