@@ -20,6 +20,7 @@ export type ToolPart = ToolUIPart | DynamicToolUIPart;
  * and they all read the same way to someone watching.
  */
 export type Family =
+  | "think"
   | "search"
   | "web"
   | "read"
@@ -133,6 +134,11 @@ const RUNNING: ReadonlySet<string> = new Set([
   "input-available",
   "approval-responded",
 ]);
+
+/** Whether the agent is visibly at work on this part: a call under way, or a thought still arriving. */
+export function isWorking(part: Part): boolean {
+  return isRunning(part) || (part.type === "reasoning" && part.state === "streaming");
+}
 
 /** Whether this part is a tool call that has not finished yet. */
 export function isRunning(part: Part): boolean {
@@ -318,7 +324,7 @@ export function groupLine(tool: string, parts: ToolPart[]): string {
 
 /** What a turn holds, in reading order: the work, then the answer. */
 export type TraceItem =
-  | { kind: "note"; key: string; text: string }
+  | { kind: "note"; key: string; text: string; streaming: boolean }
   | { kind: "step"; key: string; tool: string; family: Family; parts: ToolPart[] };
 
 /**
@@ -352,7 +358,7 @@ export function planTurn(parts: readonly Part[]): {
       if (part.type === "text" && i > lastTool) {
         answer.push({ key, text: part.text });
       } else {
-        trace.push({ kind: "note", key, text: part.text });
+        trace.push({ kind: "note", key, text: part.text, streaming: part.state === "streaming" });
         open = null;
       }
     } else if (isToolUIPart(part) && part.state !== "approval-requested") {

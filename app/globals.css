@@ -2138,20 +2138,6 @@ ol.nt-md-list {
     transform: scale(0.55);
   }
 }
-/* A note is the agent's own voice between acts: no glyph, just a mark on the
-   thread, ringed in the panel's colour so the rail breaks around it. */
-.nt-bead.is-note {
-  background: transparent;
-  box-shadow: none;
-}
-.nt-bead.is-note::after {
-  content: "";
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--faint);
-  box-shadow: 0 0 0 3px var(--surface);
-}
 /* The act under way. The glow breathes on the same beat as the thinking dot —
    one pulse for AI at work, wherever it shows. */
 .nt-trace-item.is-running > .nt-bead {
@@ -2271,8 +2257,8 @@ button.nt-trace-label:hover .nt-trace-chevron,
   color: var(--danger);
 }
 
-/* A note on the way, not the answer: the same voice as the reply, a step
-   quieter. A long one opens to three lines and gives the rest on a click. */
+/* A thought on the way, not the answer: the same voice as the reply, a step
+   quieter, and always whole. */
 .nt-trace-note {
   min-width: 0;
   padding: 1px 0 2px;
@@ -2281,19 +2267,6 @@ button.nt-trace-label:hover .nt-trace-chevron,
 .nt-turn-note {
   color: var(--muted);
   line-height: 1.55;
-}
-.nt-trace-note.is-long {
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-}
-.nt-trace-note.is-long:hover .nt-turn-note {
-  color: var(--foreground);
-}
-.nt-trace-note.is-clamped .nt-turn-note {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
 }
 
 /* The work folded behind its answer: one line saying how much, and what came
@@ -2342,6 +2315,10 @@ button.nt-trace-label:hover .nt-trace-chevron,
 }
 .nt-trace-body > * {
   min-height: 0;
+}
+/* Clipped only when folded, which is what the fold needs to close: open and
+   live, the running bead's glow reaches past the rail and must not be cut. */
+.nt-trace.is-folded .nt-trace-body > * {
   overflow: hidden;
 }
 .nt-trace.is-folded .nt-trace-body {

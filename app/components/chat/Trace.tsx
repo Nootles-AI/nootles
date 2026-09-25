@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useId, useState, type ReactNode } from "react";
+import { memo, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ChevronRight } from "@/app/components/Icons";
 import { Note } from "./Markdown";
 import {
@@ -62,7 +62,7 @@ export const Trace = memo(function Trace({
         <ol className="nt-trace-list" aria-label="What the agent did">
           {trace.map((item) =>
             item.kind === "note" ? (
-              <NoteItem key={item.key} text={item.text} />
+              <NoteItem key={item.key} text={item.text} streaming={item.streaming} live={live} />
             ) : (
               <StepItem key={item.key} item={item} />
             ),
@@ -74,43 +74,65 @@ export const Trace = memo(function Trace({
 });
 
 /**
- * Past this a note is folded to its opening lines. Most are a sentence or two;
- * some models think aloud for a page, and a page of thinking between every
- * step buries the steps.
+ * A thought, on the thread with the acts it led to. Shown whole — the thinking
+ * is the part of the work worth reading in full — and set down the way it is
+ * being had: a provider hands reasoning over in lumps, often a whole paragraph
+ * at once, so the words are let out at a writing pace instead of appearing.
+ * Only a thought that arrives while it is being watched is written out; one
+ * read back from a finished thread is simply there.
  */
-const LONG_NOTE = 260;
-
-function NoteItem({ text }: { text: string }) {
-  const long = text.length > LONG_NOTE;
-  const [whole, setWhole] = useState(false);
-  const clamped = long && !whole;
+function NoteItem({ text, streaming, live }: { text: string; streaming: boolean; live: boolean }) {
+  const shown = useArriving(text, live);
   return (
-    <li className="nt-trace-item is-note">
-      <span className="nt-bead is-note" aria-hidden />
-      {long ? (
-        // Not a <button>: a note is paragraphs, which a button may not hold.
-        <div
-          role="button"
-          tabIndex={0}
-          className={`nt-trace-note is-long${clamped ? " is-clamped" : ""}`}
-          aria-expanded={whole}
-          onClick={() => setWhole((was) => !was)}
-          onKeyDown={(e) => {
-            if (e.key !== "Enter" && e.key !== " ") return;
-            e.preventDefault();
-            setWhole((was) => !was);
-          }}
-        >
-          <Note text={text} />
-        </div>
-      ) : (
-        <div className="nt-trace-note">
-          <Note text={text} />
-        </div>
-      )}
+    <li className={`nt-trace-item is-note${streaming ? " is-running" : ""}`}>
+      <span className="nt-bead" aria-hidden>
+        <Glyph family="think" />
+      </span>
+      <div className="nt-trace-note">
+        <Note text={shown} />
+      </div>
     </li>
   );
 }
+
+/**
+ * `text` let out a little at a time. The pace follows how far behind the
+ * reveal is — a paragraph that lands at once is written out in well under a
+ * second, the last few words ease in — and it stops at a word, so nothing is
+ * ever shown half-spelt.
+ */
+function useArriving(text: string, animate: boolean): string {
+  const [shown, setShown] = useState(() => (animate ? 0 : text.length));
+  const at = useRef(shown);
+
+  useEffect(() => {
+    if (at.current >= text.length) {
+      at.current = text.length;
+      return;
+    }
+    let frame = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      const behind = text.length - at.current;
+      const rate = Math.max(MIN_PACE, behind * CATCH_UP);
+      at.current = Math.min(text.length, at.current + Math.max(1, (rate * (now - last)) / 1000));
+      last = now;
+      setShown(Math.floor(at.current));
+      if (at.current < text.length) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [text]);
+
+  if (shown >= text.length) return text;
+  const cut = text.lastIndexOf(" ", shown);
+  return text.slice(0, cut > 0 ? cut : shown);
+}
+
+/** Characters a second at the least, so the tail of a thought never dawdles. */
+const MIN_PACE = 80;
+/** How fast the reveal closes on what has arrived: the share of the gap covered in a second. */
+const CATCH_UP = 3;
 
 function StepItem({ item }: { item: Extract<TraceItem, { kind: "step" }> }) {
   const [open, setOpen] = useState(false);
@@ -182,6 +204,14 @@ function Glyph({ family }: { family: Family }) {
 }
 
 const GLYPHS: Record<Family, ReactNode> = {
+  // A brain: the agent thinking.
+  think: (
+    <>
+      <path d="M12 5.5a3 3 0 0 0-5.6-1.3A3.2 3.2 0 0 0 3.8 9a3.2 3.2 0 0 0 .5 5.5A3.3 3.3 0 0 0 7.5 19a2.8 2.8 0 0 0 4.5.8" />
+      <path d="M12 5.5a3 3 0 0 1 5.6-1.3A3.2 3.2 0 0 1 20.2 9a3.2 3.2 0 0 1-.5 5.5 3.3 3.3 0 0 1-3.2 4.5 2.8 2.8 0 0 1-4.5.8" />
+      <path d="M12 5.5v14.3M8 10.5c1 .9 2.4.9 3.4 0M16 13.5c-1-.9-2.4-.9-3.4 0" />
+    </>
+  ),
   // A lens: looking for something.
   search: (
     <>

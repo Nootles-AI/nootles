@@ -20,7 +20,7 @@ import type { DrawChoice } from "@/app/lib/ai/drawStyles";
 import { retryNotice } from "@/app/lib/ai/chat/retryNotice";
 import { DrawStylePicker } from "./DrawStylePicker";
 import { Markdown } from "./Markdown";
-import { isRunning, planTurn } from "./steps";
+import { isWorking, planTurn } from "./steps";
 import { Trace } from "./Trace";
 
 /**
@@ -159,7 +159,7 @@ export function ChatTranscript({
         // going on when there is one.
         busy &&
         !drawApprovals.length &&
-        !messages[messages.length - 1]?.parts.some(isRunning) && (
+        !messages[messages.length - 1]?.parts.some(isWorking) && (
           <div className="nt-turn-pending" role="status">
             <span className="nt-pending-bead" aria-hidden>
               <span className="nt-thinking-dot" />
