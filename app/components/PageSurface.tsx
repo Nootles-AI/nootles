@@ -11,6 +11,7 @@ import {
   useWorkspaceHistory,
 } from "@/app/lib/history/useWorkspaceHistory";
 import { Editable } from "./Editable";
+import { useRenamePage } from "./renamePage";
 import { Editor } from "./editor/Editor";
 import { useEditorRegistry } from "./editor/EditorRegistry";
 import { leaveTitle, TITLE_ATTR } from "./editor/titleBoundary";
@@ -64,7 +65,7 @@ export function PageSurface({
 }) {
   const live = useQuery(api.pages.get, { pageId });
   const page = live === undefined ? row : live;
-  const rename = useMutation(api.pages.rename);
+  const rename = useRenamePage();
   const setMode = useMutation(api.pages.setMode);
   // Provided by the workspace for viewer-role visitors; the whole column obeys.
   const readOnly = useReadOnly();

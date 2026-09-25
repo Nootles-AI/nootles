@@ -35,8 +35,15 @@ const empty = <p className="text-sm text-muted">This page is empty.</p>;
  */
 export function SharedEditor({ docId }: { docId: string }) {
   const state = useQuery(api.ydoc.state, YJS_ON ? { docId } : "skip");
+  // Asked beside `state`, not after it: a page is born on Yjs with a row and
+  // no updates, and that is as empty as a page nobody opened. The provider
+  // watches the same query, so this is not a second subscription.
+  const meta = useQuery(api.ydoc.meta, YJS_ON ? { docId } : "skip");
   if (YJS_ON && state === undefined) return placeholder;
-  if (YJS_ON && state === "yjs") return <SharedYjs docId={docId} />;
+  if (YJS_ON && state === "yjs") {
+    if (meta === undefined) return placeholder;
+    return meta?.seq === 0 ? empty : <SharedYjs docId={docId} />;
+  }
   // Never opened — a viewer must not create it, so there is nothing to mount.
   if (YJS_ON && state === "empty") return empty;
   return <SharedLegacy docId={docId} />;
