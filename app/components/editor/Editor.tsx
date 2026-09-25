@@ -75,6 +75,7 @@ import { commentExtension } from "./comments/commentExtension";
 import { CommentDecorationsBridge } from "./comments/CommentDecorationsBridge";
 import { blockSelection, blockSelectionExtension } from "./blockSelection";
 import { indentExtension } from "./indent";
+import { blockKeysExtension } from "./blockKeys";
 import { useBlockMarquee } from "./useBlockMarquee";
 import { PageMentionMenu, SlashMenu } from "./SlashMenu";
 import * as Icon from "../Icons";
@@ -552,6 +553,7 @@ const EXTENSIONS = [
   hintExtension,
   arrivalFlashExtension,
   blockSelectionExtension,
+  blockKeysExtension,
   commentExtension,
   inlineShortcutsExtension,
   plainPasteExtension,
