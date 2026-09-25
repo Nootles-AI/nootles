@@ -752,7 +752,7 @@ const Lead = memo(function Lead({
           />
         ) : (
           <div className="nt-card-title">
-            <OpenProject id={project._id} className="nt-lead-name nt-card-link">
+            <OpenProject project={project} className="nt-lead-name nt-card-link">
               {project.title || "Untitled project"}
             </OpenProject>
             {project.visibility === "private" && <PrivateMark size={16} />}
@@ -818,7 +818,7 @@ const Card = memo(function Card({
                that says "23 pages · 2d ago" under a picture of the page reads
                as one target, and half of it used to be dead. */
             <div className="nt-card-title">
-              <OpenProject id={project._id} className="nt-card-name nt-card-link">
+              <OpenProject project={project} className="nt-card-name nt-card-link">
                 {name}
               </OpenProject>
               {project.visibility === "private" && <PrivateMark />}
@@ -877,7 +877,7 @@ const Row = memo(function Row({
         /* Same reach as the card's chin: the name's hit area covers the whole
            row, so the pages and edited columns are not dead space. */
         <OpenProject
-          id={project._id}
+          project={project}
           className="nt-row nt-row-open min-w-0 flex-1 font-medium"
         >
           {project.visibility === "private" ? (
@@ -939,7 +939,7 @@ const SharedCard = memo(function SharedCard({
       </span>
       <div className="nt-card-foot">
         <div className="min-w-0 flex-1">
-          <OpenProject id={project._id} className="nt-card-name nt-card-link">
+          <OpenProject project={project} className="nt-card-name nt-card-link">
             {name}
           </OpenProject>
           <p className="nt-card-meta">
@@ -971,7 +971,7 @@ const SharedRow = memo(function SharedRow({
           never what falls off the end. Below sm the fixed columns leave the
           name no room to share, so the attribution stands down entirely. */}
       <OpenProject
-        id={project._id}
+        project={project}
         className="nt-row nt-row-open min-w-0 flex-1 font-medium"
       >
         <span className="nt-row-label flex-initial">{name}</span>

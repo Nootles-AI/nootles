@@ -11,11 +11,12 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
-import { useQuery } from "convex/react";
+import { useConvex, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { pages, when } from "@/app/lib/projectMeta";
 import { projectPath, WHOLE_ROUTE } from "@/app/lib/containerPaths";
+import { warmProject } from "@/app/lib/sync/warmProject";
 import { Dialog } from "./Dialog";
 import { PROJECT_TEMPLATES, pagePicture, type ProjectTemplate } from "@/app/lib/templates";
 import {
@@ -199,6 +200,7 @@ function Palette({
   onDone: () => void;
 }) {
   const router = useRouter();
+  const convex = useConvex();
   const here = useContainer();
   const [asked, setPage] = useState<Page>(start);
   // Letting someone in, for whoever may: the workspace's owners and admins.
@@ -441,10 +443,12 @@ function Palette({
   useEffect(() => {
     const t = setTimeout(() => {
       setShown(currentProject);
-      if (currentProject) router.prefetch(projectPath(slug, currentProject._id), WHOLE_ROUTE);
+      if (!currentProject) return;
+      router.prefetch(projectPath(slug, currentProject._id), WHOLE_ROUTE);
+      warmProject(convex, currentProject);
     }, 110);
     return () => clearTimeout(t);
-  }, [currentProject, router, slug]);
+  }, [currentProject, router, slug, convex]);
 
   // Resting on the Notion row is the cue to fetch what choosing it will need.
   const onNotionRow = current?.picture === "notion";
