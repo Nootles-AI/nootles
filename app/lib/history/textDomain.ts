@@ -219,7 +219,7 @@ export function useTextUndoDomain(
 
     const unregister = spine.register(
       id,
-      { undo: () => step("undo"), redo: () => step("redo") },
+      { undo: () => step("undo"), redo: () => step("redo"), blocked: forked },
       pageId,
     );
 

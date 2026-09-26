@@ -13,7 +13,12 @@ import type { DomainStep, WorkspaceHistory } from "./spine";
  * bounded stack trims oldest-first (`trim`), and a collaborator's merge
  * resets it whole (`clear` — the documented "fresh undo horizon", which the
  * spine renders as tombstones rather than a hole in the timeline). Undo and
- * redo refuse while a gesture bracket is open, which is exactly "blocked".
+ * redo refuse while a gesture bracket is open, which is exactly "blocked" —
+ * said up front, so a step spanning several diagrams never half-lands. Up
+ * front, an idle-held bracket (a panel's typing run, a nudge run) reads the
+ * same as a live drag: the store settles one only inside its own step, so a
+ * step of several parts is refused until the run's timer closes it, while a
+ * lone entry settles and steps as before.
  */
 export function canvasDomainId(blockId: string, shotId?: string): string {
   return shotId ? `canvas:${blockId}:${shotId}` : sceneStoreKey(blockId);
@@ -48,7 +53,7 @@ export function useCanvasUndoDomain(
 
     const unregister = spine.register(
       id,
-      { undo: () => step("undo"), redo: () => step("redo") },
+      { undo: () => step("undo"), redo: () => step("redo"), blocked: () => store.gesturing() },
       pageId,
     );
 
