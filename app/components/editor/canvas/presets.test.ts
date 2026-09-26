@@ -104,7 +104,6 @@ describe("the presets", () => {
         "Window:rect",
         "Toolbar:rect",
         ["Window controls", "Close:ellipse", "Minimize:ellipse", "Zoom:ellipse"],
-        ["Navigation", "Back:polygon", "Forward:polygon"],
         "Address bar:rect",
         ["Lock", "Shackle:ellipse", "Body:rect"],
         "Reload:ellipse",

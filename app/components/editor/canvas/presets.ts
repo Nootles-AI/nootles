@@ -84,10 +84,6 @@ const BROWSER = `<nt-diagram h="368">
       <nt-ellipse id="browser-minimize" x="16" y="0" w="10" h="10" name="Minimize" style="background: #f5be4f"></nt-ellipse>
       <nt-ellipse id="browser-zoom" x="32" y="0" w="10" h="10" name="Zoom" style="background: #62c554"></nt-ellipse>
     </nt-group>
-    <nt-group id="browser-nav" x="74" y="17" w="30" h="10" name="Navigation">
-      <nt-polygon id="browser-back" x="0" y="0" w="10" h="10" rot="-90" name="Back" sides="3" style="${GLYPH}"></nt-polygon>
-      <nt-polygon id="browser-forward" x="20" y="0" w="10" h="10" rot="90" name="Forward" sides="3" style="background: ${RULE}"></nt-polygon>
-    </nt-group>
     <nt-rect id="browser-address" x="150" y="10" w="220" h="24" name="Address bar" style="background: #ffffff; border: 1px solid #ececea; border-radius: 7px; display: flex; align-items: center; justify-content: center; padding: 0 12px; color: #6b6b66; font-size: 11px">nootles.app</nt-rect>
     <nt-group id="browser-lock" x="200" y="17" w="8" h="10" name="Lock">
       <nt-ellipse id="browser-shackle" x="1" y="0" w="6" h="8" name="Shackle" start="270" sweep="180" inner="0.6" style="${GLYPH}"></nt-ellipse>
