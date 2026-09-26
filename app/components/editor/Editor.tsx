@@ -379,6 +379,8 @@ export function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[]
       onItemClick: () => {
         const block = editor.getTextCursorPosition().block;
         editor.updateBlock(block, { type: "canvas", props: { data: "" } });
+        // Selected as a block, so Enter, ↓ and ⌫ act on the diagram just made.
+        blockSelection(editor).select([block.id]);
         track("block_created", { type: "canvas" });
       },
     },

@@ -177,8 +177,13 @@ export interface SelectionStore {
   toggle(id: NodeId): void;
   /** Nothing selected, back at the top level. */
   clear(): void;
-  /** Every unlocked, visible node at the current level — ⌘/Ctrl+A. */
-  selectAll(): void;
+  /**
+   * Every unlocked, visible node at the current level — ⌘/Ctrl+A. False when
+   * that was already the selection, so a second press can reach further.
+   */
+  selectAll(): boolean;
+  /** A thunk putting back what is selected now, outside history — a cancelled marquee. */
+  capture(): () => void;
 
   /**
    * Resolve a click at a scene-space point. Returns the id it selected, or
@@ -648,8 +653,16 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
     selectAll() {
       const { path, nodes } = resolveLevel(scene, snapshot.enteredPath);
       const ids = nodes.filter((n) => !n.locked && !n.hidden).map((n) => n.id);
-      commit(ids, idsOf(path), snapshot.hoverId);
+      const level = idsOf(path);
+      const already =
+        snapshot.edgeIds.length === 0 &&
+        sameIds(orderIds(scene, ids), snapshot.ids) &&
+        sameIds(level, snapshot.enteredPath);
+      commit(ids, level, snapshot.hoverId);
+      return !already;
     },
+
+    capture: () => restoreTo(snapshot),
 
     click,
 

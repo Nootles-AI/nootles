@@ -65,7 +65,7 @@ export function PageSurface({
   const { main, aside, focus, back, closeAside, focusPane } = useOpenPage();
   const registry = useEditorRegistry();
   const cornerSlot = useCornerSlot();
-  const canvas = usePaneCanvas(pane, pageId);
+  const canvas = usePaneCanvas(pane, pageId, readOnly);
   const canGoBack = (pane === "aside" ? aside : main)?.canGoBack ?? false;
   /** Only ever true beside another pane: alone, a page is the one you are in. */
   const idle = aside !== null && focus !== pane;

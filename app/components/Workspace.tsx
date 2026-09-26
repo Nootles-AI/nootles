@@ -28,7 +28,6 @@ import {
 import { LayersPanel } from "./editor/canvas/panels/LayersPanel";
 import { CanvasStylePanel } from "./editor/canvas/panels/CanvasStylePanel";
 import { FrameToolbar, PageToolbar, SHAPES, ZoomToolbar } from "./editor/canvas/Toolbar";
-import { isApplePlatform, matchShortcut } from "./editor/canvas/engine/shortcuts";
 import {
   createPageCanvasHub,
   PageCanvasHubContext,
@@ -36,7 +35,8 @@ import {
 } from "./editor/canvas/page/PageCanvas";
 import { FrameClaimContext, type ActiveFrame } from "./editor/canvas/page/frameClaim";
 import { useEditorRegistry } from "./editor/EditorRegistry";
-import { pageToolFor, usePageDraw } from "./PageDraw";
+import { usePageDraw } from "./PageDraw";
+import { isApplePlatform, matchShortcut, type CanvasTool } from "./editor/canvas/engine/shortcuts";
 import { LocationPanel } from "./editor/location/LocationPanel";
 import { LocationShellContext, type ActiveLocation } from "./editor/location/shell";
 import { useOpenPage } from "./OpenPageContext";
@@ -338,13 +338,15 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
       // be typing, and while another dialog has the floor.
       if (e.key === "?" && !e.metaKey && !e.ctrlKey && !e.altKey) {
         const el = e.target as HTMLElement | null;
-        if (el?.closest?.("input, textarea, [contenteditable='true'], [role='dialog']")) return;
+        // `isContentEditable` rather than an editable ancestor: a diagram's
+        // band sits inside the editor but is nobody's text.
+        if (el?.isContentEditable || el?.closest?.("input, textarea, select, math-field, [role='dialog']")) return;
         e.preventDefault();
         setShowingKeys(true);
         return;
       }
       if (e.key.toLowerCase() !== "k" || !(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey) return;
-      const typing = (e.target as HTMLElement | null)?.closest?.("[contenteditable='true']");
+      const typing = (e.target as HTMLElement | null)?.isContentEditable;
       if (typing && !window.getSelection()?.isCollapsed) return;
       e.preventDefault();
       e.stopPropagation();
@@ -562,35 +564,35 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   const registry = useEditorRegistry();
   usePageDraw({ well: columnRef, tools: viewer ? null : hub.tools, hub, registry });
 
-  // ⌥⇧ and a letter pick the page's tools from anywhere — the editor too,
-  // since the modifiers are what keep them from being typing. A held shot
-  // answers its own keys, and a diagram its own Escape.
+  // A page's own keymap picks and puts down the tool inside it. A key pressed
+  // anywhere else — the bar just used, a rail, the body — still does, with
+  // ⌥⇧ and a letter, and Escape; and heard last, so any control there that
+  // spends the key keeps it.
   useEffect(() => {
     const tools = hub.tools;
     if (viewer || !tools) return;
     const apple = isApplePlatform();
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || frameRef.current) return;
-      const el = e.target as HTMLElement | null;
-      if (el?.closest?.(".nt-canvas-shot, .nt-sb-full")) return;
-      if (e.key === "Escape") {
-        if (tools.get() === "move" || el?.closest?.(".nt-canvas")) return;
+      if (e.defaultPrevented || e.isComposing || frameRef.current) return;
+      const el = e.target instanceof HTMLElement ? e.target : null;
+      if (el?.isContentEditable || el?.closest(".nt-pane, .nt-sb-full, [role='dialog'], input, textarea, select, math-field")) {
+        return;
+      }
+      const id = matchShortcut(e, apple);
+      if (id === "edit.deselect") {
+        if (tools.get() === "move" && !tools.locked()) return;
         e.preventDefault();
         tools.set("move");
         return;
       }
-      // ⌥⇧ only: the tools' bare letters are a focused diagram's, and here
-      // they are typing.
-      if (!e.altKey || !e.shiftKey) return;
-      if (el?.closest?.("input, textarea, math-field, [role='dialog']")) return;
-      const next = pageToolFor(matchShortcut(e, apple));
-      if (!next || (next === "text" && !hub.getSnapshot().focused)) return;
+      if (!id?.startsWith("tool.") || !(e.altKey && e.shiftKey)) return;
+      const tool = id.slice(5) as CanvasTool;
+      if (tool === "text" && !hub.getSnapshot().focused) return;
       e.preventDefault();
-      e.stopPropagation();
-      tools.set(next);
+      tools.set(tool);
     };
-    document.addEventListener("keydown", onKey, true);
-    return () => document.removeEventListener("keydown", onKey, true);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
   }, [viewer, hub]);
 
   const pagesOn = showLeft && !canvasPanels;

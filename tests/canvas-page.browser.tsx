@@ -11,6 +11,9 @@ import { BlockNoteView } from "@blocknote/mantine";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import type { Id } from "../convex/_generated/dataModel";
 import { schema } from "../app/components/editor/schema";
+import { blockSelection, blockSelectionExtension } from "../app/components/editor/blockSelection";
+import { blockKeysExtension } from "../app/components/editor/blockKeys";
+import { pasteHandler } from "../app/components/editor/paste";
 import { CurrentPageProvider } from "../app/components/OpenPageContext";
 import {
   undoScope,
@@ -133,6 +136,9 @@ function mount() {
   editor = BlockNoteEditor.create(
     withCollaboration({
       schema,
+      // The document's own block keys and its paste, as the app's editor has them.
+      extensions: [blockSelectionExtension, blockKeysExtension],
+      pasteHandler,
       collaboration: {
         fragment: ydoc.getXmlFragment("prosemirror"),
         user: { name: "Local", color: "#3366cc" },
@@ -214,6 +220,50 @@ const harness = {
     document.getElementById("stage")!.style.width = px === null ? "" : `${px}px`;
   },
   apple: () => /mac|iphone|ipad|ipod/i.test(navigator.userAgent),
+  /** The page's tool, and whether it is locked. */
+  tool: () => page?.tools?.snapshot() ?? null,
+  /** Shapes in a diagram. */
+  count: (blockId: string) => entry(blockId)?.api.store.getScene().nodes.length ?? null,
+  canUndo: (blockId: string) => entry(blockId)?.api.store.canUndo() ?? null,
+  /** The blocks on the page, by id and type. */
+  blocks: () => editor.document.map((block) => `${block.id}:${block.type}`),
+  /** The blocks selected as blocks. */
+  blockSelection: () => [...blockSelection(editor).getSnapshot().ids],
+  /** Where the keyboard is: a band, the page's text, or somewhere else. */
+  keyboard: () => {
+    const active = document.activeElement;
+    if (!active) return null;
+    for (const diagram of page?.entries() ?? []) {
+      if (diagram.api.band.current?.contains(active)) return `band:${diagram.blockId}`;
+    }
+    return active.classList.contains("ProseMirror") ? "text" : active.tagName.toLowerCase();
+  },
+  /** A paragraph's words. */
+  text: (blockId: string) => {
+    const block = editor.getBlock(blockId);
+    const content = (block?.content ?? []) as { text?: string }[];
+    return content.map((part) => part.text ?? "").join("");
+  },
+  /** The caret at the end of a paragraph, the editor focused. */
+  caretAtEnd: (blockId: string) => {
+    editor.focus();
+    editor.setTextCursorPosition(blockId, "end");
+  },
+  /** What the page's marquee draws, if anything. */
+  marqueeShown: () => {
+    return [...document.querySelectorAll<SVGElement>(".nt-ov-band")].some(
+      (rect) => rect.style.display !== "none" && rect.getBoundingClientRect().width > 0,
+    );
+  },
+  /** A paste as the browser raises one, with this text on the clipboard. */
+  paste: (text: string) => {
+    const data = new DataTransfer();
+    data.setData("text/plain", text);
+    const target = document.activeElement ?? document.body;
+    target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  },
+  /** The diagram blocks on the page, in order. */
+  diagrams: () => (page?.entries() ?? []).map((diagram) => diagram.blockId),
   undo: () => spine?.undo(),
   clear: () => page?.selection.clearAll(),
 };

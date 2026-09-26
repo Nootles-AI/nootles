@@ -209,6 +209,7 @@ const entry = (blockId: string, selection = fakeStore()): DiagramEntry => ({
   readOnly: false,
   flushMirror: () => {},
   remove: () => {},
+  blocks: {} as DiagramEntry["blocks"],
 });
 
 describe("the page's facade over a diagram's selection", () => {

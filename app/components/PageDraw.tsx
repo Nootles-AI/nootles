@@ -6,7 +6,7 @@ import { COLUMN_WIDTH } from "@/app/lib/column";
 import { effectiveScale, fitOf } from "@/app/lib/columnScale";
 import type { Pane } from "./OpenPageContext";
 import type { LiveEditor, EditorRegistry } from "./editor/EditorRegistry";
-import type { CanvasTool, ShortcutId } from "./editor/canvas/engine/shortcuts";
+import type { CanvasTool } from "./editor/canvas/engine/shortcuts";
 import type { DiagramEntry, PageCanvas, PageCanvasHub } from "./editor/canvas/page/PageCanvas";
 import type { PageToolControl } from "./editor/canvas/page/tools";
 import { defaultBox, newNode, type DrawKind } from "./editor/canvas/render/newShape";
@@ -34,12 +34,6 @@ import type { Scene } from "./editor/canvas/scene/types";
 
 /** The tools that draw on the page. Text, the pen and connectors need a diagram. */
 const PAGE_KINDS: ReadonlySet<CanvasTool> = new Set(["rect", "ellipse", "polygon", "diamond"]);
-
-/** The page tool a key picks: any tool on the page's bar. */
-export function pageToolFor(id: ShortcutId | null): CanvasTool | null {
-  const tool = id?.startsWith("tool.") ? (id.slice(5) as CanvasTool) : null;
-  return tool && tool !== "hand" ? tool : null;
-}
 
 type Box = { x: number; y: number; w: number; h: number };
 
@@ -338,8 +332,12 @@ export function usePageDraw({
         () => document.querySelector<HTMLElement>(`[data-id="${blockId}"] .nt-canvas-scene [data-id="${nodeId}"]`),
         1500,
       );
+      // Selected with the keyboard on it, so ⌫ takes the shape, not the text.
       const select = () =>
-        void canvas?.whenRegistered(blockId).then((entry) => entry?.api.selection.select([nodeId]));
+        void canvas?.whenRegistered(blockId).then((entry) => {
+          entry?.api.selection.select([nodeId]);
+          entry?.api.focus();
+        });
       if (!shape) {
         ghost.remove();
         select();

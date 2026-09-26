@@ -42,6 +42,7 @@ import { serializeScene } from "../canvas/scene/serialize";
 import type { Scene } from "../canvas/scene/types";
 import { CanvasSurface, type CanvasApi } from "../canvas/render/CanvasSurface";
 import { usePageCanvas } from "../canvas/page/PageCanvas";
+import { blockSelection, type BlockSelectionEditor } from "../blockSelection";
 
 /** How many preceding blocks of page text to hand the canvas for context. */
 const CONTEXT_BLOCKS = 4;
@@ -491,11 +492,12 @@ function CanvasBlockView({
     writeMirror();
   }, [liveApi, writeMirror]);
   const remove = useCallback(() => editor.removeBlocks([blockId]), [editor, blockId]);
+  const blocks = useMemo(() => blockSelection(editor as unknown as BlockSelectionEditor), [editor]);
   const onPage = useMemo(() => (page.pane ? { canvas: page, blockId } : undefined), [page, blockId]);
   useEffect(() => {
     if (!liveApi) return;
-    return page.register({ blockId, api: liveApi, readOnly, flushMirror, remove });
-  }, [page, blockId, liveApi, readOnly, flushMirror, remove]);
+    return page.register({ blockId, api: liveApi, readOnly, flushMirror, remove, blocks });
+  }, [page, blockId, liveApi, readOnly, flushMirror, remove, blocks]);
 
   if (readOnly) {
     // The surface's own view-only mode: a click still picks out one shape, and
@@ -536,6 +538,7 @@ function CanvasBlockView({
           storeKey={sceneStoreKey(blockId)}
           tools={page.tools ?? undefined}
           page={onPage}
+          keymap={page.pane ? "page" : "container"}
           onApi={(next) => {
             api.current = next;
             setLiveApi(next);

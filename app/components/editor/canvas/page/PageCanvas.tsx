@@ -2,12 +2,14 @@
 
 import { createContext, useContext, useEffect, useMemo, useSyncExternalStore } from "react";
 import type { Pane } from "@/app/components/OpenPageContext";
+import type { BlockSelectionStore } from "@/app/components/editor/blockSelection";
 import { setFitFrozen } from "@/app/lib/columnScale";
 import type { SceneStore } from "../engine/useScene";
 import { selectionFrame, type SelectionStore } from "../engine/useSelection";
 import type { CanvasApi } from "../render/CanvasSurface";
 import type { RotatedRect } from "../scene/geometry";
 import { createPageGesture, type PageGesture } from "./pageGesture";
+import { attachPageKeymap } from "./pageKeymap";
 import {
   createPageSelection,
   EMPTY_PAGE_SELECTION,
@@ -35,6 +37,8 @@ export type DiagramEntry = {
   flushMirror(): void;
   /** Takes the block out of the document in one step. */
   remove(): void;
+  /** The page's block selection — where the diagram goes when Escape leaves it. */
+  blocks: BlockSelectionStore;
 };
 
 /** A diagram holding part of the page's selection, and its own store of it. */
@@ -54,7 +58,7 @@ export type DiagramTarget = {
 export interface PageCanvas {
   readonly pane: Pane | null;
   readonly pageId: string | null;
-  /** Null outside a workspace: the share route, a harness. A viewer's diagrams simply never take it. */
+  /** Null outside a workspace — the share route, a harness — and for a viewer, whose keys it never hears. */
   readonly tools: PageToolControl | null;
   readonly selection: PageSelection;
   /** Moves, resizes, rotations and marquees that reach across diagrams. */
@@ -78,8 +82,11 @@ export interface PageCanvas {
   batch<T>(fn: () => T): T;
   /** Whether a pointer pressed on one of the diagrams is still down. */
   pressing(): boolean;
-  /** The pane is on screen: what listens on its behalf starts here, and stops with the returned call. */
-  attach(): () => void;
+  /**
+   * The pane is on screen: what listens on its behalf — the keymap, the press
+   * outside every diagram — starts here, and stops with the returned call.
+   */
+  attach(pane: HTMLElement): () => void;
 }
 
 export type HubSnapshot = {
@@ -191,7 +198,7 @@ export function createPageCanvas({
     bump();
   });
 
-  return {
+  const canvas: PageCanvas = {
     pane,
     pageId,
     tools,
@@ -261,7 +268,7 @@ export function createPageCanvas({
       registry.get(blockId)?.api.band.current?.scrollIntoView?.({ block: "nearest" });
     },
     pressing: () => pressed,
-    attach: () => {
+    attach: (paneEl) => {
       // One listener for every diagram in the pane: a press outside all of
       // them lets the page's selection go, batched, where a listener per
       // diagram cleared each on its own. A press on one is the diagram's to
@@ -287,7 +294,9 @@ export function createPageCanvas({
       document.addEventListener("pointerdown", onDown, true);
       window.addEventListener("pointerup", onUp, true);
       window.addEventListener("pointercancel", onUp, true);
+      const detachKeys = attachPageKeymap(canvas, paneEl);
       return () => {
+        detachKeys();
         document.removeEventListener("pointerdown", onDown, true);
         window.removeEventListener("pointerup", onUp, true);
         window.removeEventListener("pointercancel", onUp, true);
@@ -295,6 +304,7 @@ export function createPageCanvas({
       };
     },
   };
+  return canvas;
 }
 
 export function createPageCanvasHub({ batch, quiet = never }: Deps): PageCanvasHub {
@@ -380,6 +390,7 @@ const NO_SELECTION: PageSelection = {
   selectIn: noop,
   marqueeIn: noop,
   clearAll: noop,
+  keep: (fn) => fn(),
   focus: noop,
   count: () => 0,
   unionIn: nothing,
@@ -436,26 +447,28 @@ export function useHubSnapshot(hub: PageCanvasHub): HubSnapshot {
 }
 
 /**
- * The pane's controller, for as long as it shows this page, joined to the hub
- * and attached; outside a workspace it is the stand-alone default.
+ * The pane's controller, for as long as it shows this page, joined to the hub;
+ * outside a workspace it is the stand-alone default. The pane element attaches
+ * it (see `PagePane`).
  */
-export function usePaneCanvas(pane: Pane, pageId: string): PageCanvas {
+export function usePaneCanvas(pane: Pane, pageId: string, readOnly = false): PageCanvas {
   const hub = usePageCanvasHub();
   const canvas = useMemo(
     () =>
       hub.tools
-        ? createPageCanvas({ pane, pageId, tools: hub.tools, batch: hub.batch, quiet: hub.quiet })
+        ? createPageCanvas({
+            pane,
+            pageId,
+            tools: readOnly ? null : hub.tools,
+            batch: hub.batch,
+            quiet: hub.quiet,
+          })
         : NO_PAGE_CANVAS,
-    [hub, pane, pageId],
+    [hub, pane, pageId, readOnly],
   );
   useEffect(() => {
     if (!canvas.pane) return;
-    const leave = hub.addPane(canvas);
-    const detach = canvas.attach();
-    return () => {
-      detach();
-      leave();
-    };
+    return hub.addPane(canvas);
   }, [hub, canvas]);
   return canvas;
 }

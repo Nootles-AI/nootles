@@ -49,6 +49,12 @@ export interface PageSelection {
   /** One diagram's share of a marquee that may cross several. */
   marqueeIn(blockId: string, rect: Rect, opts: { shift: boolean }): void;
   clearAll(except?: string): void;
+  /**
+   * Runs `fn` with every diagram's selection added to rather than replacing
+   * the others' — a command that acts on each diagram holding a share of the
+   * selection, and leaves each holding its share.
+   */
+  keep<T>(fn: () => T): T;
   focus(blockId: string): void;
   /** Selected shapes on the whole page. */
   count(): number;
@@ -273,6 +279,15 @@ export function createPageSelection(deps: PageSelectionDeps): PageSelection {
       if (entry) additive(blockId, () => entry.raw.marquee(rect, { shift }));
     },
     clearAll,
+    keep: (fn) => {
+      const was = adding;
+      adding = true;
+      try {
+        return fn();
+      } finally {
+        adding = was;
+      }
+    },
     focus: (blockId) => {
       if (!held.has(blockId)) return;
       if (order.includes(blockId)) order = [blockId, ...order.filter((id) => id !== blockId)];

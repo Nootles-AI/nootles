@@ -3,7 +3,7 @@
 // updates cross between the two on the provider's own cadence (200ms awareness
 // throttle, 500ms flush) plus the runner's network latency. See the runner,
 // `canvas-presence.browser.mjs`, for what is checked and why.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import * as Y from "yjs";
 import { getFunctionName } from "convex/server";
@@ -185,9 +185,13 @@ function Pane({ editor }: { editor: Editor }) {
   useEffect(() => {
     page = canvas;
   }, [canvas]);
+  // The pane is what the page's keys and its outside presses listen through,
+  // as `PagePane` attaches it in the app.
+  const pane = useRef<HTMLElement>(null);
+  useEffect(() => canvas.attach(pane.current!), [canvas]);
   return (
     <PageCanvasContext value={canvas}>
-      <main style={{ height: "100vh", overflow: "auto" }}>
+      <main ref={pane} style={{ height: "100vh", overflow: "auto" }}>
         <div {...undoScope} style={{ maxWidth: 1100, padding: "32px 40px", boxSizing: "border-box" }}>
           <BlockNoteView editor={editor} theme="light" className="nt-editor" sideMenu={false} slashMenu={false} formattingToolbar={false} />
         </div>

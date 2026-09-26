@@ -141,10 +141,15 @@ const never = () => false;
  * A pointer drag, batched to one callback per animation frame however fast the
  * events arrive. Shared by the marquee, the drawing tools, the hand tool and
  * the height grip — the four gestures the engine does not already own.
+ *
+ * With `onCancel`, Escape abandons it: heard on the window in the capture
+ * phase, ahead of every keymap, so the key that cancels a draw cannot also
+ * reach the page and pick Move under a pointer still drawing.
  */
 function drag(
   onMove: (event: PointerEvent) => void,
   onEnd: (event: PointerEvent) => void,
+  onCancel?: () => void,
 ): void {
   let latest: PointerEvent | null = null;
   let frame = 0;
@@ -168,15 +173,29 @@ function drag(
       frame = 0;
       if (latest) onMove(latest);
     }
+    detach();
+    onEnd(event);
+  };
+  const key = (event: KeyboardEvent) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (frame) cancelAnimationFrame(frame);
+    frame = 0;
+    detach();
+    onCancel?.();
+  };
+  const detach = () => {
     window.removeEventListener("pointermove", move);
     window.removeEventListener("pointerup", up);
     window.removeEventListener("pointercancel", up);
-    onEnd(event);
+    if (onCancel) window.removeEventListener("keydown", key, true);
   };
 
   window.addEventListener("pointermove", move);
   window.addEventListener("pointerup", up);
   window.addEventListener("pointercancel", up);
+  if (onCancel) window.addEventListener("keydown", key, true);
 }
 
 /** A style patch straight onto an element — kebab-case and custom properties. */
@@ -301,6 +320,12 @@ export interface CanvasApi {
    * a pick from the toolbar, so the next key is a shortcut.
    */
   focus(): void;
+  /** Whether one of the surface's own pointer gestures is under way. */
+  pressing(): boolean;
+  /** Opens a shape's label for editing, as Enter on it does. */
+  openLabel(id: NodeId): void;
+  /** Opens a path's points, or closes them with `null`. */
+  openPath(id: NodeId | null): void;
   /** The diagram's own fields — `StylePanel`'s `onDiagramChange`. */
   setDiagram(patch: DiagramPatch): void;
   /**
@@ -411,6 +436,11 @@ export interface CanvasSurfaceProps {
    * the marquee then reach across every diagram on it.
    */
   page?: { canvas: PageCanvas; blockId: string };
+  /**
+   * Who hears the keys: the surface's own container, or — for a diagram on
+   * the page — the pane's keymap, which speaks for every diagram on it.
+   */
+  keymap?: "container" | "page";
 }
 
 export function CanvasSurface({
@@ -422,6 +452,7 @@ export function CanvasSurface({
   frame,
   tools,
   page,
+  keymap = "container",
 }: CanvasSurfaceProps) {
   const store = useScene({
     source,
@@ -954,9 +985,10 @@ export function CanvasSurface({
     selection,
     viewport,
     tool: toolControl,
+    band: bandRange,
     pathEdit: pathControl,
     labelEdit: labelControl,
-    enabled: !readOnly,
+    enabled: !readOnly && keymap === "container",
   });
 
   const { open: openMenu, menu } = useContextMenu(store, selection, canvas ?? undefined);
@@ -981,6 +1013,7 @@ export function CanvasSurface({
     () => containerRef.current?.focus({ preventScroll: true }),
     [containerRef],
   );
+  const pressing = useCallback(() => busy.current || gesture.isActive(), [gesture]);
 
   const api = useMemo<CanvasApi>(
     () => ({
@@ -994,6 +1027,9 @@ export function CanvasSurface({
       tools: toolControl,
       setTool: changeTool,
       focus,
+      pressing,
+      openLabel: labelControl.open,
+      openPath: setOpenPath,
       setDiagram,
       previewSize,
       previewStyle,
@@ -1009,6 +1045,9 @@ export function CanvasSurface({
       toolControl,
       changeTool,
       focus,
+      pressing,
+      labelControl,
+      setOpenPath,
       setDiagram,
       previewSize,
       previewStyle,
@@ -1044,15 +1083,21 @@ export function CanvasSurface({
     const scroller = el ? (el.closest(".nt-pane") ?? scrollParent(el)) : null;
     el?.classList.add("is-grabbing");
     let { x, y } = from;
+    const start = scroller ? { left: scroller.scrollLeft, top: scroller.scrollTop } : null;
+    const done = () => {
+      busy.current = false;
+      el?.classList.remove("is-grabbing");
+    };
     drag(
       (event) => {
         scroller?.scrollBy(x - event.clientX, y - event.clientY);
         x = event.clientX;
         y = event.clientY;
       },
+      done,
       () => {
-        busy.current = false;
-        el?.classList.remove("is-grabbing");
+        if (start) scroller?.scrollTo(start);
+        done();
       },
     );
   };
@@ -1062,15 +1107,21 @@ export function CanvasSurface({
     shift: boolean,
     within?: NodeId,
   ) => {
+    const restore = selection.capture();
+    const done = () => {
+      busy.current = false;
+      overlay.current?.marquee(null);
+    };
     drag(
       (event) => {
         const rect = normalizeRect(origin, scenePoint(event));
         overlay.current?.marquee(rect);
         selection.marquee(rect, { shift, within });
       },
+      done,
       () => {
-        busy.current = false;
-        overlay.current?.marquee(null);
+        done();
+        restore();
       },
     );
   };
@@ -1127,6 +1178,10 @@ export function CanvasSurface({
     };
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKey);
+    const unlisten = () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKey);
+    };
 
     drag(
       (event) => {
@@ -1135,8 +1190,7 @@ export function CanvasSurface({
         paint();
       },
       () => {
-        window.removeEventListener("keydown", onKey);
-        window.removeEventListener("keyup", onKey);
+        unlisten();
         busy.current = false;
         const drawn = box.w >= DRAWN_MIN && box.h >= DRAWN_MIN;
         store.dispatch({
@@ -1148,6 +1202,15 @@ export function CanvasSurface({
         settleHeight();
         overlay.current?.update(null, 0, NO_GUIDES);
         select(id, kind);
+      },
+      // Nothing was drawn, and nothing is left to undo; the tool stays in
+      // hand, so the next Escape is the one that puts it down.
+      () => {
+        unlisten();
+        busy.current = false;
+        store.abort();
+        settleHeight();
+        overlay.current?.update(null, 0, NO_GUIDES);
       },
     );
   };
@@ -1531,6 +1594,9 @@ export function CanvasSurface({
         el.style.height = `${next}px`;
       },
       () => setDiagram({ h: next }),
+      () => {
+        el.style.height = `${startH}px`;
+      },
     );
   };
 
@@ -1580,7 +1646,7 @@ export function CanvasSurface({
         style={surface}
         data-tool={tool}
         data-mode={activeMode?.id}
-        tabIndex={0}
+        tabIndex={-1}
         onFocus={publish}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -1622,6 +1688,7 @@ export function CanvasSurface({
               // Withheld read-only: with no edit to offer, a solo chip's click
               // goes straight to the page, the one thing a viewer can do.
               onEditOpen={readOnly ? undefined : onEditOpen}
+              onEditKeyEnd={focus}
               onMeasure={readOnly ? undefined : onMeasure}
             />
           ))}

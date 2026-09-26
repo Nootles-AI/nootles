@@ -1,7 +1,8 @@
 "use client";
 
-import { useLayoutEffect, useRef, type FocusEventHandler, type PointerEventHandler, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, type FocusEventHandler, type PointerEventHandler, type ReactNode } from "react";
 import { usePageFit } from "@/app/lib/columnScale";
+import { usePageCanvas } from "./editor/canvas/page/PageCanvas";
 import { zoomFor, type ZoomPane } from "@/app/lib/docZoom";
 import { useDocumentZoom } from "./useDocumentZoom";
 
@@ -39,6 +40,10 @@ export function PagePane({
   const sheetRef = useRef<HTMLDivElement>(null);
   usePageFit(paneRef, sheetRef);
   useDocumentZoom(pane ?? null, paneRef, sheetRef);
+  // The page's diagrams listen through the pane: its keys, and a press
+  // anywhere outside them.
+  const canvas = usePageCanvas();
+  useEffect(() => canvas.attach(paneRef.current!), [canvas]);
   useLayoutEffect(() => {
     if (pane) zoomFor(pane).reset();
   }, [pane, pageId]);

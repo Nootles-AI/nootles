@@ -3,7 +3,10 @@
  * pointer: a Shift-click selects across them, one drag moves both, the band
  * grows under it and the top holds it, one undo takes the whole move back,
  * and a marquee from one band reaches into the next. At 150% document zoom
- * a click and a drag still land in the diagram's own px.
+ * a click and a drag still land in the diagram's own px. The page's keys:
+ * ⌥⇧ picks a tool from the text, Escape abandons a draw and a marquee and
+ * climbs out of a diagram onto the page, ⌘A climbs from shapes to blocks, and
+ * shapes pasted into the text make a diagram.
  *
  *   node tests/canvas-page.browser.mjs
  */
@@ -234,6 +237,122 @@ try {
   await frame();
   check("a pane given its width back gives the band its size", await at("bandScale", "top"), 1);
   await at("clear");
+
+  // The page's keys. With the caret in the text a bare letter is typing; ⌥⇧
+  // and the letter picks the tool from there all the same, and Escape puts
+  // it down without leaving the text.
+  const tool = async () => (await at("tool"))?.tool;
+  await at("caretAtEnd", "between");
+  await frame();
+  check("the caret is in the text", await at("keyboard"), "text");
+  await page.keyboard.press("r");
+  check("a bare R in the text types", await at("text", "between"), "A paragraph between them.r");
+  check("and picks no tool", await tool(), "move");
+  await page.keyboard.press("Alt+Shift+KeyR");
+  check("⌥⇧R from the text arms the rectangle", await tool(), "rect");
+  check("and types nothing", await at("text", "between"), "A paragraph between them.r");
+  await page.keyboard.press("Backspace");
+  check("the text's own keys are still the text's", await at("text", "between"), "A paragraph between them.");
+  await page.keyboard.press("Escape");
+  check("Escape from the text puts the tool down", await tool(), "move");
+  check("and leaves the caret where it was", await at("keyboard"), "text");
+
+  // Escape abandons a draw: the shape it had put in goes, the release draws
+  // nothing, and the tool stays in hand for the next Escape.
+  await page.keyboard.press("Alt+Shift+KeyR");
+  const topBand = await at("band", "top");
+  const shapes = await at("count", "top");
+  await page.mouse.move(topBand.left + 250, topBand.top + 100);
+  await page.mouse.down();
+  await page.mouse.move(topBand.left + 330, topBand.top + 150, { steps: 8 });
+  await frame();
+  check("a draw under way puts its shape in", await at("count", "top"), shapes + 1);
+  await page.keyboard.press("Escape");
+  await frame();
+  check("Escape mid-draw takes it back out", await at("count", "top"), shapes);
+  await page.mouse.move(topBand.left + 360, topBand.top + 160, { steps: 4 });
+  await page.mouse.up();
+  await frame();
+  check("and the release draws nothing", await at("count", "top"), shapes);
+  check("the rectangle is still in hand", await tool(), "rect");
+  await page.keyboard.press("Escape");
+  check("the next Escape puts it down", await tool(), "move");
+
+  // Escape abandons a marquee: what it had taken is let go, and its rubber
+  // band comes down.
+  const a2 = await at("shape", "top", "a2");
+  await page.mouse.move(topBand.left + 300, topBand.top + 10);
+  await page.mouse.down();
+  await page.mouse.move(a2.left + 20, a2.top + 20, { steps: 10 });
+  await frame();
+  check("a marquee under way selects what it crosses", await at("selection"), { top: ["a2"] });
+  await page.keyboard.press("Escape");
+  await frame();
+  check("Escape mid-marquee puts the selection back", await at("selection"), {});
+  check("and takes the marquee down", await at("marqueeShown"), false);
+  await page.mouse.move(a2.left + 40, a2.top + 30, { steps: 4 });
+  await page.mouse.up();
+  await frame();
+  check("and the release selects nothing", await at("selection"), {});
+
+  // ⌘A climbs: the diagram's shapes, then the page as blocks.
+  await page.mouse.click(...Object.values(centre(await at("shape", "top", "a1"))));
+  check("a click selects a shape", await at("selection"), { top: ["a1"] });
+  await page.keyboard.press(`${mod}+KeyA`);
+  check("⌘A takes the whole diagram", await at("selection"), { top: ["a1", "a2"] });
+  await page.keyboard.press(`${mod}+KeyA`);
+  check("the next ⌘A lets the shapes go", await at("selection"), {});
+  check("and takes the page as blocks", (await at("blockSelection")).length, (await at("blocks")).length);
+  check("with the keyboard on the page", await at("keyboard"), "text");
+  await page.keyboard.press("Escape");
+  check("Escape lets the blocks go", await at("blockSelection"), []);
+
+  // Shapes pasted into the text make a diagram of them, after the paragraph,
+  // their shapes selected and the keyboard on its band.
+  await at("caretAtEnd", "between");
+  const before = await at("diagrams");
+  await at(
+    "paste",
+    '<nt-diagram h="120"><nt-rect id="n1" x="40" y="200" w="120" h="60"></nt-rect>' +
+      '<nt-rect id="n2" x="220" y="210" w="80" h="80"></nt-rect></nt-diagram>',
+  );
+  await page.waitForFunction((n) => window.canvasPage.diagrams().length === n, before.length + 1);
+  const made = (await at("diagrams")).find((id) => !before.includes(id));
+  check("pasting shapes into the text makes a diagram of them", await at("count", made), 2);
+  const order = (await at("blocks")).map((block) => block.split(":")[0]);
+  check("right after the paragraph", order.indexOf(made), order.indexOf("between") + 1);
+  check("the paragraph is untouched", await at("text", "between"), "A paragraph between them.");
+  await page.waitForFunction((id) => (window.canvasPage.selection()[id] ?? []).length === 2, made);
+  check("its shapes are selected", (await at("selection"))[made]?.length, 2);
+  check("with the keyboard on its band", await at("keyboard"), `band:${made}`);
+  check("its shapes start at the band's margin", await at("model", made, (await at("selection"))[made][0]), {
+    x: 40,
+    y: 24,
+  });
+
+  // Escape climbs out of a diagram and onto the page: the shapes let go, then
+  // the diagram selected as a block, where Enter goes back in and ⌫ takes it.
+  await page.mouse.click(...Object.values(centre(await at("shape", "bottom", "b1"))));
+  check("a click selects in the diagram below", await at("selection"), { bottom: ["b1"] });
+  await page.keyboard.press("Escape");
+  check("the first Escape lets the shape go", await at("selection"), {});
+  check("the band keeps the keyboard", await at("keyboard"), "band:bottom");
+  await page.keyboard.press("Escape");
+  check("the next selects the diagram as a block", await at("blockSelection"), ["bottom"]);
+  check("and hands the keyboard to the page", await at("keyboard"), "text");
+  await page.keyboard.press("Enter");
+  check("Enter goes back in, onto its frontmost shape", await at("selection"), { bottom: ["b1"] });
+  check("with the keyboard on its band", await at("keyboard"), "band:bottom");
+  check("and the block let go", await at("blockSelection"), []);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  check("two Escapes select the block again", await at("blockSelection"), ["bottom"]);
+  await page.keyboard.press("Backspace");
+  check(
+    "⌫ takes the diagram out of the page",
+    (await at("blocks")).some((block) => block.startsWith("bottom:")),
+    false,
+  );
 
   check("no page errors", guards.errors(), []);
   check("no requests off the fixture", guards.requests(), []);

@@ -324,6 +324,7 @@ export function createPageGesture(deps: {
     marquee: (origin, blockId, shift, onEnd) => {
       const start = deps.entries().find((e) => e.blockId === blockId);
       if (!start) return;
+      const restores = deps.entries().map((entry) => entry.api.ownSelection.capture());
       const touched = new Set<string>();
       let latest: Point | null = null;
       let raf = 0;
@@ -360,15 +361,30 @@ export function createPageGesture(deps: {
         latest = { x: event.clientX, y: event.clientY };
         if (!raf) raf = requestAnimationFrame(flush);
       };
+      const detach = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
+        window.removeEventListener("keydown", key, true);
+        start.api.gesture.overlay.current?.marquee(null);
+      };
+      // Escape puts every diagram's selection back as the press found it.
+      const key = (event: KeyboardEvent) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (raf) cancelAnimationFrame(raf);
+        raf = 0;
+        detach();
+        deps.selection.keep(() => restores.forEach((restore) => restore()));
+        onEnd();
+      };
       const up = () => {
         if (raf) {
           cancelAnimationFrame(raf);
           flush();
         }
-        window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", up);
-        window.removeEventListener("pointercancel", up);
-        start.api.gesture.overlay.current?.marquee(null);
+        detach();
         const parts = deps.selection.getSnapshot().parts;
         const holding = deps.entries().filter((e) => parts.get(e.blockId)?.ids.length);
         const focus = holding.find((e) => e === start) ?? holding[0];
@@ -378,6 +394,7 @@ export function createPageGesture(deps: {
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", up);
       window.addEventListener("pointercancel", up);
+      window.addEventListener("keydown", key, true);
     },
   };
 }

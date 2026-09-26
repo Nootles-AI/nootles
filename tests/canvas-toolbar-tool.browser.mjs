@@ -148,11 +148,15 @@ try {
   await drag(await canvasPoint(0.3, 0.4), await canvasPoint(0.45, 0.55));
   check("a second drag draws nothing: the move tool marquees", added(before, await shapes()), []);
 
-  console.log("NT-23: R from the keyboard, then a drag");
+  console.log("NT-23: ⌥⇧R from the keyboard, then a drag");
   await fresh();
   check("a press on empty canvas focuses it", await focusCanvas(), true);
+  // The bare letter is a tool's only over shapes in hand; an empty band's
+  // letters may be meant for the text beside it.
   await key("r");
-  check("R presses Rectangle and arms the surface", await tools(), { toolbar: ["Rectangle"], surface: "rect" });
+  check("a bare R with nothing selected picks nothing", await tools(), { toolbar: ["Move"], surface: "move" });
+  await key("Alt+Shift+KeyR");
+  check("⌥⇧R presses Rectangle and arms the surface", await tools(), { toolbar: ["Rectangle"], surface: "rect" });
   await drag(await canvasPoint(0.55, 0.35), await canvasPoint(0.75, 0.6));
   check("after the drag the toolbar and the surface agree on Move", await tools(), { toolbar: ["Move"], surface: "move" });
 
@@ -208,8 +212,8 @@ try {
   await fresh();
   check("the bar has no hand: the page scrolls", labels.includes("Hand"), false);
   check("a press on empty canvas focuses it", await focusCanvas(), true);
-  await key("h");
-  check("H still takes the hand", await surfaceTool(), "hand");
+  await key("Alt+Shift+KeyH");
+  check("⌥⇧H still takes the hand", await surfaceTool(), "hand");
   await key("Escape");
   check("Escape returns both to Move", await tools(), { toolbar: ["Move"], surface: "move" });
   await pickTool("Rectangle");

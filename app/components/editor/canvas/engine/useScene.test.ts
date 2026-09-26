@@ -142,3 +142,52 @@ describe("what a store reads", () => {
     expect([scene.w, scene.h, scene.wide, scene.nodes[0].x, scene.nodes[0].y]).toEqual([320, 180, undefined, 400, -20]);
   });
 });
+
+describe("SceneStore.abort", () => {
+  it("puts back the scene the gesture opened on, with no entry and no edit", () => {
+    const store = new SceneStore(diagram(40));
+    const before = store.getScene();
+    const events: SceneHistoryEvent[] = [];
+    store.onHistory((event) => void events.push(event));
+    const live: boolean[] = [];
+    store.setLiveWriter((_scene, edit) => void live.push(edit));
+
+    store.begin();
+    store.dispatch({ type: "remove", ids: ["a"] });
+    expect(store.getScene().nodes).toHaveLength(0);
+    store.abort();
+
+    expect(store.getScene()).toBe(before);
+    expect(store.gesturing()).toBe(false);
+    expect(store.canUndo()).toBe(false);
+    expect(events).toEqual([]);
+    expect(live.at(-1)).toBe(false);
+  });
+
+  it("closes every level of a nested bracket", () => {
+    const store = new SceneStore(diagram(40));
+    store.begin();
+    store.begin();
+    store.dispatch({ type: "move", ids: ["a"], dx: 5, dy: 0 });
+    store.abort();
+    expect(store.gesturing()).toBe(false);
+    store.commit();
+    expect(store.canUndo()).toBe(false);
+  });
+
+  it("takes in a source that arrived while the gesture held it off", () => {
+    const store = new SceneStore(diagram(40));
+    store.begin();
+    store.setSource(diagram(90));
+    expect(store.getScene().nodes[0].x).toBe(40);
+    store.abort();
+    expect(store.getScene().nodes[0].x).toBe(90);
+  });
+
+  it("does nothing outside a gesture", () => {
+    const store = new SceneStore(diagram(40));
+    const before = store.getScene();
+    store.abort();
+    expect(store.getScene()).toBe(before);
+  });
+});

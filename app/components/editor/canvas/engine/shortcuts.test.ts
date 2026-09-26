@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { DOMParser } from "linkedom";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  createDiagramCommands,
+  createNudgeRun,
   formatShortcut,
   matchShortcut,
   SHORTCUTS,
@@ -7,6 +10,8 @@ import {
   type Shortcut,
   type ShortcutId,
 } from "./shortcuts";
+import { SceneStore } from "./useScene";
+import { createSelectionStore } from "./useSelection";
 
 /** A fake `KeyboardEvent` — this environment (edge-runtime) has no real DOM,
  *  and `matchShortcut` only ever reads these six fields (§0 of the module's
@@ -183,5 +188,84 @@ describe("a diagram has no camera", () => {
     ]) {
       expect(ids).not.toContain(gone);
     }
+  });
+});
+
+// The store parses diagram HTML, and this environment has no DOM.
+(globalThis as { DOMParser?: unknown }).DOMParser = DOMParser;
+
+describe("the diagram commands", () => {
+  afterEach(() => vi.useRealTimers());
+
+  const band =
+    '<nt-diagram h="200"><nt-rect id="a" x="10" y="4" w="100" h="60"></nt-rect>' +
+    '<nt-rect id="b" x="300" y="40" w="100" h="60" locked></nt-rect></nt-diagram>';
+
+  function diagram() {
+    const store = new SceneStore(band, undefined, true);
+    const selection = createSelectionStore(store.getScene());
+    store.subscribe(() => selection.setScene(store.getScene()));
+    const nudge = createNudgeRun(store, selection);
+    const commands = createDiagramCommands({
+      store,
+      selection,
+      nudge,
+      band: () => ({ minX: 0, maxX: 720 }),
+    });
+    return { store, selection, nudge, commands };
+  }
+  const arrow = (key: string) => keyEvent({ key, code: key.replace("arrow", "Arrow") });
+  const at = (store: SceneStore, id: string) => store.getNode(id)!;
+
+  it("nudges a held-down arrow as one undo step", () => {
+    vi.useFakeTimers();
+    const { store, selection, nudge, commands } = diagram();
+    selection.select(["a"]);
+    commands["move.nudge"](arrow("arrowright"));
+    commands["move.nudge"](arrow("arrowright"));
+    commands["move.nudgeFar"](arrow("arrowdown"));
+    expect([at(store, "a").x, at(store, "a").y]).toEqual([12, 14]);
+    nudge.end();
+    store.undo();
+    expect([at(store, "a").x, at(store, "a").y]).toEqual([10, 4]);
+  });
+
+  it("holds a nudge inside the band: never above the top, never off a side", () => {
+    vi.useFakeTimers();
+    const { store, selection, nudge, commands } = diagram();
+    selection.select(["a"]);
+    commands["move.nudgeFar"](arrow("arrowup"));
+    commands["move.nudgeFar"](arrow("arrowleft"));
+    expect([at(store, "a").x, at(store, "a").y]).toEqual([0, 0]);
+    nudge.end();
+  });
+
+  it("closes an idle run before an undo steps, so the undo takes it whole", () => {
+    vi.useFakeTimers();
+    const { store, selection, commands } = diagram();
+    selection.select(["a"]);
+    commands["move.nudge"](arrow("arrowright"));
+    expect(store.gesturing()).toBe(true);
+    expect(store.undo()).toBe(true);
+    expect(at(store, "a").x).toBe(10);
+  });
+
+  it("writes the page's reading of a lock, not its own", () => {
+    const { store, selection } = diagram();
+    const commands = createDiagramCommands({
+      store,
+      selection,
+      nudge: createNudgeRun(store, selection),
+      band: () => null,
+      flag: () => false,
+    });
+    selection.select(["b"]);
+    commands["toggle.locked"](keyEvent({}));
+    expect(at(store, "b").locked).toBe(false);
+  });
+
+  it("hands the tool keys to no one when it has no tool of its own", () => {
+    const { commands } = diagram();
+    expect(commands["tool.rect"](keyEvent({ key: "r" }))).toBe(false);
   });
 });

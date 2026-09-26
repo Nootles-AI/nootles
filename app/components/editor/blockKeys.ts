@@ -12,7 +12,8 @@
 
 import { createExtension } from "@blocknote/core";
 import type { Extension } from "@blocknote/core";
-import { Plugin, PluginKey, TextSelection } from "prosemirror-state";
+import { SuggestionMenu } from "@blocknote/core/extensions";
+import { NodeSelection, Plugin, PluginKey, Selection, TextSelection } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import {
   BlockRangeSelection,
@@ -24,8 +25,10 @@ import {
   blockPosById,
   blocksInReadingOrder,
   blocksTouched,
+  caretBesidePlate,
   ownTextRange,
 } from "./blockNav";
+import { diagramEnter } from "./canvas/page/diagramKeys";
 
 type Editor = Parameters<NonNullable<Extension["keyboardShortcuts"]>[string]>[0]["editor"];
 
@@ -142,6 +145,11 @@ function stepBlocks(editor: Editor, dir: -1 | 1, stretch: boolean): boolean {
 
   if (!stretch) {
     stretches.delete(view);
+    const caret = caretBesidePlate(doc, order, selection.positions, dir);
+    if (caret !== null) {
+      setSelection(view, TextSelection.create(doc, caret));
+      return true;
+    }
     const target = blockBeside(order, selection.from, end, dir);
     const next = target && blockRangeFor(doc, [target.id]);
     if (next) setSelection(view, next);
@@ -171,13 +179,59 @@ function stepBlocks(editor: Editor, dir: -1 | 1, stretch: boolean): boolean {
   return true;
 }
 
+/** ←/→ on one void block's plate: into the text beside it, as ↑/↓ do. */
+function leavePlate(editor: Editor, dir: -1 | 1): boolean {
+  const view = keyboardView(editor);
+  if (!view) return false;
+  const { selection, doc } = view.state;
+  if (!(selection instanceof BlockRangeSelection)) return false;
+  const caret = caretBesidePlate(doc, blocksInReadingOrder(doc, shownIn(view)), selection.positions, dir);
+  if (caret === null) return false;
+  setSelection(view, TextSelection.create(doc, caret));
+  return true;
+}
+
+const ARROWS = { up: -1, left: -1, down: 1, right: 1 } as const;
+
+/**
+ * An arrow at the edge of a text block, onto a block with no text — a diagram,
+ * an image: its plate, which is something to see and to act on, where
+ * ProseMirror would leave an invisible node selection. A code block's own
+ * keys take the caret into its code instead.
+ */
+function arrowIntoVoid(editor: Editor, dir: keyof typeof ARROWS): boolean {
+  const view = keyboardView(editor);
+  if (!view || editor.getExtension(SuggestionMenu)?.shown()) return false;
+  const { selection, doc } = view.state;
+  if (!(selection instanceof TextSelection) || !selection.empty) return false;
+  if (!view.endOfTextblock(dir)) return false;
+  const back = ARROWS[dir] < 0;
+  const { $from } = selection;
+  if ($from.depth === 0) return false;
+  const next = Selection.findFrom(doc.resolve(back ? $from.before() : $from.after()), back ? -1 : 1);
+  if (!(next instanceof NodeSelection) || next.node.type.name === "codeBlock") return false;
+  const container = next.$from.parent;
+  const id: unknown = container.attrs.id;
+  if (container.type.name !== "blockContainer" || typeof id !== "string") return false;
+  blockSelection(editor).select([id]);
+  return true;
+}
+
 /** Enter on a block selection goes back to writing, at the end of the last
-    block's own text. A block with no text keeps its plate. */
+    block's own text. A diagram is entered, onto its shapes. A block with no
+    text keeps its plate. */
 function enterBlocks(editor: Editor): boolean {
   const view = keyboardView(editor);
   if (!view) return false;
   const { selection, doc } = view.state;
   if (!(selection instanceof BlockRangeSelection) || !selection.nodes.length) return false;
+  if (
+    selection.nodes.length === 1 &&
+    selection.nodes[0].firstChild?.type.name === "canvas" &&
+    diagramEnter(view.dom, selection.blockIds[0])
+  ) {
+    return true;
+  }
   const own = ownTextRange(doc, selection.positions[selection.positions.length - 1]);
   if (own) setSelection(view, TextSelection.create(doc, own.end));
   return true;
@@ -230,8 +284,10 @@ export const blockKeysExtension = createExtension({
   prosemirrorPlugins: [tripleClickPlugin()],
   keyboardShortcuts: {
     "Mod-d": ({ editor }) => duplicateAtSelection(editor),
-    ArrowUp: ({ editor }) => stepBlocks(editor, -1, false),
-    ArrowDown: ({ editor }) => stepBlocks(editor, 1, false),
+    ArrowUp: ({ editor }) => stepBlocks(editor, -1, false) || arrowIntoVoid(editor, "up"),
+    ArrowDown: ({ editor }) => stepBlocks(editor, 1, false) || arrowIntoVoid(editor, "down"),
+    ArrowLeft: ({ editor }) => leavePlate(editor, -1) || arrowIntoVoid(editor, "left"),
+    ArrowRight: ({ editor }) => leavePlate(editor, 1) || arrowIntoVoid(editor, "right"),
     "Shift-ArrowUp": ({ editor }) => stepBlocks(editor, -1, true),
     "Shift-ArrowDown": ({ editor }) => stepBlocks(editor, 1, true),
     Enter: ({ editor }) => enterBlocks(editor),

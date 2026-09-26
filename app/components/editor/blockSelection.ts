@@ -393,8 +393,12 @@ export interface BlockSelectionStore {
   /** Add to what is already selected — the shift-drag / shift-click verb. */
   add(ids: readonly string[]): void;
   toggle(id: string): void;
-  /** Deselect, leaving the caret at the end of what was selected. */
-  clear(): void;
+  /**
+   * Deselect, leaving the caret at the end of what was selected. `focus:
+   * false` leaves the keyboard where it is — on a diagram whose shapes were
+   * just selected.
+   */
+  clear(opts?: { focus?: boolean }): void;
   /**
    * Take the blocks the caret or text selection is in as whole blocks —
    * Escape's verb. False when there is no such block, or they already are.
@@ -462,12 +466,12 @@ class BlockSelectionStoreImpl implements BlockSelectionStore {
   isSelected = (id: string) => this.snapshot.selected.has(id);
 
   /** The one write. Selection only — never a document change, never history. */
-  private put(next: Selection | null, view: EditorView) {
+  private put(next: Selection | null, view: EditorView, focus = true) {
     if (!next) return;
     view.dispatch(view.state.tr.setSelection(next).setMeta("addToHistory", false));
     // A band drawn in the gutter has to leave the keyboard pointing at the
     // document, or Backspace goes nowhere. `focus` prevents scroll.
-    if (!view.hasFocus()) view.focus();
+    if (focus && !view.hasFocus()) view.focus();
   }
 
   select = (ids: readonly string[]) => {
@@ -492,12 +496,12 @@ class BlockSelectionStoreImpl implements BlockSelectionStore {
     this.select(ids);
   };
 
-  clear = () => {
+  clear = (opts?: { focus?: boolean }) => {
     const view = this.view();
     if (!view) return;
     const selection = view.state.selection;
     if (!(selection instanceof BlockRangeSelection)) return;
-    this.put(caretNear(view.state.doc, selection.to), view);
+    this.put(caretNear(view.state.doc, selection.to), view, opts?.focus ?? true);
   };
 
   promote = () => {

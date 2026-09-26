@@ -116,3 +116,28 @@ export function blockPosById(doc: PMNode, id: string): number {
   });
   return found;
 }
+
+/**
+ * Where a plain arrow from a plate on one void block — a diagram, an image, a
+ * picture of any kind — puts a caret: into the text of the block beside it,
+ * at its near end, since there is nothing in the void block to write in and a
+ * plate stepping on down the page would never let the writing resume. Null
+ * when the plate is not one void block (a code block keeps its own keys), or
+ * the block beside has no text.
+ */
+export function caretBesidePlate(
+  doc: PMNode,
+  order: readonly BlockSpot[],
+  positions: readonly number[],
+  dir: -1 | 1,
+): number | null {
+  if (positions.length !== 1) return null;
+  const pos = positions[0];
+  const block = doc.nodeAt(pos);
+  const content = block?.firstChild;
+  if (!block || !content || content.type.name === "codeBlock" || ownTextRange(doc, pos)) return null;
+  const target = blockBeside(order, pos, pos + block.nodeSize, dir);
+  const text = target && ownTextRange(doc, target.pos);
+  if (!text) return null;
+  return dir > 0 ? text.start : text.end;
+}

@@ -401,16 +401,38 @@ export class SceneStore {
       this.gestureOps = [];
     }
 
-    const source = this.pendingSource;
-    if (source !== null) {
-      const as = this.pendingAs;
-      this.pendingSource = null;
-      this.pendingAs = "source";
-      if (as === "remote") this.adoptRemote(source);
-      else if (as === "quiet") this.adoptQuiet(source);
-      else this.adopt(source);
-    }
+    this.settlePending();
   };
+
+  /**
+   * Close the open gesture as though it never happened: the scene back to what
+   * it was at `begin`, with no entry in history and nothing in the bug log — a
+   * draw that Escape abandoned. Committing it instead would leave an entry
+   * behind even for a scene put back by hand, since `commit` compares by
+   * identity.
+   */
+  abort = (): void => {
+    if (this.depth === 0) return;
+    const before = this.gestureBefore;
+    this.depth = 0;
+    this.gestureBefore = null;
+    this.gestureSelection = null;
+    this.gestureOps = [];
+    if (before && before !== this.scene) this.setScene(before, true, false);
+    this.settlePending();
+  };
+
+  /** A source that arrived mid-gesture, taken now the gesture is over. */
+  private settlePending(): void {
+    const source = this.pendingSource;
+    if (source === null) return;
+    const as = this.pendingAs;
+    this.pendingSource = null;
+    this.pendingAs = "source";
+    if (as === "remote") this.adoptRemote(source);
+    else if (as === "quiet") this.adoptQuiet(source);
+    else this.adopt(source);
+  }
 
   /**
    * Make a selection change undoable in its own right, given a thunk restoring

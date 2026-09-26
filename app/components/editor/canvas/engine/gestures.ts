@@ -577,8 +577,10 @@ export function drivePointer(pointerId: number, drive: PointerDrive): () => void
     if (ev.pointerId === pointerId) drive.end(false, ev);
   };
   const onKey = (ev: KeyboardEvent) => {
+    // Ahead of every keymap: the Escape that cancels a gesture is spent here.
     if (ev.key === "Escape") {
       ev.preventDefault();
+      ev.stopPropagation();
       drive.end(true);
       return;
     }
@@ -587,14 +589,14 @@ export function drivePointer(pointerId: number, drive: PointerDrive): () => void
   window.addEventListener("pointermove", onMove);
   window.addEventListener("pointerup", onUp);
   window.addEventListener("pointercancel", onUp);
-  window.addEventListener("keydown", onKey);
-  window.addEventListener("keyup", onKey);
+  window.addEventListener("keydown", onKey, true);
+  window.addEventListener("keyup", onKey, true);
   return () => {
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
     window.removeEventListener("pointercancel", onUp);
-    window.removeEventListener("keydown", onKey);
-    window.removeEventListener("keyup", onKey);
+    window.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("keyup", onKey, true);
   };
 }
 
@@ -885,6 +887,7 @@ function startRadiusDrag(
   const onKey = (ev: KeyboardEvent) => {
     if (ev.key === "Escape") {
       ev.preventDefault();
+      ev.stopPropagation();
       end(true);
       return;
     }
@@ -896,15 +899,15 @@ function startRadiusDrag(
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
     window.removeEventListener("pointercancel", onUp);
-    window.removeEventListener("keydown", onKey);
-    window.removeEventListener("keyup", onKey);
+    window.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("keyup", onKey, true);
   };
 
   window.addEventListener("pointermove", onMove);
   window.addEventListener("pointerup", onUp);
   window.addEventListener("pointercancel", onUp);
-  window.addEventListener("keydown", onKey);
-  window.addEventListener("keyup", onKey);
+  window.addEventListener("keydown", onKey, true);
+  window.addEventListener("keyup", onKey, true);
 }
 
 /** The shorthand the style panel writes, from four px radii. */

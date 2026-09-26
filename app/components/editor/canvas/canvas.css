@@ -40,6 +40,7 @@
   transition: box-shadow var(--dur-slow) var(--ease);
 }
 .nt-editor .ProseMirror-selectednode .nt-canvas:not(.nt-canvas-shot) > .nt-canvas-viewport,
+.nt-editor .nt-block-selected .nt-canvas:not(.nt-canvas-shot) > .nt-canvas-viewport,
 .nt-canvas:not(.nt-canvas-shot):hover > .nt-canvas-viewport,
 .nt-canvas:not(.nt-canvas-shot)[data-holding] > .nt-canvas-viewport {
   box-shadow: inset 0 0 0 1px var(--border-strong);
