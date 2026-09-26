@@ -2,6 +2,7 @@ import { createTextStreamResponse, generateText, streamText, type LanguageModelU
 import { AI } from "./aiConfig";
 import { CANVAS_GRAMMAR } from "./canvasGrammar";
 import { diagramModel } from "./chat/provider";
+import { diagramElement } from "./diagramElement";
 import type { StreamLedger } from "./streamLedger";
 
 /**
@@ -360,35 +361,6 @@ Plan the frame like a camera: open the plan's scene line with the shot itself �
 close, low angle, over-the-shoulder — and let the layout line place the subject the way
 that shot would.`
     : "";
-
-/**
- * The `<nt-diagram>` element out of a finished reply, or "". Models fence, and
- * sometimes preface — the element is the reply.
- *
- * A reply the token cap cut off has no closing tag, and demanding one threw
- * whole drawings away: a rich brief ("cinematic 3D, forced perspective") runs
- * long, the cap lands mid-shape, and the ninety complete shapes before the cut
- * were discarded with the half one — measured as a third of a board's draws
- * coming back empty and being expensively redrawn. Salvage instead: keep
- * everything up to the last complete element, close the diagram ourselves, and
- * let the parser's ordinary tolerance handle the seam.
- */
-export function diagramElement(text: string): string {
-  const whole = /<nt-diagram[\s\S]*<\/nt-diagram>/i.exec(text)?.[0];
-  if (whole) return whole;
-  const open = text.search(/<nt-diagram[\s>]/i);
-  if (open === -1) return "";
-  let body = text.slice(open);
-  if (!body.includes(">")) return "";
-  // Cut after the last complete closing tag, so what we close holds only
-  // whole shapes — the tail is usually an element severed mid-attribute.
-  const lastClose = body.lastIndexOf("</nt-");
-  if (lastClose > 0) {
-    const end = body.indexOf(">", lastClose);
-    if (end !== -1) body = body.slice(0, end + 1);
-  }
-  return `${body}\n</nt-diagram>`;
-}
 
 /**
  * One drawing, whole — the chat agent's `draw` tool.

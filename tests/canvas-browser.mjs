@@ -44,6 +44,9 @@ const HARNESSES = [
   // And what inline completion is shown of the page, and what its Tab writes
   // back, over a window filled to the wire's caps (NT-101).
   "completion-window",
+  // And a diagram suggestion whose stream ends early — cut off at the token
+  // cap or dropped — stays an offer of its whole shapes (NT-103).
+  "diagram-suggestion",
 ];
 
 function run(name) {
