@@ -7,6 +7,7 @@ import {
   hasCanvasState,
   materializeCanvas,
 } from "@/app/components/editor/canvas/collab/ymap";
+import { normalizeDiagram } from "@/app/components/editor/canvas/scene/band";
 import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
 import { isGroup, type Scene, type SceneNode } from "@/app/components/editor/canvas/scene/types";
 import { normalizeDocument, normalizeInline } from "./normalize";
@@ -355,10 +356,15 @@ export function canvasSceneFromMirror(data: string, parseHtml: (html: string) =>
   return migrateLegacyCanvas(data, parseHtml);
 }
 
-/** The scene as the live per-shape CRDT maps materialize it, or null when the block has no map state yet. */
+/**
+ * The scene as the live per-shape CRDT maps materialize it, read as the band
+ * the mirror reads as, or null when the block has no map state yet. Maps the
+ * band migration has not reached still hold the old root; normalized on both
+ * sides, parity holds either side of it.
+ */
 export function canvasSceneFromMaps(doc: Y.Doc, blockId: string): Scene | null {
   const root = doc.getMap<unknown>(canvasMapName(blockId)) as Y.Map<unknown>;
-  return hasCanvasState(root) ? materializeCanvas(root) : null;
+  return hasCanvasState(root) ? normalizeDiagram(materializeCanvas(root)) : null;
 }
 
 export type SceneMismatch = { class: string; id?: string; detail: string };
@@ -380,7 +386,11 @@ function flattenScene(scene: Scene): { nodes: Map<string, { parentId: string | n
 /** Structural equivalence of two materialized scenes; empty when they agree. */
 export function compareScenes(a: Scene, b: Scene): SceneMismatch[] {
   const out: SceneMismatch[] = [];
-  if (a.w !== b.w || a.h !== b.h) out.push({ class: "canvas-size", detail: `size ${a.w}x${a.h} vs ${b.w}x${b.h}` });
+  // A band states no width, so `w` only differs where one side holds one.
+  if (((a.w > 0 || b.w > 0) && a.w !== b.w) || a.h !== b.h) {
+    out.push({ class: "canvas-size", detail: `size ${a.w}x${a.h} vs ${b.w}x${b.h}` });
+  }
+  if (a.wide !== b.wide) out.push({ class: "canvas-wide", detail: `wide ${a.wide === true} vs ${b.wide === true}` });
   if (stableStringify(a.style) !== stableStringify(b.style)) out.push({ class: "canvas-style", detail: "root style differs" });
   if (stableStringify(a.attrs) !== stableStringify(b.attrs)) out.push({ class: "canvas-attrs", detail: "root attrs differ" });
   const left = flattenScene(a);
@@ -579,7 +589,8 @@ export function compareLegacyToNml(
     }
     if (nml.type === "canvas") {
       const scene = migrateLegacyCanvas(str(record(legacy.props).data), parseHtml);
-      const diff = compareScenes(scene, nml.scene);
+      // An NML doc converted before bands still holds the old root, as stored.
+      const diff = compareScenes(scene, normalizeDiagram(nml.scene));
       for (const d of diff) add({ class: "canvas-scene", id, detail: `${d.class}${d.id ? ` ${d.id}` : ""}: ${d.detail}` });
     }
   }

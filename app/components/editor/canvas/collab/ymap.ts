@@ -16,17 +16,22 @@ import { byOrder, keyBetween, keyForIndex } from "./order";
  * A diagram as CRDT structure: three Y.Maps under one root map in the page's
  * Y.Doc, named `canvas:<blockId>`.
  *
- *   "meta"   — the surface's own fields (size, style, id, attrs)
+ *   "meta"   — the surface's own fields: `h` only when pinned (a frame's
+ *              always is); `w` only when one is held (a band states none); `wide` only while set, never
+ *              `false`; `style`, `attrs`, `id`
  *   "shapes" — NodeId → Y.Map of per-shape fields
  *   "edges"  — EdgeId → Y.Map of per-edge fields
  *   "mirror" — a stamp of the HTML last mirrored onto the block (binding.ts)
+ *   "edit"   — the token of the last thing anybody did (binding.ts)
  *
  * Granularity is the whole design. `frame` is ONE value ({x,y,w,h}): two
  * concurrent drags converge on a position somebody chose, never on one
  * person's x with the other's y. `style` is one value: the grammar treats
  * declaration order as meaning, and per-declaration maps have none. An edge's
  * `from` and `to` are SEPARATE keys, so reconnecting opposite ends
- * concurrently keeps both. Hierarchy is flat — every shape carries
+ * concurrently keeps both. `wide` is its own meta key rather than an entry in
+ * `attrs`, one value, so toggling it and a concurrent root-attribute write
+ * both survive. Hierarchy is flat — every shape carries
  * `parent: {id, order}` — so a reorder is one LWW write and a reparent is one
  * intent winning whole (see order.ts for why keys, not arrays).
  *
@@ -45,6 +50,46 @@ export const isCanvasMapName = (name: string) => name.startsWith(CANVAS_MAP);
 export const CANVAS_LOCAL = "canvas-local";
 export const CANVAS_EXTERNAL = "canvas-external";
 export const CANVAS_MIGRATE = "canvas-migrate";
+
+/**
+ * The root key a client marks its block-prop mirror with, just before writing
+ * it. Written in the same task as the prop, so the two leave in one sync flush,
+ * and when two people's mirrors cross, both keys settle on the same writer.
+ */
+export const CANVAS_MIRROR_KEY = "mirror";
+
+/**
+ * The root key carrying the last thing anybody DID — a fresh token, written in
+ * the same transaction as the shape writes it accompanies.
+ *
+ * `measure` and `amend` (`engine/useScene.ts`) change the model without anyone
+ * doing anything: a text reporting the box its browser gave it, a picture
+ * moving into storage. Locally they are marked as non-edits by their
+ * transaction origin — but an origin is this client's own note to itself and
+ * is gone by the time the bytes reach anyone else. A collaborator sees map
+ * keys moving and nothing more, so it read every one of them as concurrent
+ * work and paid the documented price: a fresh undo horizon, for a box nobody
+ * typed (NT-27).
+ *
+ * The fact travels in the maps instead. An edit moves this key; housekeeping
+ * leaves it where it is. A peer that sees the diagram change under an unmoved
+ * token knows nobody did it, and keeps its history.
+ */
+export const CANVAS_EDIT_KEY = "edit";
+
+/**
+ * A mark of a mirror rather than a copy of it: its length and FNV-1a. Here,
+ * with nothing but the maps around it, so a server rewriting a block's mirror
+ * can stamp it exactly as a client would.
+ */
+export function mirrorStamp(html: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < html.length; i++) {
+    hash ^= html.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `${html.length}:${(hash >>> 0).toString(36)}`;
+}
 
 type ShapeFields = {
   kind: SceneNodeKind;
@@ -133,8 +178,9 @@ function edgeFields(edge: SceneEdge, order: string): Record<string, unknown> {
  */
 export function populateCanvas(root: Y.Map<unknown>, scene: Scene) {
   const meta = new Y.Map<unknown>();
-  meta.set("w", scene.w);
-  meta.set("h", scene.h);
+  if (scene.w > 0) meta.set("w", scene.w);
+  if (scene.h > 0) meta.set("h", scene.h);
+  if (scene.wide) meta.set("wide", true);
   meta.set("style", { ...scene.style });
   meta.set("attrs", { ...scene.attrs });
   if (scene.id !== undefined) meta.set("id", scene.id);
@@ -278,8 +324,9 @@ export function materializeCanvas(root: Y.Map<unknown>): Scene {
   const metaAttrs = { ...((meta?.get("attrs") as Record<string, string>) ?? {}) };
   const metaId = meta?.get("id") as string | undefined;
   return {
-    w: (meta?.get("w") as number) ?? 960,
-    h: (meta?.get("h") as number) ?? 540,
+    w: (meta?.get("w") as number | undefined) ?? 0,
+    h: (meta?.get("h") as number | undefined) ?? 0,
+    ...(meta?.get("wide") === true ? { wide: true as const } : {}),
     style: { ...((meta?.get("style") as StyleMap) ?? {}) },
     nodes: build(null),
     edges: edgeRows.map((r) => r.edge),
@@ -349,14 +396,12 @@ export function applySceneDiff(
   const shapes = root.get("shapes") as Y.Map<unknown>;
   const edges = root.get("edges") as Y.Map<unknown>;
 
-  if (prev.w !== next.w) meta.set("w", next.w);
-  if (prev.h !== next.h) meta.set("h", next.h);
+  if (prev.w !== next.w) setOrDelete(meta, "w", next.w > 0 ? next.w : undefined);
+  if (prev.h !== next.h) setOrDelete(meta, "h", next.h > 0 ? next.h : undefined);
+  if (prev.wide !== next.wide) setOrDelete(meta, "wide", next.wide);
   if (!same(prev.style, next.style)) meta.set("style", { ...next.style });
   if (!same(prev.attrs, next.attrs)) meta.set("attrs", { ...next.attrs });
-  if (prev.id !== next.id) {
-    if (next.id !== undefined) meta.set("id", next.id);
-    else if (meta.has("id")) meta.delete("id");
-  }
+  if (prev.id !== next.id) setOrDelete(meta, "id", next.id);
 
   type Flat = { node: SceneNode; parentId: NodeId | null };
   const flatten = (scene: Scene) => {
@@ -543,6 +588,12 @@ function edgeOrderDirty(
 
 function setIfChanged(map: Y.Map<unknown>, key: string, value: unknown) {
   if (!map.has(key) || !same(map.get(key), value)) map.set(key, value);
+}
+
+/** A key that is present only while it holds something. */
+function setOrDelete(map: Y.Map<unknown>, key: string, value: unknown) {
+  if (value !== undefined) map.set(key, value);
+  else if (map.has(key)) map.delete(key);
 }
 
 /** Existing key kept when it can be; a fresh one between neighbours else. */

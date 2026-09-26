@@ -3,7 +3,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { EdgeLayer } from "../canvas/render/EdgeLayer";
 import { ShapeView, toCss } from "../canvas/render/ShapeView";
-import { unionBounds } from "../canvas/scene/geometry";
+import { bandHeight, bandLeft, bandWidth } from "../canvas/scene/band";
 import { migrateLegacyCanvas } from "../canvas/scene/migrate";
 import { walk, type EdgeId, type Scene } from "../canvas/scene/types";
 import "../canvas/canvas.css";
@@ -49,22 +49,17 @@ export function sceneSummary(source: string): string {
   })`;
 }
 
-/** Breathing room between the content and the edge of the preview. */
-const FIT_PAD = 16;
-
 export function ScenePreview({ scene }: { scene: Scene }) {
   const viewport = useRef<HTMLDivElement>(null);
   const layer = useRef<HTMLDivElement>(null);
 
   /**
-   * Fits the content to the box, which is the one place the preview departs
-   * from the block on purpose.
-   *
-   * The block opens at the identity transform and lets you pan and zoom from
-   * there; a preview has no pointer, so a diagram laid out past the document
-   * column would simply be cut off with no way to see the rest. The transform
-   * goes on `.nt-canvas-scene`, which is the element the canvas itself pans and
-   * zooms — so this is the same mechanism, set once, not a second layout.
+   * Places the band the way the block does: its left edge on the box's, the
+   * shapes where they will land, never centred — so accepting a suggestion
+   * moves nothing sideways. A band wider than the box, which is a wide one in
+   * the column, shrinks uniformly to fit rather than being cut off; nothing
+   * ever grows. The transform goes on `.nt-canvas-scene`, the layer the canvas
+   * itself positions, so this is the same mechanism set once.
    */
   useLayoutEffect(() => {
     const box = viewport.current;
@@ -72,25 +67,15 @@ export function ScenePreview({ scene }: { scene: Scene }) {
     if (!box || !el) return;
 
     const fit = () => {
-      const content = unionBounds(scene.nodes);
       const { clientWidth: w, clientHeight: h } = box;
-      if (!w || !h || content.w <= 0 || content.h <= 0) return;
-      // Only ever shrinks: a four-shape diagram blown up to fill the box would
-      // preview at a size it is never going to be.
-      const scale = Math.min(
-        1,
-        (w - FIT_PAD * 2) / content.w,
-        (h - FIT_PAD * 2) / content.h,
-      );
-      const x = (w - content.w * scale) / 2 - content.x * scale;
-      const y = (h - content.h * scale) / 2 - content.y * scale;
-      // Both numbers above are measured from the top left, so the scale has to
-      // be taken from there too. The default origin is the box's centre, which
-      // silently adds `(1 - scale) × half the box` to every coordinate — enough
-      // to push the right-hand column of a fitted diagram past the crop and
-      // shave the border off it.
+      if (!w || !h) return;
+      // The height term only bites when a host gives less room than
+      // `bandHeightIn` asks for, which is better shrunk than cropped.
+      const scale = Math.min(1, w / bandWidth(scene), h / bandHeight(scene));
+      // From the top left, where every coordinate is measured; the default
+      // centre origin would add `(1 - scale) × half the box` to each of them.
       el.style.transformOrigin = "0 0";
-      el.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+      el.style.transform = `scale(${scale}) translateX(${-bandLeft(scene)}px)`;
     };
 
     fit();

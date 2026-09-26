@@ -428,9 +428,17 @@ export function LabelEdit({
   label,
   onEnd,
   onLive,
+  onKeyEnd,
 }: {
   label: string;
   onEnd: (label: string) => void;
+  /**
+   * Enter or Escape ended the edit. The keyboard goes where this puts it —
+   * back on the diagram, whose keys the next Escape is for — and the blur
+   * that follows commits, as any blur does. Without it the label just blurs,
+   * and focus falls to the body where no keymap hears anything.
+   */
+  onKeyEnd?: () => void;
   /**
    * The label as it stands mid-edit, on a short debounce — how collaborators
    * watch it being typed instead of having it appear whole on blur. The
@@ -629,12 +637,14 @@ export function LabelEdit({
         if (blockAtCaret(el)?.tagName === "LI") return;
         event.preventDefault();
         // Blur commits, so both endings go through one path.
-        el.blur();
+        if (onKeyEnd) onKeyEnd();
+        else el.blur();
         return;
       }
       if (event.key === "Escape") {
         event.preventDefault();
-        el.blur();
+        if (onKeyEnd) onKeyEnd();
+        else el.blur();
         return;
       }
       // Select all means all of THIS label. Left to the browser, ⌘A in an
@@ -650,7 +660,7 @@ export function LabelEdit({
     };
     el.addEventListener("keydown", onKey);
     return () => el.removeEventListener("keydown", onKey);
-  }, [menu, items, activeIndex, take, onInput]);
+  }, [menu, items, activeIndex, take, onInput, onKeyEnd]);
 
   // Through the same walker the grammar parser uses, so a ⌘B and a Shift+Enter
   // survive the commit exactly as they will survive the round trip.

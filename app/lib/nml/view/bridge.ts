@@ -2,6 +2,7 @@ import { EditorState, NodeSelection, Plugin, Selection, TextSelection, type Tran
 import { Fragment, type Node as PmNode } from "prosemirror-model";
 import type { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
+import { isLegacyRoot } from "@/app/components/editor/canvas/scene/band";
 import type { Scene } from "@/app/components/editor/canvas/scene/types";
 import {
   executeNmlCommands,
@@ -442,8 +443,13 @@ export abstract class NmlViewBridge {
   }
   dispatchCanvasScene(canvasId: string, before: Scene, after: Scene): boolean {
     if (!this.supportsRichEditing()) return false;
+    // A diagram stored before bands is shown normalized, so its editor's
+    // `before` is not what the document holds: diffed from it, only the
+    // changed fields would land, and on the old coordinates.
+    const stored = this.blocks.get(canvasId);
+    const base = stored?.type === "canvas" && isLegacyRoot(stored.scene) ? stored.scene : before;
     try {
-      const compiled = compileCanvasSceneChange(canvasId, before, after);
+      const compiled = compileCanvasSceneChange(canvasId, base, after);
       if (!compiled.commands.length) return true;
       return this.commitCommands(
         compiled.changedNodeIds,

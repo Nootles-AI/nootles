@@ -262,6 +262,46 @@ try {
   assert.deepEqual(afterUp.sceneNodes, ["shape-a@40,40"]);
   assert.equal(afterUp.alive, true);
 
+  // A wide diagram: the grip stands past the band's left edge, further from
+  // the text than BlockNote keeps its side menu for by default. A person
+  // reaching for it from the band must find it still there, on top, and
+  // answering.
+  await page.setViewportSize({ width: 1800, height: 900 });
+  await page.evaluate(() => window.canvasBlockDrag.mount({ wide: true }));
+  await page.waitForFunction(() => window.canvasBlockDrag.bandRect()?.wide === true);
+  const band = await page.evaluate(() => window.canvasBlockDrag.bandRect());
+  await page.mouse.move(band.left + band.width / 2, band.top + 30);
+  await page.waitForFunction(() => window.canvasBlockDrag.handleRect() !== null);
+  for (const label of ["Block actions", "Insert a block below"]) {
+    await page.mouse.move(band.left + band.width / 2, band.top + 30);
+    const target = await page.evaluate((l) => window.canvasBlockDrag.handleRect(l), label);
+    assert.ok(target, `the wide diagram's ${label} control is shown`);
+    assert.ok(target.right <= band.left, `${label} stands clear of the wide band`);
+    await page.mouse.move(target.left + target.width / 2, target.top + target.height / 2, {
+      steps: 24,
+    });
+    assert.equal(
+      await page.evaluate((l) => window.canvasBlockDrag.hitAt(l), label),
+      label,
+      `${label} is still there, and on top, once the pointer reaches it`,
+    );
+  }
+  await page.click(handleSelector);
+  await page.waitForSelector(".bn-drag-handle-menu");
+  await page.keyboard.press("Escape");
+  await page.waitForSelector(".bn-drag-handle-menu", { state: "hidden" });
+
+  // Selecting the whole block paints a plate over it; it must not move it.
+  const unselected = await page.evaluate(() => window.canvasBlockDrag.bandRect());
+  assert.equal(
+    await page.evaluate(() => window.canvasBlockDrag.selectCanvasBlock(true)),
+    true,
+    "the plate is drawn on the wide band, across its margins",
+  );
+  const selected = await page.evaluate(() => window.canvasBlockDrag.bandRect());
+  await page.evaluate(() => window.canvasBlockDrag.selectCanvasBlock(false));
+  assert.deepEqual(selected, unselected, "a selected wide diagram stays centred");
+
   const screenshot = path.join(output, "canvas-block-drag.png");
   await page.screenshot({ path: screenshot, fullPage: true });
   assert.deepEqual(errors, []);
@@ -278,6 +318,8 @@ try {
           "preserved-live-scene",
           "escaped-stacking-context",
           "themed-menu",
+          "wide-side-menu-reachable",
+          "wide-selected-stays-centred",
           "no-browser-errors",
           "no-external-requests",
         ],

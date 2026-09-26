@@ -120,14 +120,18 @@
   --text-meta: 11px;      /* mono: section labels        */
   --text-meta-lg: 12px;   /* mono: counts, timestamps    */
   --text-ui: 13px;        /* rows, menus, buttons        */
-  --text-body: 15px;      /* the document                */
   --text-title: 30px;     /* screen titles               */
   --text-page-title: 42px; /* a document's own title      */
-  --leading-body: 1.7;
   --tracking-meta: 0.06em;
 
-  /* The content column, --measure, is set on <html> by the root layout from
-     COLUMN_WIDTH (app/lib/column.ts), the one copy TS and CSS both read. */
+  /* The text's measure, --measure, and the body type, --text-body and
+     --leading-body, are set on <html> from COLUMN_VARS (app/lib/column.ts) by
+     every root that renders this sheet — the one copy TS and CSS both read.
+     The body type is repeated here, at the same values, for a root that does
+     not set them: a harness, a page rendered without the layout. The column
+     around the measure, and its gutter, are `.nt-column`. */
+  --text-body: 15px;
+  --leading-body: 1.7;
 
   /* Control geometry */
   --inset: 8px;
@@ -641,6 +645,46 @@ body {
 .nt-pane {
   background: var(--background);
   transition: background var(--dur) var(--ease);
+  /* The page's layout is decided by this box's width; a classic scrollbar
+     arriving with the first long page must not move it. */
+  scrollbar-gutter: stable;
+}
+
+/* ---- The page -----------------------------------------------------------
+   Pane → sheet → column. The sheet is what the document zoom magnifies
+   (`docZoom`): CSS zoom, with its width scaled to match, so the text never
+   reflows and the unzoomed pane scrolls over the result. It stays
+   unpositioned, unclipped and untransformed — any of those would make it the
+   containing block of every fixed overlay in the page, and the clipper the
+   block handle measures against.
+
+   The column is the measure plus a gutter the block handle stands in. Which
+   gutter is the pane's call, not the viewport's: `usePageFit` writes
+   `data-page` from the pane's width — `wide` with the full measure beside the
+   wide gutter, `flow` where the wide gutter holds and the text gives up width
+   (diagrams scale down with it), `narrow` where only the narrow gutter fits.
+   The media query is only the answer before that has run. */
+.nt-sheet {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+.nt-column {
+  --nt-page-gutter: 24px;
+  max-width: calc(var(--measure) + 2 * var(--nt-page-gutter));
+  padding-inline: var(--nt-page-gutter);
+}
+@media (min-width: 640px) {
+  .nt-column {
+    --nt-page-gutter: 56px;
+  }
+}
+.nt-sheet[data-page="narrow"] > .nt-column {
+  --nt-page-gutter: 24px;
+}
+.nt-sheet[data-page="wide"] > .nt-column,
+.nt-sheet[data-page="flow"] > .nt-column {
+  --nt-page-gutter: 56px;
 }
 
 /* ---- The well ------------------------------------------------------------
@@ -682,15 +726,6 @@ body {
     0 1px 2px oklch(0.25 0.005 90 / 0.04),
     0 12px 32px -16px oklch(0.25 0.005 90 / 0.12);
 }
-/* With the interface hidden there is no well to lie in: the page is the window. */
-.nt-shell[data-bare] > .nt-well {
-  padding: 0;
-}
-.nt-shell[data-bare] .nt-pane {
-  border-radius: 0;
-  box-shadow: none;
-}
-
 /* A rail's place in the shell. Putting a rail away closes this over it — the
    rail keeps its width and slides out toward its own edge of the window while
    the sheet takes the room — and the workspace keeps the rail mounted for as
@@ -786,6 +821,65 @@ body[data-resizing] .nt-rail-face {
   }
 }
 
+/* A rail that is put away stays away when a diagram brings its panels: the
+   panel floats where the rail would stand, over the page rather than beside
+   it, so the column never reflows under the diagram being edited. The rail's
+   own width and full height, held a thin band inside the sheet's edge — its
+   border never lies on the sheet's — lifted, and it slides in from the edge
+   the rail belongs to. No z-index: it comes after the
+   column in the shell, which settles the paint, and whatever it opens portals
+   to the body (NT-52). At rest it has no transform, for the same reason a face
+   has none. */
+.nt-rail-float {
+  --float-inset: calc(var(--inset) * 2);
+  position: fixed;
+  inset-block: var(--float-inset);
+  left: var(--float-inset);
+  display: flex;
+  width: var(--nt-rail-w);
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.05),
+    0 4px 12px oklch(0.25 0.005 90 / 0.06),
+    0 16px 40px oklch(0.25 0.005 90 / 0.08);
+  opacity: 0;
+  translate: calc(-100% - var(--float-inset)) 0;
+  visibility: hidden;
+  transition:
+    opacity var(--dur) var(--ease),
+    translate 250ms var(--ease),
+    visibility 0s 250ms;
+}
+.nt-rail-float.is-right {
+  right: var(--float-inset);
+  left: auto;
+  translate: calc(100% + var(--float-inset)) 0;
+}
+.nt-rail-float[data-on="true"] {
+  opacity: 1;
+  translate: none;
+  visibility: visible;
+  transition:
+    opacity 180ms var(--ease),
+    translate 360ms var(--spring),
+    visibility 0s;
+}
+.nt-rail-float > .nt-panel {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-rail-float,
+  .nt-rail-float[data-on="true"] {
+    translate: none;
+    transition:
+      opacity var(--dur-fast) var(--ease),
+      visibility 0s var(--dur-fast);
+  }
+}
+
 /* The way back to a rail that has been put away, in the sheet's corner on the
    side it went to. The right corner is also where presence floats. */
 .nt-corner {
@@ -815,10 +909,6 @@ body[data-resizing] .nt-rail-face {
     transform: scale(0.8);
   }
 }
-.nt-shell[data-bare] .nt-corner {
-  top: 10px;
-}
-
 /* A divider with nothing drawn at rest. It shows a hairline to a hand that has
    found it and ink to one that is pulling it — never the amber, which is spoken
    for. Inset from the ends so the line stops short of the sheet's corners. */
@@ -1488,7 +1578,7 @@ textarea.nt-input {
 
    Everything inside is `aria-hidden` at the call site: it is a picture, and
    nothing in it is text meant to be read at this size. */
-.nt-sheet {
+.nt-miniature {
   position: relative;
   width: calc(600px * var(--page-scale, 0.78));
   /* Tall enough to hold a diagram whole. Cropping mid-drawing reads as a broken
@@ -1505,7 +1595,7 @@ textarea.nt-input {
 }
 
 /* The page does not end at the crop, so it fades rather than being cut mid-line. */
-.nt-sheet::after {
+.nt-miniature::after {
   content: "";
   position: absolute;
   inset-inline: 0;
@@ -4153,7 +4243,10 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
    The room is held by the SLOT, which is in the markup from the first paint —
    the renderer under it is loaded on demand and would otherwise arrive late,
    moving the page and shifting the stagger's nth-child under everything below
-   it. A caller that knows the diagram's own height overrides this inline. */
+   it. The slot takes the drawing's shape from its root, inline: the band's
+   width over the height it states, as a ratio, so it holds at whatever width
+   the page gives it. This height is for a root that states none, or an old
+   one whose band only the reader can work out. */
 .nt-thumb-slot {
   height: 260px;
 }

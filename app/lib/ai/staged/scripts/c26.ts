@@ -42,19 +42,19 @@ export const C26: StagedScript = {
             return {
               pageId,
               html: `<h2>Chassis layout — two options</h2>
-<nt-diagram w="1220" h="420">
-  <nt-text id="ch-a-t" x="40" y="20" w="480" h="26" style="font-size:16px;font-weight:600;color:#33415c">A — mid-mount pack</nt-text>
-  <nt-rect id="ch-a-body" x="40" y="60" w="520" h="220" style="background:#f7f8fb;border:2px solid #3f5d84;border-radius:10px"></nt-rect>
-  <nt-rect id="ch-a-pack" x="200" y="130" w="200" h="90" style="background:#dce9dc;border:2px solid #4a7a4a;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:13px">Pack</nt-rect>
-  <nt-rect id="ch-a-bay" x="410" y="90" w="130" h="70" style="background:#eef2f8;border:1px solid #9aa5b8;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:12px">Cargo</nt-rect>
-  <nt-ellipse id="ch-a-w1" x="80" y="258" w="64" h="64" style="background:#33415c"></nt-ellipse>
-  <nt-ellipse id="ch-a-w2" x="456" y="258" w="64" h="64" style="background:#33415c"></nt-ellipse>
-  <nt-text id="ch-b-t" x="660" y="20" w="480" h="26" style="font-size:16px;font-weight:600;color:#33415c">B — rear-mount pack</nt-text>
-  <nt-rect id="ch-b-body" x="660" y="60" w="520" h="220" style="background:#f7f8fb;border:2px solid #3f5d84;border-radius:10px"></nt-rect>
-  <nt-rect id="ch-b-pack" x="990" y="130" w="160" h="120" style="background:#dce9dc;border:2px solid #4a7a4a;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:13px">Pack</nt-rect>
-  <nt-rect id="ch-b-bay" x="700" y="90" w="260" h="130" style="background:#eef2f8;border:1px solid #9aa5b8;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:12px">Cargo</nt-rect>
-  <nt-ellipse id="ch-b-w1" x="700" y="258" w="64" h="64" style="background:#33415c"></nt-ellipse>
-  <nt-ellipse id="ch-b-w2" x="1076" y="258" w="64" h="64" style="background:#33415c"></nt-ellipse>
+<nt-diagram h="424" wide>
+  <nt-text id="ch-a-t" x="-210" y="24" w="480" h="26" style="font-size:16px;font-weight:600;color:#33415c">A — mid-mount pack</nt-text>
+  <nt-rect id="ch-a-body" x="-210" y="64" w="520" h="220" style="background:#f7f8fb;border:2px solid #3f5d84;border-radius:10px"></nt-rect>
+  <nt-rect id="ch-a-pack" x="-50" y="134" w="200" h="90" style="background:#dce9dc;border:2px solid #4a7a4a;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:13px">Pack</nt-rect>
+  <nt-rect id="ch-a-bay" x="160" y="94" w="130" h="70" style="background:#eef2f8;border:1px solid #9aa5b8;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:12px">Cargo</nt-rect>
+  <nt-ellipse id="ch-a-w1" x="-170" y="262" w="64" h="64" style="background:#33415c"></nt-ellipse>
+  <nt-ellipse id="ch-a-w2" x="206" y="262" w="64" h="64" style="background:#33415c"></nt-ellipse>
+  <nt-text id="ch-b-t" x="410" y="24" w="480" h="26" style="font-size:16px;font-weight:600;color:#33415c">B — rear-mount pack</nt-text>
+  <nt-rect id="ch-b-body" x="410" y="64" w="520" h="220" style="background:#f7f8fb;border:2px solid #3f5d84;border-radius:10px"></nt-rect>
+  <nt-rect id="ch-b-pack" x="740" y="134" w="160" h="120" style="background:#dce9dc;border:2px solid #4a7a4a;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:13px">Pack</nt-rect>
+  <nt-rect id="ch-b-bay" x="450" y="94" w="260" h="130" style="background:#eef2f8;border:1px solid #9aa5b8;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:12px">Cargo</nt-rect>
+  <nt-ellipse id="ch-b-w1" x="450" y="262" w="64" h="64" style="background:#33415c"></nt-ellipse>
+  <nt-ellipse id="ch-b-w2" x="826" y="262" w="64" h="64" style="background:#33415c"></nt-ellipse>
 </nt-diagram>
 <table>
 <tr><th></th><th>A — mid-mount</th><th>B — rear-mount</th></tr>

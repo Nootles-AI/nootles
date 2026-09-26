@@ -639,3 +639,45 @@ describe("descends", () => {
     expect(descends(["F", "G"], chain)).toBe(false); // already at B's own level
   });
 });
+
+describe("selectAll", () => {
+  it("says whether it changed anything, so a second ⌘A can reach further", () => {
+    const s = store();
+    expect(s.selectAll()).toBe(true);
+    const all = s.getSnapshot().ids;
+    expect(all.length).toBeGreaterThan(0);
+    expect(s.selectAll()).toBe(false);
+    expect(s.getSnapshot().ids).toBe(all);
+  });
+
+  it("inside a group, takes the group's children, then has nothing more to take", () => {
+    const s = store();
+    s.select(["A"]);
+    expect(s.getSnapshot().enteredPath).toEqual(["F"]);
+    expect(s.selectAll()).toBe(true);
+    expect(s.getSnapshot().ids).toContain("G");
+    expect(s.selectAll()).toBe(false);
+  });
+
+  it("changes a connector selection into the level's shapes", () => {
+    const s = store();
+    s.selectAll();
+    s.selectEdges(["e1"]);
+    expect(s.selectAll()).toBe(true);
+  });
+});
+
+describe("capture", () => {
+  it("puts back the selection it was taken over, recording nothing", () => {
+    const s = store();
+    const history = fakeHistory();
+    s.select(["E"]);
+    s.setHistory(history.scene);
+    const restore = s.capture();
+    s.select(["P"]);
+    const recorded = history.calls.length;
+    restore();
+    expect(s.getSnapshot().ids).toEqual(["E"]);
+    expect(history.calls.length).toBe(recorded);
+  });
+});

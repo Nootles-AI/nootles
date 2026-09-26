@@ -47,11 +47,11 @@ const BOX =
 /** The same box without a corner radius, for the kinds that draw their own. */
 const PLAIN = BOX.replace("border-radius: 10px; ", "");
 
-const FLOWCHART = `<nt-diagram w="600" h="440">
-  <nt-rect id="s1" x="200" y="40" w="200" h="56" style="${BOX}">Order received</nt-rect>
-  <nt-polygon id="s2" x="180" y="156" w="240" h="128" sides="4" style="${PLAIN}">In stock?</nt-polygon>
-  <nt-rect id="s3" x="40" y="344" w="200" h="56" style="${BOX}">Pack and ship</nt-rect>
-  <nt-rect id="s4" x="360" y="344" w="200" h="56" style="${BOX}">Raise backorder</nt-rect>
+const FLOWCHART = `<nt-diagram h="408">
+  <nt-rect id="s1" x="200" y="24" w="200" h="56" style="${BOX}">Order received</nt-rect>
+  <nt-polygon id="s2" x="180" y="140" w="240" h="128" sides="4" style="${PLAIN}">In stock?</nt-polygon>
+  <nt-rect id="s3" x="40" y="328" w="200" h="56" style="${BOX}">Pack and ship</nt-rect>
+  <nt-rect id="s4" x="360" y="328" w="200" h="56" style="${BOX}">Raise backorder</nt-rect>
   <nt-edge id="e1" from="s1" to="s2"></nt-edge>
   <nt-edge id="e2" from="s2" to="s3">yes</nt-edge>
   <nt-edge id="e3" from="s2" to="s4">no</nt-edge>
@@ -62,8 +62,8 @@ const CELL =
   "justify-content: center; color: #2b2b28; font-size: 12px";
 const HEAD = `${CELL}; font-weight: 600`;
 
-const TABLE = `<nt-diagram w="600" h="216">
-  <nt-group id="t1" x="40" y="40" w="520" h="136" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; padding: 1px; background: #d8d8d4">
+const TABLE = `<nt-diagram h="184">
+  <nt-group id="t1" x="40" y="24" w="520" h="136" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; padding: 1px; background: #d8d8d4">
     <nt-rect id="h1" w="172" h="44" style="${HEAD}">Region</nt-rect>
     <nt-rect id="h2" w="172" h="44" style="${HEAD}">Owner</nt-rect>
     <nt-rect id="h3" w="172" h="44" style="${HEAD}">Revenue</nt-rect>
@@ -106,19 +106,19 @@ const CAPTION = "display: flex; color: #6b6b66; font-size: 11px";
  * rewrite. (Which is why `hill` has control points at -6: a box is tight to the
  * CURVE, and a cubic's controls may sit outside the curve they bend.)
  */
-const STORY = `<nt-diagram w="600" h="260">
-  <nt-rect id="f1" x="40" y="40" w="160" h="120" style="${FRAME}"></nt-rect>
-  <nt-path id="hill" x="40" y="118" w="160" h="42" d="M 0 42 L 0 18 C 40 -6 120 -6 160 18 L 160 42 Z" style="fill: #dfe7d8"></nt-path>
-  <nt-ellipse id="sun" x="150" y="58" w="28" h="28" style="background: #f0d9a8"></nt-ellipse>
-  <nt-text id="c1" x="40" y="168" w="160" h="16" style="${CAPTION}">1 — She wakes early</nt-text>
-  <nt-rect id="f2" x="220" y="40" w="160" h="120" style="${FRAME}"></nt-rect>
-  <nt-path id="road" x="282" y="80" w="48" h="80" d="M 0 80 L 12 0 L 28 0 L 48 80 Z" style="fill: #eeeeec"></nt-path>
-  <nt-path id="car" x="270" y="112" w="55" h="26" d="M 4 26 L 0 14 C 0 10 2 8 6 8 L 14 8 L 22 0 L 40 0 L 48 8 L 52 10 C 56 12 56 22 52 26 Z" style="fill: #2b2b28"></nt-path>
-  <nt-text id="c2" x="220" y="168" w="160" h="16" style="${CAPTION}">2 — The drive in</nt-text>
-  <nt-rect id="f3" x="400" y="40" w="160" h="120" style="${FRAME}"></nt-rect>
-  <nt-path id="desk" x="416" y="120" w="128" h="8" d="M 0 0 L 128 0 L 128 8 L 0 8 Z" style="fill: #d8d8d4"></nt-path>
-  <nt-path id="figure" x="462" y="66" w="36" h="54" d="M 18 0 C 26 0 26 14 18 14 C 10 14 10 0 18 0 Z M 18 14 L 18 38 M 18 20 L 0 30 M 18 20 L 36 30 M 18 38 L 6 54 M 18 38 L 30 54" style="fill: none; stroke: #2b2b28; stroke-width: 2"></nt-path>
-  <nt-text id="c3" x="400" y="168" w="160" h="16" style="${CAPTION}">3 — At the desk by seven</nt-text>
+const STORY = `<nt-diagram h="192">
+  <nt-rect id="f1" x="40" y="24" w="160" h="120" style="${FRAME}"></nt-rect>
+  <nt-path id="hill" x="40" y="102" w="160" h="42" d="M 0 42 L 0 18 C 40 -6 120 -6 160 18 L 160 42 Z" style="fill: #dfe7d8"></nt-path>
+  <nt-ellipse id="sun" x="150" y="42" w="28" h="28" style="background: #f0d9a8"></nt-ellipse>
+  <nt-text id="c1" x="40" y="152" w="160" h="16" style="${CAPTION}">1 — She wakes early</nt-text>
+  <nt-rect id="f2" x="220" y="24" w="160" h="120" style="${FRAME}"></nt-rect>
+  <nt-path id="road" x="282" y="64" w="48" h="80" d="M 0 80 L 12 0 L 28 0 L 48 80 Z" style="fill: #eeeeec"></nt-path>
+  <nt-path id="car" x="270" y="96" w="55" h="26" d="M 4 26 L 0 14 C 0 10 2 8 6 8 L 14 8 L 22 0 L 40 0 L 48 8 L 52 10 C 56 12 56 22 52 26 Z" style="fill: #2b2b28"></nt-path>
+  <nt-text id="c2" x="220" y="152" w="160" h="16" style="${CAPTION}">2 — The drive in</nt-text>
+  <nt-rect id="f3" x="400" y="24" w="160" h="120" style="${FRAME}"></nt-rect>
+  <nt-path id="desk" x="416" y="104" w="128" h="8" d="M 0 0 L 128 0 L 128 8 L 0 8 Z" style="fill: #d8d8d4"></nt-path>
+  <nt-path id="figure" x="462" y="50" w="36" h="54" d="M 18 0 C 26 0 26 14 18 14 C 10 14 10 0 18 0 Z M 18 14 L 18 38 M 18 20 L 0 30 M 18 20 L 36 30 M 18 38 L 6 54 M 18 38 L 30 54" style="fill: none; stroke: #2b2b28; stroke-width: 2"></nt-path>
+  <nt-text id="c3" x="400" y="152" w="160" h="16" style="${CAPTION}">3 — At the desk by seven</nt-text>
 </nt-diagram>`;
 
 const CARD =
@@ -128,25 +128,25 @@ const CARD =
 const NAV =
   "display: flex; align-items: center; padding: 0 10px; color: #6b6b66; font-size: 12px";
 
-const MOCKUP = `<nt-diagram w="600" h="440">
-  <nt-rect id="win" x="40" y="40" w="520" h="360" style="background: #ffffff; border: 1px solid #d8d8d4; border-radius: 12px"></nt-rect>
-  <nt-group id="bar" x="40" y="40" w="520" h="40" style="display: flex; align-items: center; gap: 8px; padding: 0 16px; background: #f7f7f5; border-bottom: 1px solid #d8d8d4; border-radius: 12px 12px 0 0">
+const MOCKUP = `<nt-diagram h="408">
+  <nt-rect id="win" x="40" y="24" w="520" h="360" style="background: #ffffff; border: 1px solid #d8d8d4; border-radius: 12px"></nt-rect>
+  <nt-group id="bar" x="40" y="24" w="520" h="40" style="display: flex; align-items: center; gap: 8px; padding: 0 16px; background: #f7f7f5; border-bottom: 1px solid #d8d8d4; border-radius: 12px 12px 0 0">
     <nt-ellipse id="d1" w="10" h="10" style="background: #d8d8d4"></nt-ellipse>
     <nt-ellipse id="d2" w="10" h="10" style="background: #d8d8d4"></nt-ellipse>
     <nt-ellipse id="d3" w="10" h="10" style="background: #d8d8d4"></nt-ellipse>
   </nt-group>
-  <nt-group id="side" x="40" y="80" w="140" h="320" style="display: flex; flex-direction: column; gap: 4px; padding: 12px; background: #fafaf9; border-right: 1px solid #d8d8d4">
+  <nt-group id="side" x="40" y="64" w="140" h="320" style="display: flex; flex-direction: column; gap: 4px; padding: 12px; background: #fafaf9; border-right: 1px solid #d8d8d4">
     <nt-rect id="nav1" w="116" h="30" style="background: #eeeeec; border-radius: 6px; display: flex; align-items: center; padding: 0 10px; color: #2b2b28; font-size: 12px">Overview</nt-rect>
     <nt-rect id="nav2" w="116" h="30" style="${NAV}">Reports</nt-rect>
     <nt-rect id="nav3" w="116" h="30" style="${NAV}">Settings</nt-rect>
   </nt-group>
-  <nt-text id="t1" x="200" y="100" w="240" h="28" style="display: flex; align-items: center; color: #2b2b28; font-size: 20px; font-weight: 600">Overview</nt-text>
-  <nt-group id="cards" x="200" y="140" w="340" h="80" style="display: flex; gap: 12px">
+  <nt-text id="t1" x="200" y="84" w="240" h="28" style="display: flex; align-items: center; color: #2b2b28; font-size: 20px; font-weight: 600">Overview</nt-text>
+  <nt-group id="cards" x="200" y="124" w="340" h="80" style="display: flex; gap: 12px">
     <nt-rect id="k1" w="105" h="80" style="${CARD}">4.2m</nt-rect>
     <nt-rect id="k2" w="105" h="80" style="${CARD}">312</nt-rect>
     <nt-rect id="k3" w="105" h="80" style="${CARD}">98%</nt-rect>
   </nt-group>
-  <nt-rect id="chart" x="200" y="240" w="340" h="140" style="background: #fafaf9; border: 1px solid #e4e4e0; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #9a9a94; font-size: 13px">Revenue by month</nt-rect>
+  <nt-rect id="chart" x="200" y="224" w="340" h="140" style="background: #fafaf9; border: 1px solid #e4e4e0; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #9a9a94; font-size: 13px">Revenue by month</nt-rect>
 </nt-diagram>`;
 
 /**
@@ -226,19 +226,19 @@ const PLANS = {
   flowchart: `<!-- plan
 scene: four process steps, one decision, connectors
 parts: boxes and a diamond carry their own labels; no drawn objects
-layout: start 200 40 200x56; decision 180 156 240x128; yes-branch 40 344 200x56; no-branch 360 344 200x56; neutral fills -->`,
+layout: start 200 24 200x56; decision 180 140 240x128; yes-branch 40 328 200x56; no-branch 360 328 200x56; neutral fills -->`,
   table: `<!-- plan
 scene: one grid of regions
 parts: header row (region, owner, revenue), two data rows
-layout: single grid group 40 40 520x136, three equal columns, white cells on a hairline grid -->`,
+layout: single grid group 40 24 520x136, three equal columns, white cells on a hairline grid -->`,
   mockup: `<!-- plan
 scene: app window, title bar, sidebar nav, headline, stat cards, chart placeholder
 parts: title bar is three dots; sidebar is three nav rows; cards are three tiles
-layout: window 40 40 520x360 white; bar across the top 40h; sidebar 140w down the left; cards row 200 140 340x80; chart 200 240 340x140 -->`,
+layout: window 40 24 520x360 white; bar across the top 40h; sidebar 140w down the left; cards row 200 124 340x80; chart 200 224 340x140 -->`,
   story: `<!-- plan
 scene: three frames with captions; per frame — 1: hill and sun; 2: road and car; 3: desk and figure
 parts: hill one curve; sun one ellipse; road a trapezoid; car body one silhouette; desk a slab; figure head-and-limbs in one stroke
-layout: frames 160x120 at x 40/220/400 y 40, captions under each; hill fills frame-1 base #dfe7d8; sun upper right #f0d9a8; car dark #2b2b28 on the road; figure dark stroke at the desk -->`,
+layout: frames 160x120 at x 40/220/400 y 24, captions under each; hill fills frame-1 base #dfe7d8; sun upper right #f0d9a8; car dark #2b2b28 on the road; figure dark stroke at the desk -->`,
 } as const;
 
 const SHOTS: Array<{ brief: string; html: string }> = [
@@ -350,7 +350,7 @@ const frameNote = (frame: DrawFrame): string =>
     ? `\n\nTHE FRAME
 This drawing is one storyboard frame, exactly ${frame.w} wide and ${frame.h} tall. Set
 <nt-diagram w="${frame.w}" h="${frame.h}"> exactly and IGNORE the column sizing above: no
-margin, no 40px inset. Fill the frame to its edges the way a film shot fills the screen —
+margin band, no wide attribute. Fill the frame to its edges the way a film shot fills the screen —
 sky and ground bleed off all four sides, and the subject sits where the camera would put
 it. Give <nt-diagram> itself the scene's ground colour in style.
 Draw it as richly as the scene deserves. A subject reads by its PARTS — a fox is body,

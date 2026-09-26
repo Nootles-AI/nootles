@@ -84,12 +84,11 @@ export const EdgeLayer = memo(function EdgeLayer({
     if (!viewport) return;
     let painted = 0;
     const write = () => {
-      const zoom = viewport.get().zoom;
-      // Only on an actual zoom: a pan notifies every frame and moves nothing
-      // here, and a discarded custom-property parse is not free.
-      if (zoom === painted) return;
-      painted = zoom;
-      root.current?.style.setProperty("--k", String(1 / zoom));
+      const scale = viewport.screenScale();
+      // Only when the scale moves: a discarded custom-property parse is not free.
+      if (scale === painted) return;
+      painted = scale;
+      root.current?.style.setProperty("--k", String(1 / scale));
     };
     write();
     return viewport.subscribe(write);

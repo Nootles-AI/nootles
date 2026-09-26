@@ -9,6 +9,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -24,6 +25,7 @@ import { describeStub } from "@/app/lib/notion/stub";
 import type { AnyBlock } from "@/app/lib/ai/projection";
 import type { YReader } from "@/app/lib/ai/snapshot";
 import { COLUMN_WIDTH } from "@/app/lib/column";
+import { bandWidth } from "@/app/components/editor/canvas/scene/bandSpan";
 
 /**
  * The closest together two reads of a page may be.
@@ -438,27 +440,48 @@ export function BlocksThumb({ blocks }: { blocks: readonly AnyBlock[] }) {
  */
 export const PreviewBlocks = memo(function PreviewBlocks({
   blocks,
-  diagramHeight,
+  diagramMaxHeight,
 }: {
   blocks: readonly AnyBlock[];
-  /** Give a diagram its own height rather than the thumbnail's fixed one. */
-  diagramHeight?: number;
+  /** The most height a diagram may take, for a host with less room than it. */
+  diagramMaxHeight?: number;
 }) {
   return (
     <>
       {blocks.map((block) => (
-        <Block key={block.id} block={block} diagramHeight={diagramHeight} />
+        <Block key={block.id} block={block} diagramMaxHeight={diagramMaxHeight} />
       ))}
     </>
   );
 });
 
+/**
+ * A diagram slot's size, read off the stored root without a parse: the band's
+ * shape — its width over the height the root states — as a ratio, so the
+ * drawing fills the slot at whatever width the page gives it. An old root
+ * states a width or pins a size by hand, and only the reader can say what band
+ * that becomes, so it keeps the stylesheet's height and the preview shrinks
+ * into it.
+ */
+function slotStyle(html: string, maxHeight?: number): CSSProperties | undefined {
+  const style: CSSProperties = maxHeight ? { maxHeight } : {};
+  const root = /<nt-diagram\b[^>]*>/i.exec(html)?.[0] ?? "";
+  // Values blanked, so nothing inside a style reads as an attribute.
+  const bare = root.replace(/"[^"]*"/g, '""');
+  const h = /\sh="(\d+(?:\.\d+)?)"/i.exec(root)?.[1];
+  if (Number(h) > 0 && !/\s(?:w|width|data-width|data-height)=/i.test(bare)) {
+    const w = bandWidth({ wide: /\swide(?![\w-])/i.test(bare) });
+    Object.assign(style, { height: "auto", aspectRatio: `${w} / ${h}` });
+  }
+  return Object.keys(style).length ? style : undefined;
+}
+
 function Block({
   block,
-  diagramHeight,
+  diagramMaxHeight,
 }: {
   block: AnyBlock;
-  diagramHeight?: number;
+  diagramMaxHeight?: number;
 }) {
   const props = block.props ?? {};
 
@@ -513,7 +536,7 @@ function Block({
         </span>
       );
 
-    case "canvas":
+    case "canvas": {
       /**
        * The slot holds the space; the renderer fills it when it arrives.
        *
@@ -521,16 +544,16 @@ function Block({
        * absent from the DOM entirely — which moves everything under it when it
        * lands, and shifts the `nth-child` the stagger reads its delay from, so
        * the blocks below animate on the wrong beat and then jump. An element
-       * that is there from the first paint with the right height fixes both.
+       * that is there from the first paint with the right height fixes both,
+       * and the root states that height itself.
        */
+      const data = String(props.data ?? "");
       return (
-        <div
-          className="nt-thumb-slot"
-          style={diagramHeight ? { height: diagramHeight } : undefined}
-        >
-          <ThumbDiagram data={String(props.data ?? "")} />
+        <div className="nt-thumb-slot" style={slotStyle(data, diagramMaxHeight)}>
+          <ThumbDiagram data={data} />
         </div>
       );
+    }
 
     case "album": {
       // The first few, in a row. Not the waterfall in miniature: at this size

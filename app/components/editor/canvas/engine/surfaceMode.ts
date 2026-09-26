@@ -2,8 +2,8 @@
  * The exclusive pointer-mode slot on a canvas surface.
  *
  * `CanvasSurface`'s own gestures — click-to-select, drag-to-move, marquee,
- * draw — are the surface's default behaviour. A colour pick (COLOR) or a
- * zoom-drag (STAGE) is a *transient exclusive*: while it is up, none of that
+ * draw — are the surface's default behaviour. A colour pick (COLOR) is a
+ * *transient exclusive*: while it is up, none of that
  * default behaviour should run, and the thing that IS running should see
  * every pointer event instead. Rather than each such feature adding its own
  * `if (picking) return` branch to every handler in an already 1400-line file
@@ -20,8 +20,7 @@
  * the surface.
  *
  * Shared by COLOR (the eyedropper — this module's first tenant) and, per the
- * canvas-parity build plan, SELECT (a future layer-menu pick) and STAGE (the
- * zoom tool, if it ever needs to intercept a click without a full gesture).
+ * canvas-parity build plan, SELECT (a future layer-menu pick).
  */
 
 import type { Point, Scene } from "../scene/types";
@@ -47,7 +46,7 @@ export type ExitReason = "released" | "replaced" | "escape" | "unmounted";
 
 export interface SurfaceMode {
   /** Stable id; becomes `data-mode` on the viewport. Kebab-case. */
-  id: "color-pick" | "zoom" | (string & {});
+  id: "color-pick" | (string & {});
   /**
    * Pointer handlers. The surface has already suppressed its own default
    * behaviour for this event — no focus, no `selection.click`/`probe`, no

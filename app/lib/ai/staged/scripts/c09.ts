@@ -66,7 +66,7 @@ export const C09: StagedScript = {
             // scene is sent back byte for byte, which is what makes the rest of
             // the board pixel-identical rather than merely similar.
             const added =
-              `  <nt-polygon id="pp-retry" sides="4" x="790" y="330" w="150" h="84" style="fill:#f6e9d8;stroke:#a8702a;stroke-width:2;display:flex;align-items:center;justify-content:center;text-align:center">CAN timeout?<br/>retry ×3</nt-polygon>\n` +
+              `  <nt-polygon id="pp-retry" sides="4" x="510" y="330" w="150" h="84" style="fill:#f6e9d8;stroke:#a8702a;stroke-width:2;display:flex;align-items:center;justify-content:center;text-align:center">CAN timeout?<br/>retry ×3</nt-polygon>\n` +
               `  <nt-edge id="pp-e9" from="pp-drv" to="pp-retry">no ack &lt; 15 ms</nt-edge>\n` +
               `  <nt-edge id="pp-e10" from="pp-retry" to="pp-drv">re-arm</nt-edge>\n`;
             return {

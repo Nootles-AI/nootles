@@ -71,6 +71,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import type { RefObject } from "react";
+import { effectiveScale } from "@/app/lib/columnScale";
 import { raiseVeil } from "@/app/lib/veil";
 import { type BlockSelectionStore } from "./blockSelection";
 import "./blockSelection.css";
@@ -90,7 +91,7 @@ const CONTROLS =
   // can exist for one mount microtask while an old document is repaired.
   ".bn-trailing-block," +
   // The width/height grips, which live inside their block but are dragged.
-  ".nt-canvas-grip, .nt-canvas-grip-x, .nt-sb-grip, .nt-album-grip";
+  ".nt-canvas-grip, .nt-sb-grip, .nt-album-grip";
 
 /**
  * Blocks whose INTERIOR is their own gesture surface.
@@ -356,6 +357,7 @@ export function useBlockMarquee({
         const page = surface.getBoundingClientRect();
         const pageLeft = page.left + across;
         const pageRight = page.right + across;
+        const scale = effectiveScale(surface);
         rows = [];
         for (const el of surface.querySelectorAll<HTMLElement>(
           ".bn-block-outer[data-id]",
@@ -363,21 +365,24 @@ export function useBlockMarquee({
           const rect = el.getBoundingClientRect();
           const id = el.dataset.id;
           if (!id || rect.height === 0) continue;
+          // A wide diagram is centred, and reaches past the page on the left
+          // as far as on the right: its own box says how far.
+          const wide = el.querySelector(".nt-canvas[data-wide]")?.getBoundingClientRect();
           rows.push({
             el,
             id,
             top: rect.top + down,
             bottom: rect.bottom + down,
-            left: Math.min(rect.left + across, pageLeft),
-            // ...and past the page for a block that draws past it. A diagram
-            // widened by its side grip keeps its left edge on the column and
-            // grows into the right margin, on its own inline width — the box
-            // measured here stays the column's and the diagram OVERFLOWS it,
-            // which is why `scrollWidth` is asked as well as the rect. For a
-            // block that fits, the two agree to the pixel.
+            left: Math.min(rect.left + across, pageLeft, wide ? wide.left + across : Infinity),
+            // ...and past the page for a block that draws past it. A wide
+            // diagram draws at its own inline width — the box measured here
+            // stays the column's and the diagram OVERFLOWS it, which is why
+            // `scrollWidth` is asked as well as the rect. For a block that
+            // fits, the two agree to the pixel. It is in the page's own px,
+            // and a zoomed page's rects are not: hence `scale`.
             right: Math.max(
               rect.right + across,
-              rect.left + across + el.scrollWidth,
+              rect.left + across + el.scrollWidth * scale,
               pageRight,
             ),
           });

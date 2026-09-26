@@ -2,8 +2,7 @@
  * SELECT's browser gate — real Chromium pointer and keyboard input over the
  * SELECT.md §3 fixture, driven through the shared `window.canvasHarness`
  * bundle (`tests/canvas-harness.mjs` + `tests/canvas-harness.browser.tsx`),
- * exactly as `tests/canvas-picking.browser.mjs`/`tests/canvas-stage.browser.mjs`
- * do — no second esbuild pipeline, no `.browser.tsx` mount file of its own
+ * exactly as `tests/canvas-picking.browser.mjs` does — no second esbuild pipeline, no `.browser.tsx` mount file of its own
  * (SELECT.md §4.2's own review-note fix: HARNESS's generic `mount({ html })`
  * already covers it).
  *
@@ -27,7 +26,6 @@ import { pathToFileURL } from "node:url";
 import { buildHarness, checker, launch, openPage, repo, writeArtifact } from "./canvas-harness.mjs";
 
 const VIEWPORT = { width: 1280, height: 900 };
-const MOUNT_SIZE = { width: 480, height: 260 }; // matches SELECT_SCENE's own w/h — the fixture's own coordinates are already scene px
 const OFF_CANVAS = { x: 20, y: 20 };
 
 const c = checker();
@@ -287,7 +285,7 @@ async function runCases(page) {
 
   {
     const { OVERLAP_FIXTURE_HTML } = fixtures;
-    await page.evaluate((html) => window.canvasHarness.mount({ html }, { width: 200, height: 200 }), OVERLAP_FIXTURE_HTML);
+    await page.evaluate((html) => window.canvasHarness.mount({ html }), OVERLAP_FIXTURE_HTML);
     await page.evaluate(() => window.canvasHarness.focus());
     await page.evaluate(() => window.canvasHarness.api().selection.select(["Y"])); // back node starts selected
     const p = await scenePoint(page, 50, 50); // the fully-overlapping point
@@ -295,8 +293,8 @@ async function runCases(page) {
     c.check("select.menu.frontmost-preselect", (await selection(page)).ids, ["X"]);
     // Remount the shared fixture for every case below.
     await page.evaluate(
-      (args) => window.canvasHarness.mount({ html: args.html }, args.opts),
-      { html: fixtures.SELECT_FIXTURE_HTML, opts: MOUNT_SIZE },
+      (html) => window.canvasHarness.mount({ html }),
+      fixtures.SELECT_FIXTURE_HTML,
     );
     await page.evaluate(() => window.canvasHarness.focus());
   }
@@ -382,7 +380,6 @@ async function runCases(page) {
   {
     const from = await insetOf(page, "F", 260, 160); // F's own padding
     const to = await insetOf(page, "G", 50, 20); // over B/C
-    const before = await page.evaluate(() => window.canvasHarness.sceneStyle().transform);
     await dragGesture(page, from, to, { meta: true });
     const s = await selection(page);
     c.check("select.marquee.mod-drag-through-frame.ids", s.ids, ["G"]);
@@ -391,7 +388,6 @@ async function runCases(page) {
       (id) => document.querySelector(`[data-id="${id}"]`)?.style.transform ?? "",
       "F",
     );
-    void before;
     c.check("select.marquee.mod-drag-through-frame.f-has-a-transform", typeof fTransform, "string");
   }
 
@@ -471,8 +467,8 @@ async function runCases(page) {
   // -- read-only (§3.7) ---------------------------------------------------------
 
   await page.evaluate(
-    (args) => window.canvasHarness.mount({ html: args.html }, { ...args.opts, readOnly: true }),
-    { html: fixtures.SELECT_FIXTURE_HTML, opts: MOUNT_SIZE },
+    (html) => window.canvasHarness.mount({ html }, { readOnly: true }),
+    fixtures.SELECT_FIXTURE_HTML,
   );
   await page.evaluate(() => window.canvasHarness.focus());
   {
@@ -486,22 +482,22 @@ async function runCases(page) {
     c.check("select.readonly.no-context-menu", menu.open, false);
   }
 
-  // -- state no-drift (viewport/scene identity unchanged for selection-only work) --
+  // -- state no-drift (page and scene identity unchanged for selection-only work) --
 
   await page.evaluate(
-    (args) => window.canvasHarness.mount({ html: args.html }, args.opts),
-    { html: fixtures.SELECT_FIXTURE_HTML, opts: MOUNT_SIZE },
+    (html) => window.canvasHarness.mount({ html }),
+    fixtures.SELECT_FIXTURE_HTML,
   );
   await page.evaluate(() => window.canvasHarness.focus());
   await reset(page);
   {
-    const viewBefore = await page.evaluate(() => window.canvasHarness.api().viewport.get());
+    const viewBefore = await page.evaluate(() => window.canvasHarness.view());
     const tokenBefore = await page.evaluate(() => window.canvasHarness.sceneToken());
     await modClick(page, await centre(page, "B"));
     await page.keyboard.press("Shift+Enter");
-    const viewAfter = await page.evaluate(() => window.canvasHarness.api().viewport.get());
+    const viewAfter = await page.evaluate(() => window.canvasHarness.view());
     const tokenAfter = await page.evaluate(() => window.canvasHarness.sceneToken());
-    c.check("select.state.no-drift.viewport", viewAfter, viewBefore);
+    c.check("select.state.no-drift.page", viewAfter, viewBefore);
     c.check("select.state.no-drift.sceneToken", tokenAfter, tokenBefore);
   }
 }
@@ -523,8 +519,8 @@ async function main() {
     await page.goto(built.origin, { waitUntil: "networkidle" });
 
     await page.evaluate(
-      (args) => window.canvasHarness.mount({ html: args.html }, args.opts),
-      { html: fixtures.SELECT_FIXTURE_HTML, opts: MOUNT_SIZE },
+      (html) => window.canvasHarness.mount({ html }),
+      fixtures.SELECT_FIXTURE_HTML,
     );
     await page.evaluate(() => window.canvasHarness.focus());
 

@@ -1,9 +1,9 @@
-import { createElement } from "react";
+import { createElement, useLayoutEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import {
-  CANVAS_MIN_H,
-  sceneBlockHeight,
-} from "@/app/components/editor/canvas/types";
+import { bandHeightIn } from "@/app/components/editor/canvas/scene/band";
+import type { Scene } from "@/app/components/editor/canvas/scene/types";
+import { COLUMN_WIDTH } from "@/app/lib/column";
+import { followFit } from "@/app/lib/columnScale";
 import { loadKatex } from "@/app/components/editor/math/katex";
 import { runsToHtml } from "@/app/lib/ai/html/serialize";
 import type { AnyBlock } from "@/app/lib/ai/projection";
@@ -296,6 +296,9 @@ export function disposePreview(node: Node): void {
   }
 }
 
+/** The waiting box's height: no diagram yet, so no band to take one from. */
+const SKELETON_H = 260;
+
 /**
  * The box a diagram is about to land in, before there is one to draw.
  *
@@ -317,7 +320,7 @@ export function diagramSkeleton(label: string): HTMLElement {
   wrap.appendChild(headEl({ label, live: true }));
 
   const surface = div("nt-diagram-preview-surface is-waiting");
-  surface.style.height = `${CANVAS_MIN_H}px`;
+  surface.style.height = `${SKELETON_H}px`;
   for (let i = 0; i < 3; i++) {
     if (i) surface.appendChild(div("nt-skeleton-link"));
     surface.appendChild(div("nt-skeleton-shape"));
@@ -336,14 +339,24 @@ function diagramPreview(source: string, head: PreviewHead) {
   const scene = sceneFrom(source);
   const surface = div("nt-diagram-preview-surface");
   // The height the block itself will take, by the block's own rule, so
-  // accepting does not move the page.
-  surface.style.height = `${sceneBlockHeight(scene)}px`;
+  // accepting one in the column does not move the page. A wide one previews
+  // scaled into the column, so it lands taller than it shows here.
+  surface.style.height = `${bandHeightIn(scene)}px`;
   wrap.appendChild(surface);
+  // A column band's width, scaled to the page like one, so a narrow pane
+  // shrinks it with the text rather than leaving the height of a wider one.
+  wrap.style.width = `${COLUMN_WIDTH}px`;
 
   const root = createRoot(surface);
   roots.set(wrap, root);
-  root.render(createElement(ScenePreview, { scene }));
+  root.render(createElement(BandPreview, { scene, band: wrap }));
   return wrap;
+}
+
+/** The preview, following its page's fit while it is mounted — by then it is in the page. */
+function BandPreview({ scene, band }: { scene: Scene; band: HTMLElement }) {
+  useLayoutEffect(() => followFit(band, "normal"), [band]);
+  return createElement(ScenePreview, { scene });
 }
 
 /** Typeset now if KaTeX is here, else show the source and typeset when it lands. */

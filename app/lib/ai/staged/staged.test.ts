@@ -407,7 +407,7 @@ describe("the table itself", () => {
 /** A page read carrying a diagram, as `read_open_page` returns one. */
 const SCENE_READ = `<h1>ICD</h1>
 <p>The power path from the pack to the wheels:</p>
-<nt-diagram id="blk_canvas" at="blk_canvas" w="1180" h="420">
+<nt-diagram id="blk_canvas" at="blk_canvas" w="1200" h="420" wide>
   <nt-rect id="pp-bus" x="440" y="160" w="130" h="76" style="fill:#dce9dc;stroke:#4a7a4a;stroke-width:2">48 V bus</nt-rect>
   <nt-rect id="pp-drv" x="640" y="230" w="150" h="76" style="fill:#f6e9d8;stroke:#a8702a;stroke-width:2">4× DRV8353</nt-rect>
   <nt-rect id="pp-estop" x="440" y="320" w="130" h="62" style="fill:#f7dede;stroke:#a33;stroke-width:2">E-stop contactor</nt-rect>

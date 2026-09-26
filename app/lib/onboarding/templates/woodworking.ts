@@ -1,14 +1,14 @@
 import type { Template } from "../types";
 import { BOX, CAPTION } from "../diagramStyle";
 
-const ELEVATION = `<nt-diagram w="600" h="436">
-  <nt-rect id="top" x="100" y="40" w="400" h="26" style="${BOX}">Top · 18 × 14</nt-rect>
-  <nt-rect id="apron" x="138" y="66" w="324" h="34" style="${BOX}">Apron</nt-rect>
-  <nt-rect id="legL" x="112" y="66" w="26" h="300" style="${BOX}"></nt-rect>
-  <nt-rect id="legR" x="462" y="66" w="26" h="300" style="${BOX}"></nt-rect>
-  <nt-rect id="str" x="138" y="300" w="324" h="16" style="${BOX}"></nt-rect>
-  <nt-text id="t1" x="504" y="196" w="56" h="20" style="${CAPTION}">24 in</nt-text>
-  <nt-text id="t2" x="112" y="382" w="300" h="20" style="${CAPTION}">Stretcher, 4 in above the floor</nt-text>
+const ELEVATION = `<nt-diagram h="410">
+  <nt-rect id="top" x="100" y="24" w="400" h="26" style="${BOX}">Top · 18 × 14</nt-rect>
+  <nt-rect id="apron" x="138" y="50" w="324" h="34" style="${BOX}">Apron</nt-rect>
+  <nt-rect id="legL" x="112" y="50" w="26" h="300" style="${BOX}"></nt-rect>
+  <nt-rect id="legR" x="462" y="50" w="26" h="300" style="${BOX}"></nt-rect>
+  <nt-rect id="str" x="138" y="284" w="324" h="16" style="${BOX}"></nt-rect>
+  <nt-text id="t1" x="504" y="180" w="56" h="20" style="${CAPTION}">24 in</nt-text>
+  <nt-text id="t2" x="112" y="366" w="300" h="20" style="${CAPTION}">Stretcher, 4 in above the floor</nt-text>
 </nt-diagram>`;
 
 export const woodworking: Template = {

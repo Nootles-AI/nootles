@@ -3,7 +3,13 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { isApplyingAi, pushHumanOp } from "@/app/lib/debugRing";
 import { track } from "@/app/lib/telemetry";
-import { migrateLegacyCanvas } from "../scene/migrate";
+import {
+  detectCanvasFormat,
+  emptyScene,
+  migrateLegacyCanvas,
+  readCanvasSource,
+} from "../scene/migrate";
+import { bandFloor, reachesMargins } from "../scene/band";
 import { applyOps } from "../scene/ops";
 import { serializeScene } from "../scene/serialize";
 import {
@@ -103,6 +109,23 @@ export type SceneHistoryEvent =
   /** A collaborator's merge reset both stacks. */
   | { type: "clear" };
 
+/** Stored source → scene: how a store reads every string it is handed. */
+export type SceneReader = (source: string) => Scene;
+
+/**
+ * A storyboard frame's reader: the source as written, never made a band, and
+ * an empty shot born at the frame's own size. Born anywhere else, its first
+ * drawing is written at that size and the next read rescales it to the frame.
+ */
+export function frameReader(frame: { w: number; h: number }): SceneReader {
+  return (source) =>
+    detectCanvasFormat(source) === "empty"
+      ? { ...emptyScene(), w: frame.w, h: frame.h }
+      : readCanvasSource(source);
+}
+
+const NARROW: SceneOp = { type: "setDiagram", wide: false };
+
 export class SceneStore {
   private scene: Scene;
   /** Id → node for the current scene, built on demand and dropped on change. */
@@ -131,8 +154,16 @@ export class SceneStore {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
 
-  constructor(source: string) {
-    this.scene = migrateLegacyCanvas(source);
+  /**
+   * `read` is a diagram block's by default; a frame passes {@link frameReader}.
+   * `band` is a band's store: see {@link dispatch}. Never a frame's.
+   */
+  constructor(
+    source: string,
+    private readonly read: SceneReader = migrateLegacyCanvas,
+    private readonly band = false,
+  ) {
+    this.scene = read(source);
     this.lastSource = source;
   }
 
@@ -171,6 +202,23 @@ export class SceneStore {
   /** Whether a gesture bracket is open — the presence sampler's cue. */
   gesturing = (): boolean => this.depth > 0;
 
+  /** The open bracket turned Wide on or off, or was the model's — see {@link narrowed}. */
+  private wideHeld = false;
+
+  private onEmpty: (() => void) | null = null;
+  /** An unguarded edit emptied the scene inside the open bracket; see {@link commit}. */
+  private emptiedOnPurpose = false;
+
+  /**
+   * The last-shape guard, for a diagram block: a local edit that would leave
+   * the diagram with nothing in it is not applied, and `onEmpty` is called
+   * instead — the block goes, holding the shape it died with, so one undo
+   * brings back both. Set from an effect, like the writer. `null` unguards.
+   */
+  setOnEmpty = (onEmpty: (() => void) | null): void => {
+    this.onEmpty = onEmpty;
+  };
+
   private adopting = false;
 
   /**
@@ -193,14 +241,24 @@ export class SceneStore {
 
   private beforeStep = new Set<() => void>();
   /**
-   * Runs at the top of {@link undo} and {@link redo}, before the depth check —
-   * the chance for an idle-held bracket (a panel's typing run) to settle so
-   * the step is not refused for a gesture that already ended. A live pointer
-   * gesture deliberately does not settle: undo mid-drag stays refused.
+   * A hook {@link settle} runs (and so {@link undo} and {@link redo}, before
+   * the depth check): close here a bracket held open only by an idle timer;
+   * leave a live pointer gesture's open.
    */
   onBeforeStep = (fn: () => void): (() => void) => {
     this.beforeStep.add(fn);
     return () => this.beforeStep.delete(fn);
+  };
+
+  /**
+   * Close every bracket held open only by an idle timer (a panel's typing run),
+   * without stepping, so a step is never refused for a gesture that already
+   * ended. What stays open afterwards is a live pointer gesture — undo
+   * mid-drag stays refused — so {@link gesturing} then answers exactly "an
+   * undo now would cut into something in hand".
+   */
+  settle = (): void => {
+    for (const fn of this.beforeStep) fn();
   };
 
   /**
@@ -243,13 +301,56 @@ export class SceneStore {
 
   // -- Writing --------------------------------------------------------------
 
-  /** Apply one op, or a group of ops that must land together. */
-  dispatch = (op: SceneOp | readonly SceneOp[]): void => {
-    const ops: readonly SceneOp[] = Array.isArray(op) ? op : [op];
+  /**
+   * Apply one op, or a group of ops that must land together.
+   *
+   * On a band pinned to a height, an edit that leaves content below the pin
+   * raises it in the same entry — a pin is a floor the content lifts — and
+   * undoing the edit takes the height back with it. An unpinned band needs
+   * nothing: it is drawn at its floor, whichever way that moves.
+   *
+   * On a guarded store (see {@link setOnEmpty}) an edit taking the last shape
+   * is handed to the guard instead, at any depth: an open bracket is committed
+   * first, so what it did so far stays one entry. `guard: false` is for a tool
+   * taking back what it put in itself — the pen's path that never became one,
+   * in a diagram that was empty before the pen began.
+   */
+  dispatch = (op: SceneOp | readonly SceneOp[], { guard = true }: { guard?: boolean } = {}): void => {
+    let ops: readonly SceneOp[] = Array.isArray(op) ? op : [op];
     if (ops.length === 0) return;
     const before = this.scene;
-    const next = applyOps(before, ops);
+    let next = applyOps(before, ops);
     if (next === before) return;
+    if (this.onEmpty && before.nodes.length > 0 && next.nodes.length === 0) {
+      if (guard) {
+        if (this.depth > 0) {
+          this.depth = 1;
+          this.commit();
+        }
+        // The edit is made, as the block's removal: the selection letting go
+        // in its wake is its doing, and a stop recorded after the block's
+        // step would be undone before the step that brings the block back.
+        this.markEdited();
+        this.onEmpty();
+        return;
+      }
+      if (this.depth > 0) this.emptiedOnPurpose = true;
+    }
+    if (this.band) {
+      const floor = bandFloor(next);
+      if (next.h > 0 && floor > next.h) {
+        const raise: SceneOp = { type: "setDiagram", h: floor };
+        next = applyOps(next, [raise]);
+        ops = [...ops, raise];
+      }
+      const held = isApplyingAi() || ops.some((o) => o.type === "setDiagram" && o.wide !== undefined);
+      if (this.depth > 0) {
+        if (held) this.wideHeld = true;
+      } else if (!held && this.narrowed(next)) {
+        next = applyOps(next, [NARROW]);
+        ops = [...ops, NARROW];
+      }
+    }
     if (this.depth === 0) this.record(before, this.captureSelection());
     this.recordOps(ops);
     this.future = [];
@@ -300,6 +401,16 @@ export class SceneStore {
     this.setScene(next, true, false);
   };
 
+  /**
+   * A band whose Wide room nothing uses any more: a local edit that leaves the
+   * margins empty folds it back to the column in the same entry. Never on the
+   * edit that turns Wide on — it waits for the next edit — nor on the model's
+   * writes; what arrives from outside never comes through here at all.
+   */
+  private narrowed(scene: Scene): boolean {
+    return this.band && scene.wide === true && !reachesMargins(scene);
+  }
+
   /** Open a gesture: everything until the matching `commit` is one entry. */
   begin = (): void => {
     if (this.depth === 0) {
@@ -336,6 +447,23 @@ export class SceneStore {
     const selection = this.gestureSelection;
     this.gestureBefore = null;
     this.gestureSelection = null;
+    if (
+      process.env.NODE_ENV !== "production" &&
+      this.onEmpty &&
+      !this.emptiedOnPurpose &&
+      before &&
+      before.nodes.length > 0 &&
+      this.scene.nodes.length === 0
+    ) {
+      console.error("[canvas] a guarded diagram was emptied inside a bracket, past its last-shape guard");
+    }
+    this.emptiedOnPurpose = false;
+    const held = this.wideHeld;
+    this.wideHeld = false;
+    if (before && before !== this.scene && !held && this.narrowed(this.scene)) {
+      this.gestureOps.push(NARROW);
+      this.setScene(applyOps(this.scene, [NARROW]), true);
+    }
     if (before && before !== this.scene) this.record(before, selection);
 
     if (this.gestureOps.length) {
@@ -348,16 +476,40 @@ export class SceneStore {
       this.gestureOps = [];
     }
 
-    const source = this.pendingSource;
-    if (source !== null) {
-      const as = this.pendingAs;
-      this.pendingSource = null;
-      this.pendingAs = "source";
-      if (as === "remote") this.adoptRemote(source);
-      else if (as === "quiet") this.adoptQuiet(source);
-      else this.adopt(source);
-    }
+    this.settlePending();
   };
+
+  /**
+   * Close the open gesture as though it never happened: the scene back to what
+   * it was at `begin`, with no entry in history and nothing in the bug log — a
+   * draw that Escape abandoned. Committing it instead would leave an entry
+   * behind even for a scene put back by hand, since `commit` compares by
+   * identity.
+   */
+  abort = (): void => {
+    if (this.depth === 0) return;
+    const before = this.gestureBefore;
+    this.depth = 0;
+    this.gestureBefore = null;
+    this.gestureSelection = null;
+    this.gestureOps = [];
+    this.emptiedOnPurpose = false;
+    this.wideHeld = false;
+    if (before && before !== this.scene) this.setScene(before, true, false);
+    this.settlePending();
+  };
+
+  /** A source that arrived mid-gesture, taken now the gesture is over. */
+  private settlePending(): void {
+    const source = this.pendingSource;
+    if (source === null) return;
+    const as = this.pendingAs;
+    this.pendingSource = null;
+    this.pendingAs = "source";
+    if (as === "remote") this.adoptRemote(source);
+    else if (as === "quiet") this.adoptQuiet(source);
+    else this.adopt(source);
+  }
 
   /**
    * Make a selection change undoable in its own right, given a thunk restoring
@@ -383,13 +535,13 @@ export class SceneStore {
 
   /** False when refused (mid-gesture) or when there was nothing to step. */
   undo = (): boolean => {
-    for (const fn of this.beforeStep) fn();
+    this.settle();
     if (this.depth > 0) return false;
     return this.step(this.past, this.future);
   };
 
   redo = (): boolean => {
-    for (const fn of this.beforeStep) fn();
+    this.settle();
     if (this.depth > 0) return false;
     return this.step(this.future, this.past);
   };
@@ -432,7 +584,20 @@ export class SceneStore {
     this.past = [];
     this.future = [];
     this.emitHistory({ type: "clear" });
-    this.setScene(migrateLegacyCanvas(source), false);
+    this.setScene(this.read(source), false);
+  };
+
+  /**
+   * Let the whole history go, as a collaborator's merge does: for a diagram
+   * taken back as though it had never been made — a pen-born diagram whose
+   * path never got a second point — whose entries would otherwise be steps
+   * of a block that is gone.
+   */
+  forget = (): void => {
+    this.past = [];
+    this.future = [];
+    this.emitHistory({ type: "clear" });
+    this.notify();
   };
 
   /**
@@ -458,7 +623,7 @@ export class SceneStore {
     // a pending debounce would only write that merge back as if it were news.
     this.cancelPersist();
     this.dirty = false;
-    this.setScene(migrateLegacyCanvas(source), false);
+    this.setScene(this.read(source), false);
   };
 
   /**
@@ -544,7 +709,7 @@ export class SceneStore {
     this.dirty = false;
     this.record(this.scene, this.captureSelection());
     this.future = [];
-    this.setScene(migrateLegacyCanvas(source), false);
+    this.setScene(this.read(source), false);
   }
 
   private captureSelection(): RestoreSelection | null {
@@ -553,6 +718,10 @@ export class SceneStore {
 
   private record(scene: Scene, selection: RestoreSelection | null): void {
     this.push({ scene, selection, selectionOnly: false });
+    this.markEdited();
+  }
+
+  private markEdited(): void {
     if (this.justEdited) return;
     this.justEdited = true;
     // A selection made in the same task as an edit is the edit's own doing, and
@@ -591,6 +760,15 @@ export interface UseSceneOptions {
    * tokens outlive the page, so the entries behind them must too.
    */
   cacheKey?: string;
+  /** A storyboard frame's size: the store reads as {@link frameReader}. Read once. */
+  frame?: { w: number; h: number };
+  /**
+   * A diagram band's store, whose edits raise the stored height to hold what
+   * they leave below it — see {@link SceneStore.dispatch}. Read once.
+   */
+  band?: boolean;
+  /** The last-shape guard — a diagram block's alone. See {@link SceneStore.setOnEmpty}. */
+  onEmpty?: () => void;
 }
 
 /**
@@ -622,7 +800,7 @@ export function peekSceneStore(cacheKey: string): SceneStore | null {
  * The store for one canvas block. Parsed once, from whichever format the block
  * was written in; written back on a 500ms debounce.
  */
-export function useScene({ source, onChange, cacheKey }: UseSceneOptions): SceneStore {
+export function useScene({ source, onChange, cacheKey, frame, band, onEmpty }: UseSceneOptions): SceneStore {
   const [store] = useState(() => {
     const held = cacheKey ? warm.get(cacheKey) : null;
     if (held) {
@@ -631,7 +809,7 @@ export function useScene({ source, onChange, cacheKey }: UseSceneOptions): Scene
       warm.set(cacheKey!, held);
       return held;
     }
-    const made = new SceneStore(source);
+    const made = new SceneStore(source, frame && frameReader(frame), band && !frame);
     if (cacheKey) {
       warm.set(cacheKey, made);
       for (const [oldest, old] of warm) {
@@ -645,6 +823,7 @@ export function useScene({ source, onChange, cacheKey }: UseSceneOptions): Scene
 
   useEffect(() => {
     store.setWriter(onChange);
+    store.setOnEmpty(onEmpty ?? null);
   });
 
   // Not derived state: `source` is an input the store reconciles against, and
@@ -655,7 +834,13 @@ export function useScene({ source, onChange, cacheKey }: UseSceneOptions): Scene
 
   // A cached store still flushes and lets its subscribers go on unmount —
   // dispose leaves the store itself intact, so reviving it is just mounting.
-  useEffect(() => () => store.dispose(), [store]);
+  useEffect(
+    () => () => {
+      store.setOnEmpty(null);
+      store.dispose();
+    },
+    [store],
+  );
 
   return store;
 }

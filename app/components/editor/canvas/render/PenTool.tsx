@@ -25,6 +25,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import { fitOf } from "@/app/lib/columnScale";
 import type { SceneStore } from "../engine/useScene";
 import type { ViewportController } from "../engine/useViewport";
 import {
@@ -34,6 +35,8 @@ import {
   toLocal,
   toWorld,
 } from "../scene/geometry";
+import { WIDE_MARGIN } from "../scene/bandSpan";
+import { roomFor, roomOps } from "../scene/bandRoom";
 import { mintId } from "../scene/ops";
 import {
   bendSegment,
@@ -42,6 +45,7 @@ import {
   insertAnchor,
   parsePath,
   parseSubpaths,
+  pathBounds,
   removeAnchor,
   serializePath,
   serializeSubpaths,
@@ -80,8 +84,13 @@ type Drag =
    * a new one, ⌘-stripping an old one, or closing the loop. `anchor` is how it
    * stood the instant the press took it, which a drag shorter than `PULL`
    * restores: the gesture then amounts to the press alone.
+   *
+   * `from` is where a press that made a new anchor was, in client px. The
+   * handles are the pointer's travel from there, not its distance from the
+   * anchor: the band may have made room for the anchor — moved it down, or
+   * turned wide under it — and the press is still where the hand is.
    */
-  | { kind: "place"; index: number; anchor: Anchor }
+  | { kind: "place"; index: number; anchor: Anchor; from?: Point }
   | { kind: "anchor"; index: number }
   | { kind: "handle"; index: number; side: Side }
   | { kind: "bend"; index: number; t: number };
@@ -111,6 +120,46 @@ export interface PenToolProps {
   nodeId?: NodeId | null;
   /** The pen is done: leave the tool, and select `id` when there is one. */
   onFinish: (id: NodeId | null) => void;
+  /** Whether a path is being drawn — placed from, and still open to more points. */
+  onDrawing?: (drawing: boolean) => void;
+  /**
+   * One pen of several, on a page of diagrams: with nothing under way here,
+   * Enter and Escape are the pen's that has something, or the page's.
+   */
+  shared?: boolean;
+  /**
+   * The pen draws on a diagram's band, which holds what it draws: past the
+   * column it turns wide, and above its top the drawing moves down to fit —
+   * see `roomFor`. A storyboard's shot has no band and clips instead.
+   */
+  band?: boolean;
+}
+
+/**
+ * The column band's margins, washed in (`.nt-canvas-margins`, the same wash a
+ * shape dragged against the column's side shows): what the pen has drawn, or
+ * is about to, reaches past the column, and the band turns wide to hold it.
+ */
+export function tintMargins(band: Element | null | undefined, on: boolean): void {
+  if (!band) return;
+  const tint = band.querySelector<HTMLElement>(":scope > .nt-canvas-margins");
+  if (on && tint) {
+    // As wide as the wide band will draw them, in this band's px.
+    tint.style.setProperty("--nt-margin", `${(WIDE_MARGIN * fitOf(band, "wide")) / fitOf(band, "normal")}px`);
+  }
+  band.toggleAttribute("data-edge", on && !!tint);
+}
+
+/** Each mounted pen's hover, by its overlay — see {@link hoverPen}. */
+const HOVERS = new WeakMap<Element, (client: Point | null) => void>();
+
+/**
+ * Where the pointer is, for a pen whose overlay it is not over: the page
+ * hovering past a band while that band's path is open. The pen draws its
+ * rubber band to `client` wherever that is, or takes it down for `null`.
+ */
+export function hoverPen(overlay: Element, client: Point | null): void {
+  HOVERS.get(overlay)?.(client);
 }
 
 /** Map an anchor through a point transform, carrying its handles along. */
@@ -214,6 +263,9 @@ export function PenTool({
   viewport,
   nodeId = null,
   onFinish,
+  onDrawing,
+  shared = false,
+  band = false,
 }: PenToolProps) {
   const [initial] = useState(() => load(store, nodeId));
 
@@ -243,6 +295,9 @@ export function PenTool({
 
   /** Whether a `store.begin()` bracket is open, so unmount can close it. */
   const bracketRef = useRef(false);
+  const svgRef = useRef<SVGSVGElement>(null);
+  /** Whether this pen washed the margins in, so only it takes them out. */
+  const tintedRef = useRef(false);
   const curveRef = useRef<SVGPathElement>(null);
   const draftRef = useRef<SVGPathElement>(null);
   const closeRingRef = useRef<SVGCircleElement>(null);
@@ -277,7 +332,7 @@ export function PenTool({
       drawingRef.current &&
       !closedRef.current &&
       anchorsRef.current.length > 2 &&
-      nearestAnchor(anchorsRef.current, p, GRAB / viewport.get().zoom) === 0,
+      nearestAnchor(anchorsRef.current, p, GRAB / viewport.screenScale()) === 0,
     [viewport],
   );
 
@@ -312,6 +367,23 @@ export function PenTool({
       live && last && target ? serializePath([last, target], false) : "";
     draftRef.current?.setAttribute("d", rubber);
 
+    if (band) {
+      // What would land if the gesture ended here: the path as it is dragged,
+      // or with the next anchor where the pointer is.
+      const reach = dragRef.current
+        ? anchorsRef.current
+        : live && tip && anchorsRef.current.length
+          ? [...anchorsRef.current, { point: tip, handleIn: ZERO, handleOut: ZERO, kind: "corner" as const }]
+          : null;
+      const past =
+        !!reach &&
+        !!roomFor(store.getScene(), pathBounds({ anchors: reach, closed: closedRef.current }))?.wide;
+      if (past !== tintedRef.current) {
+        tintedRef.current = past;
+        tintMargins(svgRef.current?.closest(".nt-canvas"), past);
+      }
+    }
+
     place(closeRingRef.current, closing, px[0]?.point.x, px[0]?.point.y);
     place(
       closeGlyphRef.current,
@@ -345,12 +417,12 @@ export function PenTool({
         px[i].handleIn,
       );
     }
-  }, [viewport, closesLoop]);
+  }, [viewport, closesLoop, band, store]);
 
   // Every render is a structural change; positions are written here, not in JSX.
   useLayoutEffect(paint);
 
-  // Pan and zoom move the overlay without changing anything React renders.
+  // The viewport moves the overlay without changing anything React renders.
   useEffect(() => viewport.subscribe(paint), [viewport, paint]);
 
   /**
@@ -362,7 +434,9 @@ export function PenTool({
   const sync = useCallback(() => {
     setCount(anchorsRef.current.length);
     paint();
-  }, [paint]);
+    onDrawing?.(drawingRef.current && !closedRef.current && anchorsRef.current.length > 0);
+  }, [paint, onDrawing]);
+  useEffect(() => () => onDrawing?.(false), [onDrawing]);
 
   // -- Writing --------------------------------------------------------------
 
@@ -419,6 +493,44 @@ export function PenTool({
     });
   }, [store]);
 
+  /**
+   * Make room in the band for what the pen drew: turn it wide, or move the
+   * whole drawing in, as `roomFor` says. Inside the gesture's bracket, so the
+   * room is the same undo step as the anchor or curve that needed it.
+   *
+   * The anchors are in scene space and move with the drawing; the node itself
+   * moves by the op, so its `d` needs no rewrite.
+   */
+  const contain = useCallback(() => {
+    const anchors = anchorsRef.current;
+    if (!band || !idRef.current || anchors.length === 0) return;
+    const scene = store.getScene();
+    const room = roomFor(scene, pathBounds({ anchors, closed: closedRef.current }));
+    if (!room) return;
+    if (tintedRef.current) {
+      // The wash previewed exactly this; a wide band has no margins to wash.
+      tintedRef.current = false;
+      tintMargins(svgRef.current?.closest(".nt-canvas"), false);
+    }
+    store.dispatch(roomOps(scene, room));
+    if (!room.dx && !room.dy) return;
+    const shift = (a: Anchor): Anchor => ({
+      ...a,
+      point: { x: a.point.x + room.dx, y: a.point.y + room.dy },
+    });
+    anchorsRef.current = anchors.map(shift);
+    const drag = dragRef.current;
+    if (drag?.kind === "place") dragRef.current = { ...drag, anchor: shift(drag.anchor) };
+  }, [band, store]);
+
+  /** An edit outside any gesture: the path written and room made, one step. */
+  const land = useCallback(() => {
+    store.begin();
+    write();
+    contain();
+    store.commit();
+  }, [store, write, contain]);
+
   const ensureNode = useCallback(
     (at: Point): void => {
       if (idRef.current) return;
@@ -472,13 +584,18 @@ export function PenTool({
     endNudgeRun();
     const id = idRef.current;
     if (anchorsRef.current.length < 2) {
-      if (id) store.dispatch({ type: "remove", ids: [id] });
+      // A path the pen began, taken back: a diagram that held nothing else was
+      // empty before the pen began, and the last-shape guard is not asked. One
+      // it was handed to edit is a shape going like any other.
+      if (id) store.dispatch({ type: "remove", ids: [id] }, nodeId === null ? { guard: false } : undefined);
+      onDrawing?.(false);
       onFinish(null);
       return;
     }
     write();
+    onDrawing?.(false);
     onFinish(id);
-  }, [endNudgeRun, store, write, onFinish]);
+  }, [endNudgeRun, store, write, onFinish, onDrawing, nodeId]);
 
   /** One visual update and one committed edit per frame, never per event. */
   const schedule = useCallback(() => {
@@ -503,6 +620,23 @@ export function PenTool({
     },
     [store],
   );
+
+  // The page's hover past the band, while this pen's path is open.
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    HOVERS.set(svg, (client) => {
+      if (dragRef.current) return;
+      cursorRef.current = client && viewport.clientToScene(client);
+      schedule();
+    });
+    return () => {
+      HOVERS.delete(svg);
+      if (!tintedRef.current) return;
+      tintedRef.current = false;
+      tintMargins(svg.closest(".nt-canvas"), false);
+    };
+  }, [viewport, schedule]);
 
   // -- Hit testing ----------------------------------------------------------
 
@@ -534,11 +668,10 @@ export function PenTool({
 
   const onPointerDown = useCallback(
     (e: ReactPointerEvent<SVGSVGElement>) => {
-      // Space-drag belongs to the viewport, whatever tool is active.
-      if (e.button !== 0 || viewport.panState() !== "idle") return;
+      if (e.button !== 0) return;
       e.preventDefault();
       const p = viewport.clientToScene({ x: e.clientX, y: e.clientY });
-      const tol = GRAB / viewport.get().zoom;
+      const tol = GRAB / viewport.screenScale();
       const anchors = anchorsRef.current;
       const closed = closedRef.current;
 
@@ -546,7 +679,11 @@ export function PenTool({
         // A pointer gesture is its own entry; a nudge run still open would
         // otherwise swallow it.
         endNudgeRun();
-        e.currentTarget.setPointerCapture(e.pointerId);
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          // A press handed over from the page by a pointer already let go.
+        }
         pointerRef.current = e.pointerId;
         dragRef.current = drag;
         bracketRef.current = true;
@@ -619,19 +756,16 @@ export function PenTool({
         finish();
         return;
       }
-      ensureNode(p);
-      anchorsRef.current = [
-        ...anchors,
-        { point: p, handleIn: ZERO, handleOut: ZERO, kind: "corner" },
-      ];
+      const anchor: Anchor = { point: p, handleIn: ZERO, handleOut: ZERO, kind: "corner" };
+      anchorsRef.current = [...anchors, anchor];
       const placed = anchorsRef.current.length - 1;
       selectedRef.current = new Set([placed]);
-      begin({
-        kind: "place",
-        index: placed,
-        anchor: anchorsRef.current[placed],
-      });
+      // Bracketed from the node's insert on, so a path's first anchor is one
+      // step like every later one, room made for it included.
+      begin({ kind: "place", index: placed, anchor, from: { x: e.clientX, y: e.clientY } });
+      ensureNode(p);
       write();
+      contain();
       sync();
     },
     [
@@ -641,6 +775,7 @@ export function PenTool({
       endNudgeRun,
       hitHandle,
       write,
+      contain,
       ensureNode,
       finish,
       sync,
@@ -655,7 +790,8 @@ export function PenTool({
       const anchors = anchorsRef.current;
       const a = drag ? anchors[drag.index] : undefined;
       if (drag && a) {
-        const v = { x: p.x - a.point.x, y: p.y - a.point.y };
+        const from = drag.kind === "place" && drag.from ? viewport.clientToScene(drag.from) : a.point;
+        const v = { x: p.x - from.x, y: p.y - from.y };
         if (drag.kind === "anchor") {
           // The whole selection travels with the anchor under the hand.
           anchorsRef.current = nudgeAnchors(
@@ -677,7 +813,7 @@ export function PenTool({
           // Click-and-drag pulls both handles out symmetrically — the gesture
           // the whole tool is judged on, and the same one that curves the
           // closing segment when the press landed on the first anchor.
-          const pulled = Math.hypot(v.x, v.y) * viewport.get().zoom > PULL;
+          const pulled = Math.hypot(v.x, v.y) * viewport.screenScale() > PULL;
           const next = anchors.slice();
           next[drag.index] = pulled
             ? {
@@ -712,6 +848,7 @@ export function PenTool({
       if (!dragRef.current) return;
       dragRef.current = null;
       write();
+      contain();
       bracketRef.current = false;
       store.commit();
       if (closingRef.current) {
@@ -721,14 +858,14 @@ export function PenTool({
       }
       paint();
     },
-    [write, store, paint, onFinish],
+    [write, contain, store, paint, onFinish],
   );
 
   const onDoubleClick = useCallback(
     (e: ReactMouseEvent<SVGSVGElement>) => {
       const p = viewport.clientToScene({ x: e.clientX, y: e.clientY });
       const anchors = anchorsRef.current;
-      const index = nearestAnchor(anchors, p, GRAB / viewport.get().zoom);
+      const index = nearestAnchor(anchors, p, GRAB / viewport.screenScale());
       if (index < 0) return;
       e.preventDefault();
       anchorsRef.current = setAnchorKind(
@@ -737,10 +874,10 @@ export function PenTool({
         anchors[index].kind === "smooth" ? "corner" : "smooth",
       );
       selectedRef.current = new Set([index]);
-      write();
+      land();
       sync();
     },
-    [viewport, write, sync],
+    [viewport, land, sync],
   );
 
   // -- Keyboard -------------------------------------------------------------
@@ -761,6 +898,7 @@ export function PenTool({
       };
 
       if (e.key === "Enter" || e.key === "Escape") {
+        if (shared && !idRef.current && anchorsRef.current.length === 0) return;
         claim();
         finish();
         return;
@@ -781,6 +919,7 @@ export function PenTool({
           arrow.y * step,
         );
         write();
+        contain();
         sync();
         return;
       }
@@ -798,19 +937,24 @@ export function PenTool({
       const keep = Math.min(Math.min(...selected), next.length - 1);
       selectedRef.current = new Set(keep >= 0 ? [keep] : []);
       if (next.length < 2) closedRef.current = false;
-      write();
+      land();
       sync();
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [finish, write, sync, nudgeStep, endNudgeRun]);
+  }, [finish, write, contain, land, sync, nudgeStep, endNudgeRun, shared]);
 
   // -- Overlay --------------------------------------------------------------
 
   return (
     <svg
+      ref={svgRef}
+      className="nt-pen"
       style={{
         position: "absolute",
+        // What is drawn past the band — the rubber band to a point above it or
+        // in its margins, a curve pulled out of it — is drawn where it is.
+        overflow: "visible",
         inset: 0,
         width: "100%",
         height: "100%",

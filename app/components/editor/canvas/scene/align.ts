@@ -21,6 +21,7 @@
  *    places that look random.
  */
 
+import { BAND, bandHeight, bandLeft, bandWidth } from "./bandGeometry";
 import { nodeBounds, unionBounds } from "./geometry";
 import { findParent, selectedNodes } from "./types";
 import type {
@@ -47,7 +48,19 @@ export function alignNodes(
   edge: Alignment,
   within?: Rect,
 ): Map<NodeId, Point> {
-  const moves = new Map<NodeId, Point>();
+  return byId(alignByNode(nodes, edge, within));
+}
+
+/**
+ * {@link alignNodes}, keyed by the node itself: nodes from several diagrams
+ * can share an id, and a selection spanning them aligns as one.
+ */
+export function alignByNode(
+  nodes: readonly SceneNode[],
+  edge: Alignment,
+  within?: Rect,
+): Map<SceneNode, Point> {
+  const moves = new Map<SceneNode, Point>();
   if (nodes.length === 0) return moves;
 
   const frame = within ?? unionBounds(nodes);
@@ -75,9 +88,15 @@ export function alignNodes(
         dy = frame.y + frame.h - (bounds.y + bounds.h);
         break;
     }
-    moves.set(node.id, { x: node.x + dx, y: node.y + dy });
+    moves.set(node, { x: node.x + dx, y: node.y + dy });
   }
   return moves;
+}
+
+function byId(moves: ReadonlyMap<SceneNode, Point>): Map<NodeId, Point> {
+  const out = new Map<NodeId, Point>();
+  for (const [node, to] of moves) out.set(node.id, to);
+  return out;
 }
 
 /**
@@ -87,15 +106,26 @@ export function alignNodes(
  * The single-node case is Figma's, and it is the one users actually rely on —
  * aligning one node to its own bounds does nothing, which is not what pressing
  * the button appears to promise. A node's container in its own coordinate space
- * is its parent group's box with the origin at zero, or the canvas surface at
- * the top level.
+ * is its parent group's box with the origin at zero, or the surface at the top
+ * level: a frame's own box, or the band a diagram is drawn in — across its
+ * full width, and down within its margins. A band is as tall as its lowest
+ * shape plus a margin, so a shape aligned to the band's own bottom edge would
+ * push that edge down with it on every press.
  */
 export function alignTarget(
   scene: Scene,
   ids: readonly NodeId[],
   relativeTo?: AlignTarget,
 ): Rect {
-  const surface: Rect = { x: 0, y: 0, w: scene.w, h: scene.h };
+  const surface: Rect =
+    scene.w > 0
+      ? { x: 0, y: 0, w: scene.w, h: scene.h }
+      : {
+          x: bandLeft(scene),
+          y: BAND,
+          w: bandWidth(scene),
+          h: Math.max(0, bandHeight(scene) - 2 * BAND),
+        };
   if (ids.length === 0) return surface;
 
   const target = relativeTo ?? (ids.length > 1 ? "selection" : "parent");
@@ -128,9 +158,18 @@ export function distributeNodes(
   axis: DistributeAxis,
   spacing?: number,
 ): Map<NodeId, Point> {
+  return byId(distributeByNode(nodes, axis, spacing));
+}
+
+/** {@link distributeNodes}, keyed by the node itself — see {@link alignByNode}. */
+export function distributeByNode(
+  nodes: readonly SceneNode[],
+  axis: DistributeAxis,
+  spacing?: number,
+): Map<SceneNode, Point> {
   const horizontal = axis === "horizontal";
-  const moves = new Map<NodeId, Point>();
-  for (const node of nodes) moves.set(node.id, { x: node.x, y: node.y });
+  const moves = new Map<SceneNode, Point>();
+  for (const node of nodes) moves.set(node, { x: node.x, y: node.y });
 
   const spans: Span[] = nodes.map((node) => {
     const bounds = nodeBounds(node);
@@ -157,7 +196,7 @@ export function distributeNodes(
   let cursor = spans[0].start;
   for (const span of spans) {
     const delta = cursor - span.start;
-    moves.set(span.node.id, {
+    moves.set(span.node, {
       x: span.node.x + (horizontal ? delta : 0),
       y: span.node.y + (horizontal ? 0 : delta),
     });

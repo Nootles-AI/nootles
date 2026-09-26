@@ -7,8 +7,7 @@
  * the box, how big a resize is making it, or what angle a rotation is at.
  *
  * Mount it as the last child of the viewport's scene layer, so it inherits the
- * pan/zoom transform for free — every coordinate here is scene px and a pan
- * costs nothing. What cannot ride that transform is anything meant to be a
+ * layer's transform for free — every coordinate here is scene px. What cannot ride that transform is anything meant to be a
  * fixed size on screen: handles, hairlines and the readout are drawn at
  * `1/zoom` scene px, and the zoom is the only viewport value this subscribes to.
  *
@@ -37,7 +36,7 @@ import {
   type ReadoutMode,
 } from "../engine/gestures";
 import type { SnapGuide } from "../engine/snapping";
-import { useViewportZoom, type ViewportController } from "../engine/useViewport";
+import { useScreenScale, type ViewportController } from "../engine/useViewport";
 import {
   nodeBounds,
   normalizeAngle,
@@ -51,6 +50,11 @@ import "./overlay.css";
 export interface OverlayApi extends OverlayHandle {
   /** The rubber band, in scene px. `null` hides it. */
   marquee(rect: Rect | null): void;
+  /**
+   * Hide the passive hints while a gesture another diagram draws is moving
+   * these shapes: their outlines would stay where the shapes were.
+   */
+  passive(hidden: boolean): void;
 }
 
 export interface OverlayProps {
@@ -216,7 +220,7 @@ export function Overlay({
   readOnly = false,
   ref,
 }: OverlayProps) {
-  const zoom = useViewportZoom(viewport);
+  const zoom = useScreenScale(viewport);
 
   const root = useRef<SVGSVGElement>(null);
   const frame = useRef<SVGGElement>(null);
@@ -405,6 +409,9 @@ export function Overlay({
         state.current.radii = values;
         const current = state.current.selection;
         if (current) drawRadii(current, 1 / state.current.zoom);
+      },
+      passive(hidden) {
+        root.current?.classList.toggle("is-passive", hidden);
       },
       marquee(rect) {
         const el = band.current;

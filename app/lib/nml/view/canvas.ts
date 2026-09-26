@@ -6,6 +6,7 @@ import type {
 import { walk } from "@/app/components/editor/canvas/scene/types";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import type { NmlAnchor, NmlCommand } from "../commands";
+import { nmlCanvasAttrs } from "../yjs";
 
 export type CanvasSceneCommands = {
   commands: NmlCommand[];
@@ -226,7 +227,10 @@ export function compileCanvasSceneChange(
   if (before.w !== after.w) canvasPatch.w = after.w;
   if (before.h !== after.h) canvasPatch.h = after.h;
   if (!same(before.style, after.style)) canvasPatch.style = after.style;
-  if (!same(before.attrs, after.attrs)) canvasPatch.attrs = after.attrs;
+  // `wide` travels inside attrs, as the NML copy holds it (`nmlCanvasAttrs`).
+  if (before.wide !== after.wide || !same(before.attrs, after.attrs)) {
+    canvasPatch.attrs = nmlCanvasAttrs(after);
+  }
   if (after.id !== canvasId) {
     throw new Error(`Canvas diagram ID must remain ${canvasId}.`);
   }

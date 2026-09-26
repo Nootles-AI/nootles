@@ -1,8 +1,9 @@
 /**
  * The picking gate — drives real Chromium pointer and keyboard input over
  * `PICKING_PROBES` (`tests/canvas-fixtures.ts`) at every zoom in `PICK_ZOOMS`,
- * against the shared `pick-all` fixture, through the same
- * `tests/canvas-harness.browser.tsx` page `canvas-camera.browser.mjs` mounts.
+ * against the shared `pick-all` fixture, through the
+ * `tests/canvas-harness.browser.tsx` page — the band in a 720px column,
+ * scaled by `look()` as a document is zoomed.
  *
  * This file is the CANONICAL picking test (build-plan Conflict 4 / OQ-4):
  * PICK's own F1–F12 stay as vitest-only coverage (`scene/picking.test.ts`)
@@ -29,16 +30,11 @@
  *      `import()`s the result. The module is pure scene/layout logic with no
  *      DOM dependency, so a Node-platform bundle of it needs nothing the
  *      browser bundle doesn't already prove works.
- *   2. Real camera placement before real input: `viewport.set()` (which
- *      `look()` calls) updates the viewport's in-memory position
- *      synchronously but defers the DOM `transform` write to the next
- *      `requestAnimationFrame` (`useViewport.ts`'s `commit`/`flush`). A probe
- *      computes its click point from that same in-memory position via
- *      `toClient()`, so clicking before the transform has actually painted
- *      would send Chromium's real hit-test against the OLD transform while
- *      our math already assumes the new one. Two `nextFrame()` awaits after
- *      every `look()` (mirroring `mount()`'s own settle idiom) closes that
- *      gap before any pointer event is dispatched.
+ *   2. Real placement before real input: `look()` zooms the column and
+ *      scrolls the page, and a probe's click point is read off the laid-out
+ *      DOM. Two `nextFrame()` awaits after every `look()` (mirroring
+ *      `mount()`'s own settle idiom) let layout and paint catch up before any
+ *      pointer event is dispatched.
  *
  *   node tests/canvas-picking.browser.mjs
  *
@@ -62,12 +58,6 @@ import {
 } from "./canvas-harness.mjs";
 
 const VIEWPORT = { width: 1280, height: 900 };
-// The canvas itself is forced to exactly this size regardless of the page's
-// own viewport (`canvas-harness.browser.css`'s `!important` rule) — §3.2.2's
-// "zoom 8 shows 150×100 scene px" arithmetic is 1200/8 and 800/8, so the
-// mount below must use these defaults, not `mount()`'s own fallback by
-// coincidence.
-const MOUNT_SIZE = { width: 1200, height: 800 };
 const OFF_CANVAS = { x: 20, y: 20 }; // inside #app's 40px gutter, outside the wrapper
 
 const c = checker();
@@ -319,19 +309,13 @@ async function main() {
     let mountedReadOnly = false;
     const mountBase = async () => {
       await accumulate(page);
-      await page.evaluate((args) => window.canvasHarness.mount(args.fixture, args.opts), {
-        fixture: "pick-all",
-        opts: MOUNT_SIZE,
-      });
+      await page.evaluate(() => window.canvasHarness.mount("pick-all"));
       await page.evaluate(() => window.canvasHarness.focus());
       mountedReadOnly = false;
     };
     const mountReadOnly = async () => {
       await accumulate(page);
-      await page.evaluate((args) => window.canvasHarness.mount(args.fixture, args.opts), {
-        fixture: "pick-all",
-        opts: { ...MOUNT_SIZE, readOnly: true },
-      });
+      await page.evaluate(() => window.canvasHarness.mount("pick-all", { readOnly: true }));
       await page.evaluate(() => window.canvasHarness.focus());
       mountedReadOnly = true;
     };
@@ -357,10 +341,7 @@ async function main() {
         const scenePoints = await Promise.all(anchors.map((anchor) => resolveAnchor(page, anchor)));
         const centre = bboxCentre(scenePoints);
         await page.evaluate((args) => window.canvasHarness.look(args.centre, args.zoom), { centre, zoom });
-        // Two frames: `viewport.set()` updates the in-memory camera
-        // synchronously but the DOM `transform` write is deferred to the
-        // next rAF (`useViewport.ts`'s `commit`/`flush`) — see the header
-        // note. Real pointer input must land after the repaint, not before.
+        // Real pointer input lands after the repaint — see the header note.
         await page.evaluate(() => window.canvasHarness.nextFrame());
         await page.evaluate(() => window.canvasHarness.nextFrame());
         const clientPoints = await Promise.all(

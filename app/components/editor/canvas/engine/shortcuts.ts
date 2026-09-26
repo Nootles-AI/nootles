@@ -5,15 +5,14 @@
  *
  * ## Scoping is the whole problem
  *
- * The canvas is a node view inside a ProseMirror document, so every key it
- * wants is a key the editor also wants: ⌘Z, ⌘A, ⌘C, ⌫, the arrows. The listener
- * is therefore bound to the canvas container and every handled event is
- * `stopPropagation`'d there, so the editor's keymap never sees it. That only
- * works because the container is `contentEditable={false}` and focusable: focus
- * lands on it rather than on the editable text around it, keydown originates
- * inside it, and `document.activeElement.isContentEditable` is false — which is
- * exactly the test that tells "the canvas is focused" from "a shape's label is
- * being edited". While a label is being edited nothing here fires.
+ * A diagram is a node view inside a ProseMirror document, so every key it
+ * wants is a key the editor also wants: ⌘Z, ⌘A, ⌘C, ⌫, the arrows. On the page
+ * one listener per pane speaks for all of its diagrams (`page/pageKeymap.ts`),
+ * in the capture phase ahead of the editor; a surface standing on its own — a
+ * storyboard's shot, a harness — binds the same verbs to its own container
+ * here. Either way a handled key is `stopPropagation`'d so the editor's keymap
+ * never sees it, and nothing fires while a shape's label or any other field
+ * has the caret.
  *
  * ## The table is the source of truth
  *
@@ -32,27 +31,23 @@
  *
  * ## Two things this deliberately does not own
  *
- *  - **Space-to-pan** belongs to `useViewport`, which already tracks the key,
- *    owns the cursor and reports `panState()`. It is listed here so it appears
- *    in the cheat sheet, and its handler does nothing.
+ *  - **Space and the zoom keys** move the page, not a diagram — a diagram has
+ *    no view of its own to move. They are listed here so they appear in the
+ *    cheat sheet, and their handlers decline.
  *  - **⌘C/⌘X/⌘V go through the browser's own clipboard events**, not through
  *    keydown, so `clipboardData` is available synchronously and no clipboard
  *    permission prompt is ever raised. The keydown rows exist to be displayed.
  *
- * ## The clipboard is canvas HTML
- *
- * A copy serializes the selection through the grammar and puts that text on the
- * system clipboard, so what you copied is a valid canvas document: it survives a
- * trip through any text field, and canvas HTML pasted in from anywhere else —
- * a model's reply, another canvas, a file — is parsed by the same code that
- * parses a block. The in-memory copy is only the fallback for browsers that
- * refuse to hand over `clipboardData`.
+ * The clipboard's own format and helpers live in `./clipboard`.
  */
 
 import { useEffect, useRef } from "react";
+import { isApplePlatform, isModKey } from "@/app/lib/platform";
+
+export { isApplePlatform, isModKey };
 import {
+  absoluteBounds,
   absoluteRect,
-  absoluteRotation,
   absoluteSelectionBounds,
   unionBounds,
 } from "../scene/geometry";
@@ -60,7 +55,6 @@ import { HUG } from "../scene/autoLayout";
 import { booleanOps, flattenOps, loadClipper } from "../scene/boolean";
 import { mintEdgeIds, mintIds } from "../scene/ops";
 import { parseScene } from "../scene/parse";
-import { serializeScene } from "../scene/serialize";
 import {
   findNode,
   hasText,
@@ -68,13 +62,9 @@ import {
   isGroup,
   nodePath,
   topSelection,
-  walk,
-  SCENE_TAG,
-  TAG_BY_KIND,
   type Alignment,
   type NodeId,
   type Point,
-  type Rect,
   type Scene,
   type SceneEdge,
   type SceneNode,
@@ -83,10 +73,9 @@ import {
   isBoolean,
   type BooleanOp,
 } from "../scene/types";
-import type { ScreenControl } from "./screen";
+import { clipboardHtml, copiesInto, isCanvasHtml, lastCopy, rememberCopy } from "./clipboard";
 import type { SceneStore } from "./useScene";
 import type { SelectionStore } from "./useSelection";
-import { ZOOM_STEP } from "./useViewport";
 import type { ViewportController } from "./useViewport";
 
 // ---------------------------------------------------------------------------
@@ -113,8 +102,7 @@ export type CanvasTool =
   | "diamond"
   | "text"
   | "pen"
-  | "connector"
-  | "zoom";
+  | "connector";
 
 /** The slice of tool state the keymap needs. */
 export interface ToolController {
@@ -168,7 +156,6 @@ export type ShortcutId =
   | "tool.pen"
   | "tool.connector"
   | "tool.hand"
-  | "tool.zoom"
   | "edit.undo"
   | "edit.redo"
   | "edit.duplicate"
@@ -205,12 +192,7 @@ export type ShortcutId =
   | "view.zoomIn"
   | "view.zoomOut"
   | "view.zoomReset"
-  | "view.zoomFit"
-  | "view.zoomSelection"
   | "view.pan"
-  | "view.stage"
-  | "view.minimal"
-  | "view.fullscreen"
   | "toggle.hidden"
   | "toggle.locked"
   | "align.left"
@@ -239,8 +221,7 @@ export interface Shortcut {
   /**
    * Bindings on non-Apple platforms when they differ from `keys` — a `Ctrl`
    * token in `keys` is the spare modifier on Apple (⌃) and has no off-Apple
-   * meaning, so a row that needs one supplies the real off-Apple key here
-   * (`view.fullscreen`'s `f11`).
+   * meaning, so a row that needs one supplies the real off-Apple key here.
    */
   other?: readonly string[];
 }
@@ -277,7 +258,6 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: "tool.pen", label: "Pen", group: "Tools", keys: tool("p") },
   { id: "tool.connector", label: "Connector", group: "Tools", keys: tool("c") },
   { id: "tool.hand", label: "Hand", group: "Tools", keys: tool("h") },
-  { id: "tool.zoom", label: "Zoom", group: "Tools", keys: tool("z") },
 
   { id: "edit.undo", label: "Undo", group: "Edit", keys: ["Mod+z"] },
   {
@@ -420,39 +400,9 @@ export const SHORTCUTS: readonly Shortcut[] = [
     keys: ["Mod+=", "Mod+Shift+="],
   },
   { id: "view.zoomOut", label: "Zoom out", group: "View", keys: ["Mod+-"] },
-  {
-    id: "view.zoomReset",
-    label: "Zoom to 100%",
-    group: "View",
-    keys: ["Mod+0", "Shift+0"],
-  },
-  {
-    id: "view.zoomFit",
-    label: "Zoom to fit",
-    group: "View",
-    keys: ["Mod+1", "Shift+1"],
-  },
-  {
-    id: "view.zoomSelection",
-    label: "Zoom to selection",
-    group: "View",
-    keys: ["Mod+2", "Shift+2"],
-  },
+  // Not `Shift+0` as well: on the page that types a ")".
+  { id: "view.zoomReset", label: "Zoom to 100%", group: "View", keys: ["Mod+0"] },
   { id: "view.pan", label: "Pan", group: "View", keys: ["space"], display: "Space (hold)" },
-  { id: "view.stage", label: "Expanded stage", group: "View", keys: ["Mod+Shift+f"] },
-  {
-    id: "view.minimal",
-    label: "Hide UI",
-    group: "View",
-    keys: ["Mod+.", "Mod+\\"],
-  },
-  {
-    id: "view.fullscreen",
-    label: "Browser fullscreen",
-    group: "View",
-    keys: ["Mod+Ctrl+f"],
-    other: ["f11"],
-  },
 
   {
     id: "toggle.hidden",
@@ -571,18 +521,6 @@ function eventKey(e: KeyboardEvent): string {
   return e.key === " " ? "space" : e.key.toLowerCase();
 }
 
-let applePlatform: boolean | null = null;
-
-/**
- * Whether `Mod` means ⌘. Resolved once, lazily — reading `navigator` at module
- * scope would run on the server.
- */
-export function isApplePlatform(): boolean {
-  applePlatform ??=
-    typeof navigator !== "undefined" &&
-    /mac|iphone|ipad|ipod/i.test(navigator.userAgent);
-  return applePlatform;
-}
 
 function matches(binding: Binding, e: KeyboardEvent, apple: boolean): boolean {
   const mod = apple ? e.metaKey : e.ctrlKey;
@@ -676,15 +614,6 @@ export function shortcutHint(id: ShortcutId, apple = isApplePlatform(), nth = 0)
   return spec ? formatShortcut(spec, apple) : "";
 }
 
-/**
- * Whether this pointer or key event carries the platform's command modifier:
- * ⌘ on Apple, Ctrl elsewhere. On a Mac, Ctrl+click is the OS's right-click
- * and must never read as deep select.
- */
-export function isModKey(e: { metaKey: boolean; ctrlKey: boolean }): boolean {
-  return isApplePlatform() ? e.metaKey : e.ctrlKey;
-}
-
 // ---------------------------------------------------------------------------
 // Scene helpers
 // ---------------------------------------------------------------------------
@@ -698,50 +627,21 @@ function isTextEntry(): boolean {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
 }
 
-function countNodes(nodes: readonly SceneNode[]): number {
-  let n = 0;
-  walk(nodes, () => {
-    n++;
-  });
-  return n;
-}
-
 /**
- * A deep copy with every id replaced, so it can be inserted alongside the
- * original. `map` records old → new for callers that have to follow the copy —
- * connectors name their endpoints by id, and are meaningless without it.
+ * Whether a tool's key picks it on the page (a shot's own keymap takes every
+ * letter). ⌥⇧ and the letter always do; the bare letter
+ * only over shapes in hand with no caret in the page, where a letter is not
+ * typing — and not in a band that holds nothing either, whose letters the
+ * person may well think are going to the text beside it.
  */
-function reid(
-  node: SceneNode,
-  next: () => NodeId,
-  map?: Map<NodeId, NodeId>,
-): SceneNode {
-  const id = next();
-  map?.set(node.id, id);
-  return isContainer(node)
-    ? {
-        ...node,
-        id,
-        children: node.children.map((child) => reid(child, next, map)),
-      }
-    : { ...node, id };
-}
-
-/** Fresh copies of `nodes`, translated, with ids that collide with nothing in `scene`. */
-function copiesInto(
-  scene: Scene,
-  nodes: readonly SceneNode[],
-  dx: number,
-  dy: number,
-  map?: Map<NodeId, NodeId>,
-): SceneNode[] {
-  const ids = mintIds(scene, countNodes(nodes));
-  let i = 0;
-  const next = () => ids[i++];
-  return nodes.map((node) => {
-    const copy = reid(node, next, map);
-    return { ...copy, x: copy.x + dx, y: copy.y + dy };
-  });
+export function toolKeyAllowed(key: {
+  chord: boolean;
+  field: boolean;
+  page: boolean;
+  shapes: boolean;
+}): boolean {
+  if (key.field) return false;
+  return key.chord || (key.shapes && !key.page);
 }
 
 /**
@@ -769,83 +669,28 @@ function autoLayoutDecls(scene: Scene, ids: readonly NodeId[]): StylePatch {
   return decls;
 }
 
-/** The union of every top-level node's box, in scene space. Falls back to the surface. */
-function contentBounds(scene: Scene): Rect {
-  if (scene.nodes.length === 0) return { x: 0, y: 0, w: scene.w, h: scene.h };
-  return absoluteSelectionBounds(
-    scene,
-    scene.nodes.map((node) => node.id),
-  );
+/** The id of the group holding `id`, or `null` at the top level. */
+function parentIdOf(scene: Scene, id: NodeId): NodeId | null {
+  const path = nodePath(scene, id);
+  return path.length > 1 ? path[path.length - 2].id : null;
+}
+
+/** The innermost entered group that still exists — where a paste lands. */
+export function pasteLevel(scene: Scene, selection: SelectionStore): NodeId | null {
+  const path = selection.getSnapshot().enteredPath;
+  for (let i = path.length - 1; i >= 0; i--) {
+    const node = findNode(scene, path[i]);
+    if (node && isContainer(node)) return node.id;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
-// Clipboard
-// ---------------------------------------------------------------------------
-
-const CANVAS_TAGS = new RegExp(
-  `<(${[SCENE_TAG, ...Object.values(TAG_BY_KIND)].join("|")})[\\s>]`,
-  "i",
-);
-
-/** Whether some text off the system clipboard is ours to parse. */
-function isCanvasHtml(text: string): boolean {
-  return CANVAS_TAGS.test(text);
-}
-
-/**
- * Shared by every canvas on the page, so a copy in one block pastes into
- * another. Only ever read when the browser withheld `clipboardData`.
- */
-let internalClipboard: string | null = null;
-
-/**
- * The selection as a canvas document, flattened into scene space.
- *
- * Flattening is what makes the result meaningful anywhere: a shape copied out of
- * a group carries the position it appeared to have, so pasting it at the top
- * level, into a different group, or into a different canvas puts it where it
- * looked like it was. Its own children stay relative to it and are untouched.
- */
-function clipboardHtml(scene: Scene, ids: readonly NodeId[]): string | null {
-  const nodes = topSelection(scene, ids);
-  if (nodes.length === 0) return null;
-  const flattened = nodes.map((node) => {
-    const box = absoluteRect(scene, node.id);
-    return {
-      ...node,
-      x: box.x,
-      y: box.y,
-      rot: absoluteRotation(scene, node.id),
-    };
-  });
-  // Connectors whose BOTH ends are inside the copy. An edge with one end left
-  // behind has nothing to attach to over there, and carrying it would produce a
-  // connector pointing at a node that does not exist. Descendants count: a group
-  // travels with its children, so the edges between them travel too.
-  const carried = new Set<NodeId>();
-  walk(flattened, (node) => {
-    carried.add(node.id);
-  });
-  const edges = scene.edges.filter(
-    (edge) => carried.has(edge.from) && carried.has(edge.to),
-  );
-
-  return serializeScene({
-    w: scene.w,
-    h: scene.h,
-    style: {},
-    nodes: flattened,
-    edges,
-    attrs: {},
-  });
-}
-
-// ---------------------------------------------------------------------------
-// The hook
+// Commands
 // ---------------------------------------------------------------------------
 
 /** How far ⌘D and a plain ⌘V offset a copy, matching Figma. */
-const DUPLICATE_OFFSET = 10;
+export const DUPLICATE_OFFSET = 10;
 
 const NUDGE: Readonly<Record<string, Point>> = {
   arrowleft: { x: -1, y: 0 },
@@ -855,7 +700,7 @@ const NUDGE: Readonly<Record<string, Point>> = {
 };
 
 /** Which way an arrow key moves the selection, by character or by physical key. */
-function nudgeDelta(e: KeyboardEvent): Point | null {
+export function nudgeDelta(e: KeyboardEvent): Point | null {
   return NUDGE[eventKey(e)] ?? NUDGE[codeKey(e.code) ?? ""] ?? null;
 }
 
@@ -866,24 +711,441 @@ function nudgeDelta(e: KeyboardEvent): Point | null {
  */
 const NUDGE_RUN_MS = 600;
 
+/** Where a band lets its content go across; a frame holds nothing in. */
+export type NudgeRange = { minX: number; maxX: number };
+
+/**
+ * A run of nudges bracketed into one undo entry.
+ *
+ * The bracket is not about nudging, it is about key repeat: holding an arrow
+ * has the OS deliver a keydown every few tens of milliseconds, and outside a
+ * bracket every dispatch is an entry of its own, so two seconds of ⇧→ would
+ * spend most of the store's bounded history and take as many ⌘Zs to walk
+ * back. Direction and step may change freely within the run.
+ *
+ * The run ends at the key coming up, at {@link NUDGE_RUN_MS} of quiet, at any
+ * other command, at the selection moving elsewhere, and before an undo steps —
+ * so nothing that is not part of the same arrow-keying is folded in. Each of
+ * those calls `settle`, which is the run's own end unless a caller holding
+ * several runs — one per diagram — ends them together.
+ */
+export interface NudgeRun {
+  /** Moves `ids` by the step, opening the bracket if it is not open. */
+  move(ids: NodeId[], dx: number, dy: number): void;
+  end(): void;
+  /** Ends the run and stops listening. */
+  dispose(): void;
+}
+
+export function createNudgeRun(
+  store: SceneStore,
+  selection: SelectionStore,
+  settle?: () => void,
+): NudgeRun {
+  let idle: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * The selection the open run started under, held by identity — which the
+   * selection store makes meaningful: it threads the same `ids` array through
+   * a hover change, so pointing at a shape mid-run is not mistaken for the
+   * selection moving on.
+   */
+  let held: readonly NodeId[] = [];
+  const end = () => {
+    if (idle === null) return;
+    clearTimeout(idle);
+    idle = null;
+    store.commit();
+  };
+  const done = () => (settle ?? end)();
+  const offSelection = selection.subscribe(() => {
+    if (idle !== null && selection.getSnapshot().ids !== held) done();
+  });
+  // Undo settles an idle-held run before it walks, so ⌘Z mid-run takes the
+  // whole run back rather than being refused.
+  const offStep = store.onBeforeStep(() => {
+    if (idle !== null) done();
+  });
+  return {
+    move: (ids, dx, dy) => {
+      if (idle === null) {
+        held = selection.getSnapshot().ids;
+        store.begin();
+      } else {
+        clearTimeout(idle);
+      }
+      idle = setTimeout(done, NUDGE_RUN_MS);
+      if (dx || dy) store.dispatch({ type: "move", ids, dx, dy });
+    },
+    end,
+    dispose: () => {
+      end();
+      offSelection();
+      offStep();
+    },
+  };
+}
+
+/**
+ * A step held inside the band: never above its top, never off its sides — and
+ * content already past an edge is not pushed further out.
+ */
+function clampNudge(
+  scene: Scene,
+  ids: readonly NodeId[],
+  dx: number,
+  dy: number,
+  range: NudgeRange | null,
+): Point {
+  if (!range || ids.length === 0) return { x: dx, y: dy };
+  const box = unionBounds(ids.map((id) => ({ ...absoluteBounds(scene, id), rot: 0 })));
+  const x =
+    dx > 0
+      ? Math.min(dx, Math.max(0, range.maxX - (box.x + box.w)))
+      : Math.max(dx, Math.min(0, range.minX - box.x));
+  const y = dy < 0 ? Math.max(dy, Math.min(0, -box.y)) : dy;
+  return { x, y };
+}
+
+export interface DiagramCommandContext {
+  store: SceneStore;
+  selection: SelectionStore;
+  nudge: NudgeRun;
+  /** Where a nudge may take the selection; `null` for a frame. */
+  band(): NudgeRange | null;
+  /** The tool, for the tool keys and Escape — a surface keeping its own. */
+  tool?: ToolController;
+  /** Omitted where the surface has no vector edit mode to enter. */
+  pathEdit?: PathEditController;
+  /** Opens a shape's label for editing — Enter on a text-bearing node. */
+  labelEdit?: { open(id: NodeId): void };
+  /**
+   * ⌘⇧H and ⌘⇧L: the value to write. The page reads it over its whole
+   * selection, so shapes in two diagrams lock or unlock together.
+   */
+  flag?(flag: "locked" | "hidden"): boolean;
+}
+
+/**
+ * The keymap's verbs over one diagram: the selection read and the ops written
+ * through the stores it is handed, at the moment a key is pressed. `true`
+ * when the key was the diagram's to take.
+ */
+export function createDiagramCommands(
+  ctx: DiagramCommandContext,
+): Record<ShortcutId, (e: KeyboardEvent) => boolean> {
+  const { store, selection } = ctx;
+  const scene = () => store.getScene();
+  const dispatch = (ops: SceneOp | SceneOp[]) => store.dispatch(ops);
+
+  /** The addressable selection: live, top-most, in document order. */
+  const targets = () => topSelection(scene(), selection.getSnapshot().ids);
+  const targetIds = () => targets().map((node) => node.id);
+
+  const boolean = (op: BooleanOp) => {
+    const result = booleanOps(scene(), targets(), op);
+    if (!result) return true;
+    dispatch(result.ops);
+    selection.select(result.select);
+    return true;
+  };
+
+  const setTool = (tool: CanvasTool) => {
+    if (!ctx.tool) return false;
+    ctx.tool.set(tool);
+    return true;
+  };
+
+  const nudge = (e: KeyboardEvent, step: number): boolean => {
+    const delta = nudgeDelta(e);
+    const ids = targetIds();
+    if (!delta || ids.length === 0) return false;
+    const { x, y } = clampNudge(scene(), ids, delta.x * step, delta.y * step, ctx.band());
+    ctx.nudge.move(ids, x, y);
+    return true;
+  };
+
+  const align = (to: Alignment): boolean => {
+    const ids = targetIds();
+    if (ids.length === 0) return false;
+    dispatch({ type: "align", ids, to });
+    return true;
+  };
+
+  /**
+   * ⌘⇧L and ⌘⇧H, over the whole selection at once: all of it already carries
+   * the flag, so it comes off; otherwise it goes on — the same reading the
+   * context menu shows as "Unlock" or "Lock".
+   *
+   * Always consumes the key, even with nothing selected. ⌘⇧H is Chrome's
+   * "Home", so a canvas shortcut that declines it navigates the window away
+   * from the document — the one outcome worse than doing nothing.
+   */
+  const toggleFlag = (flag: "locked" | "hidden"): boolean => {
+    const nodes = targets();
+    if (nodes.length === 0) return true;
+    const value = ctx.flag ? ctx.flag(flag) : !nodes.every((node) => node[flag]);
+    const ids = nodes.map((node) => node.id);
+    dispatch(
+      flag === "locked"
+        ? { type: "setLocked", ids, locked: value }
+        : { type: "setHidden", ids, hidden: value },
+    );
+    return true;
+  };
+
+  const reorder = (at: "front" | "back" | "forward" | "backward"): boolean => {
+    const ids = targetIds();
+    if (ids.length === 0) return false;
+    dispatch({ type: "reorder", ids, to: { at } });
+    return true;
+  };
+
+  return {
+    "tool.move": () => setTool("move"),
+    "tool.scale": () => setTool("scale"),
+    "tool.rect": () => setTool("rect"),
+    "tool.ellipse": () => setTool("ellipse"),
+    "tool.polygon": () => setTool("polygon"),
+    "tool.diamond": () => setTool("diamond"),
+    "tool.text": () => setTool("text"),
+    "tool.pen": () => setTool("pen"),
+    "tool.connector": () => setTool("connector"),
+    "tool.hand": () => setTool("hand"),
+
+    "edit.undo": () => {
+      store.undo();
+      return true;
+    },
+    "edit.redo": () => {
+      store.redo();
+      return true;
+    },
+
+    "edit.duplicate": () => {
+      const current = scene();
+      const nodes = topSelection(current, selection.getSnapshot().ids);
+      if (nodes.length === 0) return true;
+      // Copies land frontmost within the parent they came from: in front of
+      // the original, which is both Figma's placement and the only one that
+      // guarantees you can see what you just made.
+      const copies = copiesInto(current, nodes, DUPLICATE_OFFSET, DUPLICATE_OFFSET);
+      const parents = new Map<NodeId | null, SceneNode[]>();
+      nodes.forEach((node, i) => {
+        const parent = parentIdOf(current, node.id);
+        const list = parents.get(parent);
+        if (list) list.push(copies[i]);
+        else parents.set(parent, [copies[i]]);
+      });
+      dispatch(
+        [...parents].map(([parentId, group]) => ({
+          type: "insert" as const,
+          nodes: group,
+          parentId,
+        })),
+      );
+      selection.select(copies.map((node) => node.id));
+      return true;
+    },
+
+    "edit.group": () => {
+      const current = scene();
+      const ids = topSelection(current, selection.getSnapshot().ids).map((node) => node.id);
+      if (ids.length === 0) return true;
+      const groupId = mintIds(current, 1)[0];
+      dispatch({ type: "group", ids, groupId });
+      selection.select([groupId]);
+      return true;
+    },
+
+    // Figma's ⇧A: group and lay out in one move. A lone group takes the
+    // layout itself — wrapping a group in a group to lay out its one child
+    // is not what anyone means by it.
+    "edit.autoLayout": () => {
+      const current = scene();
+      const nodes = topSelection(current, selection.getSnapshot().ids);
+      if (nodes.length === 0) return true;
+      if (nodes.length === 1 && isGroup(nodes[0])) {
+        const group = nodes[0];
+        dispatch({
+          type: "setStyle",
+          ids: [group.id],
+          decls: autoLayoutDecls(current, group.children.map((child) => child.id)),
+        });
+        return true;
+      }
+      const ids = nodes.map((node) => node.id);
+      const groupId = mintIds(current, 1)[0];
+      dispatch([
+        { type: "group", ids, groupId },
+        { type: "setStyle", ids: [groupId], decls: autoLayoutDecls(current, ids) },
+      ]);
+      selection.select([groupId]);
+      return true;
+    },
+
+    "edit.union": () => boolean("union"),
+    "edit.subtract": () => boolean("subtract"),
+    "edit.intersect": () => boolean("intersect"),
+    "edit.exclude": () => boolean("exclude"),
+
+    // The clipper may still be loading on a page whose first boolean this
+    // is; the flatten waits for it and reads the scene again when it lands.
+    "edit.flatten": () => {
+      const ids = targets().filter(isBoolean).map((node) => node.id);
+      if (ids.length === 0) return true;
+      void loadClipper().then(() => {
+        const ops = flattenOps(scene(), ids);
+        if (ops.length) dispatch(ops);
+      });
+      return true;
+    },
+
+    "edit.ungroup": () => {
+      const groups = targets().filter(isGroup);
+      if (groups.length === 0) return true;
+      const children = groups.flatMap((group) => group.children.map((child) => child.id));
+      dispatch({ type: "ungroup", ids: groups.map((group) => group.id) });
+      selection.select(children);
+      return true;
+    },
+
+    "edit.delete": () => {
+      // Connectors first: the two selections are mutually exclusive, so at
+      // most one of these is non-empty.
+      const edgeIds = selection.getSnapshot().edgeIds;
+      if (edgeIds.length > 0) {
+        dispatch({ type: "removeEdge", ids: [...edgeIds] });
+        selection.clear();
+        return true;
+      }
+      const ids = targetIds();
+      if (ids.length === 0) return false;
+      dispatch({ type: "remove", ids });
+      selection.clear();
+      return true;
+    },
+
+    // ⌘C/⌘X/⌘V are handled by the clipboard events the browser raises from
+    // these keys, where `clipboardData` is available without a permission
+    // prompt. Letting the key through is what produces those events.
+    "edit.copy": () => false,
+    "edit.cut": () => false,
+    "edit.paste": () => false,
+    "edit.pasteInPlace": () => false,
+
+    // Menu-only, no keyboard binding — see the table row's own comment.
+    "edit.copyHtml": () => false,
+    "edit.copyJsx": () => false,
+
+    "edit.selectAll": () => {
+      selection.selectAll();
+      return true;
+    },
+
+    // Figma's Enter, resolved by kind rather than a single hardcoded
+    // action: a group (incl. boolean) steps in and selects its first
+    // child, a path opens for vector editing, a text-bearing leaf opens
+    // its label, an image is a consumed no-op. Anything selected (or only
+    // an edge selected) claims the key so it can never leak Enter to the
+    // document under a selected shape.
+    "edit.vector": () => {
+      const snapshot = selection.getSnapshot();
+      const ids = targetIds();
+      if (ids.length === 0) return snapshot.edgeIds.length > 0;
+      if (ids.length !== 1) return true;
+      const node = findNode(scene(), ids[0]);
+      if (!node || node.locked) return true;
+      if (isContainer(node)) {
+        selection.enterSelected();
+        return true;
+      }
+      if (node.kind === "path") {
+        ctx.pathEdit?.set(node.id);
+        return true;
+      }
+      if (hasText(node)) {
+        ctx.labelEdit?.open(node.id);
+        return true;
+      }
+      return true; // image
+    },
+
+    "select.parent": () => {
+      const before = selection.getSnapshot();
+      selection.selectParent();
+      return before.ids.length > 0 || before.enteredPath.length > 0 || before.edgeIds.length > 0;
+    },
+    "select.next": () =>
+      selection.selectSibling("next") || selection.getSnapshot().edgeIds.length > 0,
+    "select.previous": () =>
+      selection.selectSibling("previous") || selection.getSnapshot().edgeIds.length > 0,
+    // Display-only, no key binding — see the table rows' own comment.
+    "select.deep": () => false,
+    "select.layers": () => false,
+    "select.through": () => false,
+
+    "edit.deselect": () => {
+      if (ctx.tool && ctx.tool.get() !== "move") {
+        ctx.tool.set("move");
+        return true;
+      }
+      const before = selection.getSnapshot();
+      selection.escape();
+      // Nothing left to step out of or deselect: below this, Escape belongs
+      // to whoever is around us — how the user gets back to the document.
+      return before.ids.length > 0 || before.edgeIds.length > 0 || before.enteredPath.length > 0;
+    },
+
+    "arrange.forward": () => reorder("forward"),
+    "arrange.backward": () => reorder("backward"),
+    "arrange.front": () => reorder("front"),
+    "arrange.back": () => reorder("back"),
+
+    "move.nudge": (e) => nudge(e, 1),
+    "move.nudgeFar": (e) => nudge(e, 10),
+
+    // The page's, not the diagram's — see the module header.
+    "view.zoomIn": () => false,
+    "view.zoomOut": () => false,
+    "view.zoomReset": () => false,
+    "view.pan": () => false,
+
+    "toggle.hidden": () => toggleFlag("hidden"),
+    "toggle.locked": () => toggleFlag("locked"),
+
+    "align.left": () => align("left"),
+    "align.hcenter": () => align("hcenter"),
+    "align.right": () => align("right"),
+    "align.top": () => align("top"),
+    "align.vcenter": () => align("vcenter"),
+    "align.bottom": () => align("bottom"),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The container keymap
+// ---------------------------------------------------------------------------
+
 export interface CanvasShortcutOptions {
   scene: SceneStore;
   selection: SelectionStore;
   /** Also supplies the element the listeners bind to, via `containerRef`. */
   viewport: ViewportController;
   tool: ToolController;
+  /** Where a nudge may go; `null` for a frame. */
+  band: () => NudgeRange | null;
   /** Omitted where the surface has no vector edit mode to enter. */
   pathEdit?: PathEditController;
   /** Opens a shape's label for editing — Enter on a text-bearing node. Omitted where labels cannot be edited. */
   labelEdit?: { open(id: NodeId): void };
-  /** Omitted where the surface has no screen modes (a storyboard shot). */
-  screen?: ScreenControl;
-  /** Off for a read-only block. Default true. */
+  /** Off for a read-only block, and for a diagram the page's keymap speaks for. Default true. */
   enabled?: boolean;
 }
 
 /**
- * Binds the canvas keymap to the viewport container.
+ * Binds the keymap to one surface's viewport container — a storyboard's shot,
+ * a harness. A diagram on the page is keyed by its pane instead (see
+ * `page/pageKeymap.ts`).
  *
  * Nothing here re-renders: the stores are read imperatively at the moment a key
  * is pressed, and the options are reached through a ref updated in an effect, so
@@ -910,84 +1172,46 @@ export function useCanvasShortcuts({
     /** Set by the ⌘⇧V keydown and consumed by the paste event it produces. */
     let pasteInPlace = false;
 
-    // -- Reading ------------------------------------------------------------
-
     const scene = () => latest.current.scene.getScene();
+    const targetIds = () =>
+      topSelection(scene(), latest.current.selection.getSnapshot().ids).map((node) => node.id);
 
-    /** The addressable selection: live, top-most, in document order. */
-    const targets = () =>
-      topSelection(scene(), latest.current.selection.getSnapshot().ids);
-    const boolean = (op: BooleanOp) => {
-      const current = scene();
-      const result = booleanOps(current, targets(), op);
-      if (!result) return true;
-      dispatch(result.ops);
-      latest.current.selection.select(result.select);
-      return true;
-    };
+    const run = createNudgeRun(latest.current.scene, latest.current.selection);
+    const commands = createDiagramCommands({
+      get store() {
+        return latest.current.scene;
+      },
+      get selection() {
+        return latest.current.selection;
+      },
+      nudge: run,
+      band: () => latest.current.band(),
+      get tool() {
+        return latest.current.tool;
+      },
+      get pathEdit() {
+        return latest.current.pathEdit;
+      },
+      get labelEdit() {
+        return latest.current.labelEdit;
+      },
+    });
 
-    const targetIds = () => targets().map((node) => node.id);
-
-    /** The innermost group we are inside that still exists — where a paste lands. */
-    const level = (): NodeId | null => {
-      const current = scene();
-      const path = latest.current.selection.getSnapshot().enteredPath;
-      for (let i = path.length - 1; i >= 0; i--) {
-        const node = findNode(current, path[i]);
-        if (node && isContainer(node)) return node.id;
-      }
-      return null;
-    };
-
-    const viewportCentre = (): Point | null => {
-      const box = el.getBoundingClientRect();
-      if (box.width === 0 || box.height === 0) return null;
-      return latest.current.viewport.clientToScene({
-        x: box.left + box.width / 2,
-        y: box.top + box.height / 2,
-      });
-    };
-
-    // -- Writing ------------------------------------------------------------
-
-    const dispatch = (ops: SceneOp | SceneOp[]) =>
-      latest.current.scene.dispatch(ops);
-
-    /** Paste canvas HTML at `offset` from where it was copied. */
+    /** Paste canvas HTML beside where it was copied, or exactly there. */
     const paste = (html: string, inPlace: boolean): void => {
       const fragment = parseScene(html);
       if (fragment.nodes.length === 0) return;
-      const nodes = fragment.nodes;
-
       const current = scene();
-      const parentId = level();
+      const parentId = pasteLevel(current, latest.current.selection);
       // The clipboard is in scene space; a group's children are in its own.
-      const origin = parentId
-        ? absoluteRect(current, parentId)
-        : { x: 0, y: 0, w: 0, h: 0 };
-
-      let dx = -origin.x;
-      let dy = -origin.y;
-      if (!inPlace) {
-        // Centre the paste on what the user is looking at, as Figma does when
-        // the copy did not come from the visible area.
-        const box = unionBounds(nodes);
-        const view = viewportCentre();
-        if (view) {
-          dx += view.x - (box.x + box.w / 2);
-          dy += view.y - (box.y + box.h / 2);
-        } else {
-          dx += DUPLICATE_OFFSET;
-          dy += DUPLICATE_OFFSET;
-        }
-      }
-      // Every node lands under a fresh id, so the connectors that came with it
-      // have to be rewritten onto those before they mean anything.
+      const origin = parentId ? absoluteRect(current, parentId) : { x: 0, y: 0 };
+      // Never above the top, where nothing is in sight.
+      const offset = inPlace ? 0 : DUPLICATE_OFFSET;
+      const dx = offset - origin.x;
+      const dy = Math.max(offset, -unionBounds(fragment.nodes).y) - origin.y;
       const remap = new Map<NodeId, NodeId>();
-      const copies = copiesInto(current, nodes, dx, dy, remap);
-      const wanted = fragment.edges.filter(
-        (edge) => remap.has(edge.from) && remap.has(edge.to),
-      );
+      const copies = copiesInto(current, fragment.nodes, dx, dy, remap);
+      const wanted = fragment.edges.filter((edge) => remap.has(edge.from) && remap.has(edge.to));
       const edgeIds = mintEdgeIds(current, wanted.length);
       const edges: SceneEdge[] = wanted.map((edge, i) => ({
         ...edge,
@@ -995,11 +1219,9 @@ export function useCanvasShortcuts({
         from: remap.get(edge.from)!,
         to: remap.get(edge.to)!,
       }));
-
-      if (copies.length === 0) return;
       // One dispatch, so the paste is one entry in history rather than a
       // separate undo for the shapes and the lines between them.
-      dispatch(
+      latest.current.scene.dispatch(
         edges.length
           ? [
               { type: "insert", nodes: copies, parentId },
@@ -1008,429 +1230,17 @@ export function useCanvasShortcuts({
           : { type: "insert", nodes: copies, parentId },
       );
       latest.current.selection.select(copies.map((node) => node.id));
-
-      // A paste too big for the view — a whole Figma frame — is framed, so
-      // what arrived is what is seen rather than one corner of it.
-      const landed = unionBounds(copies);
-      const box = el.getBoundingClientRect();
-      const zoom = latest.current.viewport.get().zoom;
-      if (landed.w * zoom > box.width || landed.h * zoom > box.height) {
-        zoomTo({ ...landed, x: landed.x + origin.x, y: landed.y + origin.y });
-      }
     };
-
-    const zoomTo = (bounds: Rect) => {
-      if (bounds.w > 0 && bounds.h > 0) {
-        latest.current.viewport.zoomToFit(bounds);
-      }
-    };
-
-    // -- Commands -----------------------------------------------------------
-
-    const setTool = (tool: CanvasTool) => {
-      latest.current.tool.set(tool);
-      return true;
-    };
-
-    /** The nudge run's idle timer; non-null exactly while its bracket is open. */
-    let nudgeIdle: ReturnType<typeof setTimeout> | null = null;
-    /**
-     * The selection the open run started under, held by identity — which the
-     * selection store makes meaningful: it threads the same `ids` array through
-     * a hover change, so pointing at a shape mid-run is not mistaken for the
-     * selection moving on.
-     */
-    let nudgeSelection: readonly NodeId[] = [];
-
-    const endNudgeRun = () => {
-      if (nudgeIdle === null) return;
-      clearTimeout(nudgeIdle);
-      nudgeIdle = null;
-      latest.current.scene.commit();
-    };
-
-    /**
-     * Move the selection by one step, bracketing a run of them into one undo
-     * entry.
-     *
-     * The bracket is not about nudging, it is about key repeat: holding an
-     * arrow has the OS deliver a keydown every few tens of milliseconds, and
-     * outside a bracket every dispatch is an entry of its own, so two seconds
-     * of ⇧→ would spend most of the store's bounded history and take as many
-     * ⌘Zs to walk back. Direction and step may change freely within the run —
-     * arrow-keying a shape into place is one gesture to the user, and the
-     * bracket only decides where history is cut, never what the ops do.
-     *
-     * The run ends at the key coming up, at {@link NUDGE_RUN_MS} of quiet, at
-     * any other command, or at the selection moving elsewhere, so nothing that
-     * is not part of the same arrow-keying is folded into the entry.
-     */
-    const nudge = (e: KeyboardEvent, step: number): boolean => {
-      const delta = nudgeDelta(e);
-      const ids = targetIds();
-      if (!delta || ids.length === 0) return false;
-      if (nudgeIdle === null) {
-        nudgeSelection = latest.current.selection.getSnapshot().ids;
-        latest.current.scene.begin();
-      } else {
-        clearTimeout(nudgeIdle);
-      }
-      nudgeIdle = setTimeout(endNudgeRun, NUDGE_RUN_MS);
-      dispatch({ type: "move", ids, dx: delta.x * step, dy: delta.y * step });
-      return true;
-    };
-
-    const align = (to: Alignment): boolean => {
-      const ids = targetIds();
-      if (ids.length === 0) return false;
-      dispatch({ type: "align", ids, to });
-      return true;
-    };
-
-    /**
-     * ⌘⇧L and ⌘⇧H, over the whole selection at once: all of it already carries
-     * the flag, so it comes off; otherwise it goes on — the same reading the
-     * context menu shows as "Unlock" or "Lock".
-     *
-     * Always consumes the key, even with nothing selected. ⌘⇧H is Chrome's
-     * "Home", so a canvas shortcut that declines it navigates the window away
-     * from the document — the one outcome worse than doing nothing.
-     */
-    const toggleFlag = (flag: "locked" | "hidden"): boolean => {
-      const nodes = targets();
-      if (nodes.length === 0) return true;
-      const value = !nodes.every((node) => node[flag]);
-      const ids = nodes.map((node) => node.id);
-      dispatch(
-        flag === "locked"
-          ? { type: "setLocked", ids, locked: value }
-          : { type: "setHidden", ids, hidden: value },
-      );
-      return true;
-    };
-
-    const reorder = (at: "front" | "back" | "forward" | "backward"): boolean => {
-      const ids = targetIds();
-      if (ids.length === 0) return false;
-      dispatch({ type: "reorder", ids, to: { at } });
-      return true;
-    };
-
-    const commands: Record<ShortcutId, (e: KeyboardEvent) => boolean> = {
-      "tool.move": () => setTool("move"),
-      "tool.scale": () => setTool("scale"),
-      "tool.rect": () => setTool("rect"),
-      "tool.ellipse": () => setTool("ellipse"),
-      "tool.polygon": () => setTool("polygon"),
-      "tool.diamond": () => setTool("diamond"),
-      "tool.text": () => setTool("text"),
-      "tool.pen": () => setTool("pen"),
-      "tool.connector": () => setTool("connector"),
-      "tool.hand": () => setTool("hand"),
-      "tool.zoom": () => setTool("zoom"),
-
-      "edit.undo": () => {
-        latest.current.scene.undo();
-        return true;
-      },
-      "edit.redo": () => {
-        latest.current.scene.redo();
-        return true;
-      },
-
-      "edit.duplicate": () => {
-        const current = scene();
-        const nodes = topSelection(
-          current,
-          latest.current.selection.getSnapshot().ids,
-        );
-        if (nodes.length === 0) return true;
-        // Copies land frontmost within the parent they came from: in front of
-        // the original, which is both Figma's placement and the only one that
-        // guarantees you can see what you just made.
-        const copies = copiesInto(
-          current,
-          nodes,
-          DUPLICATE_OFFSET,
-          DUPLICATE_OFFSET,
-        );
-        const parents = new Map<NodeId | null, SceneNode[]>();
-        nodes.forEach((node, i) => {
-          const parent = parentIdOf(current, node.id);
-          const list = parents.get(parent);
-          if (list) list.push(copies[i]);
-          else parents.set(parent, [copies[i]]);
-        });
-        dispatch(
-          [...parents].map(([parentId, group]) => ({
-            type: "insert" as const,
-            nodes: group,
-            parentId,
-          })),
-        );
-        latest.current.selection.select(copies.map((node) => node.id));
-        return true;
-      },
-
-      "edit.group": () => {
-        const current = scene();
-        const ids = topSelection(
-          current,
-          latest.current.selection.getSnapshot().ids,
-        ).map((node) => node.id);
-        if (ids.length === 0) return true;
-        const groupId = mintIds(current, 1)[0];
-        dispatch({ type: "group", ids, groupId });
-        latest.current.selection.select([groupId]);
-        return true;
-      },
-
-      // Figma's ⇧A: group and lay out in one move. A lone group takes the
-      // layout itself — wrapping a group in a group to lay out its one child
-      // is not what anyone means by it.
-      "edit.autoLayout": () => {
-        const current = scene();
-        const nodes = topSelection(
-          current,
-          latest.current.selection.getSnapshot().ids,
-        );
-        if (nodes.length === 0) return true;
-        if (nodes.length === 1 && isGroup(nodes[0])) {
-          const group = nodes[0];
-          dispatch({
-            type: "setStyle",
-            ids: [group.id],
-            decls: autoLayoutDecls(
-              current,
-              group.children.map((child) => child.id),
-            ),
-          });
-          return true;
-        }
-        const ids = nodes.map((node) => node.id);
-        const groupId = mintIds(current, 1)[0];
-        dispatch([
-          { type: "group", ids, groupId },
-          { type: "setStyle", ids: [groupId], decls: autoLayoutDecls(current, ids) },
-        ]);
-        latest.current.selection.select([groupId]);
-        return true;
-      },
-
-      "edit.union": () => boolean("union"),
-      "edit.subtract": () => boolean("subtract"),
-      "edit.intersect": () => boolean("intersect"),
-      "edit.exclude": () => boolean("exclude"),
-
-      // The clipper may still be loading on a page whose first boolean this
-      // is; the flatten waits for it and reads the scene again when it lands.
-      "edit.flatten": () => {
-        const ids = targets().filter(isBoolean).map((node) => node.id);
-        if (ids.length === 0) return true;
-        void loadClipper().then(() => {
-          const ops = flattenOps(scene(), ids);
-          if (ops.length) dispatch(ops);
-        });
-        return true;
-      },
-
-      "edit.ungroup": () => {
-        const groups = targets().filter(isGroup);
-        if (groups.length === 0) return true;
-        const children = groups.flatMap((group) =>
-          group.children.map((child) => child.id),
-        );
-        dispatch({ type: "ungroup", ids: groups.map((group) => group.id) });
-        latest.current.selection.select(children);
-        return true;
-      },
-
-      "edit.delete": () => {
-        // Connectors first: the two selections are mutually exclusive, so at
-        // most one of these is non-empty.
-        const edgeIds = latest.current.selection.getSnapshot().edgeIds;
-        if (edgeIds.length > 0) {
-          dispatch({ type: "removeEdge", ids: [...edgeIds] });
-          latest.current.selection.clear();
-          return true;
-        }
-        const ids = targetIds();
-        // Nothing selected: let the editor have the key, so ⌫ still removes the
-        // block the canvas is sitting in.
-        if (ids.length === 0) return false;
-        dispatch({ type: "remove", ids });
-        latest.current.selection.clear();
-        return true;
-      },
-
-      // ⌘C/⌘X/⌘V are handled by the clipboard events the browser raises from
-      // these keys, where `clipboardData` is available without a permission
-      // prompt. Letting the key through is what produces those events.
-      "edit.copy": () => false,
-      "edit.cut": () => false,
-      "edit.paste": () => {
-        pasteInPlace = false;
-        return false;
-      },
-      "edit.pasteInPlace": () => {
-        pasteInPlace = true;
-        return false;
-      },
-
-      // Menu-only, no keyboard binding — see the table row's own comment.
-      "edit.copyHtml": () => false,
-      "edit.copyJsx": () => false,
-
-      "edit.selectAll": () => {
-        latest.current.selection.selectAll();
-        return true;
-      },
-
-      // Figma's Enter, resolved by kind rather than a single hardcoded
-      // action: a group (incl. boolean) steps in and selects its first
-      // child, a path opens for vector editing, a text-bearing leaf opens
-      // its label, an image is a consumed no-op. Anything selected (or only
-      // an edge selected) claims the key so it can never leak Enter to the
-      // document under a selected shape; nothing at all selected leaves it
-      // for the document around us, as before.
-      "edit.vector": () => {
-        const sel = latest.current.selection;
-        const snapshot = sel.getSnapshot();
-        const ids = targetIds();
-        if (ids.length === 0) return snapshot.edgeIds.length > 0;
-        if (ids.length !== 1) return true;
-        const node = findNode(scene(), ids[0]);
-        if (!node || node.locked) return true;
-        // `enterSelected()`'s own precondition is `topSelection(scene,
-        // snapshot.ids).length === 1` — the same computation `targetIds()`
-        // just made — so this always succeeds when we get here.
-        if (isContainer(node)) {
-          sel.enterSelected();
-          return true;
-        }
-        if (node.kind === "path") {
-          latest.current.pathEdit?.set(node.id);
-          return true;
-        }
-        if (hasText(node)) {
-          latest.current.labelEdit?.open(node.id);
-          return true;
-        }
-        return true; // image
-      },
-
-      "select.parent": () => {
-        const before = latest.current.selection.getSnapshot();
-        latest.current.selection.selectParent();
-        return before.ids.length > 0 || before.enteredPath.length > 0 || before.edgeIds.length > 0;
-      },
-      "select.next": () =>
-        latest.current.selection.selectSibling("next") ||
-        latest.current.selection.getSnapshot().edgeIds.length > 0,
-      "select.previous": () =>
-        latest.current.selection.selectSibling("previous") ||
-        latest.current.selection.getSnapshot().edgeIds.length > 0,
-      // Display-only, no key binding — see the table rows' own comment.
-      "select.deep": () => false,
-      "select.layers": () => false,
-      "select.through": () => false,
-
-      "edit.deselect": () => {
-        if (latest.current.tool.get() !== "move") {
-          latest.current.tool.set("move");
-          return true;
-        }
-        const before = latest.current.selection.getSnapshot();
-        latest.current.selection.escape();
-        if (before.ids.length > 0 || before.enteredPath.length > 0) return true;
-        // Nothing left to step out of or deselect: the stage is the next rung
-        // down, taking fullscreen with it (the reducer clears it). Below this,
-        // Escape belongs to whoever is around us — how the user gets out of
-        // the canvas and back to the document.
-        const screen = latest.current.screen;
-        if (screen?.get().stage) {
-          screen.set({ stage: false });
-          return true;
-        }
-        return false;
-      },
-
-      "arrange.forward": () => reorder("forward"),
-      "arrange.backward": () => reorder("backward"),
-      "arrange.front": () => reorder("front"),
-      "arrange.back": () => reorder("back"),
-
-      "move.nudge": (e) => nudge(e, 1),
-      "move.nudgeFar": (e) => nudge(e, 10),
-
-      "view.zoomIn": () => {
-        latest.current.viewport.zoomBy(ZOOM_STEP);
-        return true;
-      },
-      "view.zoomOut": () => {
-        latest.current.viewport.zoomBy(1 / ZOOM_STEP);
-        return true;
-      },
-      "view.zoomReset": () => {
-        latest.current.viewport.resetZoom();
-        return true;
-      },
-      "view.zoomFit": () => {
-        zoomTo(contentBounds(scene()));
-        return true;
-      },
-      "view.zoomSelection": () => {
-        const ids = targetIds();
-        const current = scene();
-        zoomTo(
-          ids.length
-            ? absoluteSelectionBounds(current, ids)
-            : contentBounds(current),
-        );
-        return true;
-      },
-      // Space-to-pan is the viewport's: it tracks the key, owns the cursor and
-      // reports `panState()`. Listed only so it appears in the cheat sheet.
-      "view.pan": () => false,
-
-      "view.stage": () => {
-        latest.current.screen?.toggle("stage");
-        return !!latest.current.screen;
-      },
-      "view.minimal": () => {
-        latest.current.screen?.toggle("minimal");
-        return !!latest.current.screen;
-      },
-      "view.fullscreen": () => {
-        const screen = latest.current.screen;
-        // Unsupported (or no screen at all): decline so the browser's own
-        // F11/⌃⌘F still runs rather than us eating the key for nothing.
-        if (!screen?.canFullscreen()) return false;
-        screen.toggle("fullscreen");
-        return true;
-      },
-
-      "toggle.hidden": () => toggleFlag("hidden"),
-      "toggle.locked": () => toggleFlag("locked"),
-
-      "align.left": () => align("left"),
-      "align.hcenter": () => align("hcenter"),
-      "align.right": () => align("right"),
-      "align.top": () => align("top"),
-      "align.vcenter": () => align("vcenter"),
-      "align.bottom": () => align("bottom"),
-    };
-
-    // -- Listeners ----------------------------------------------------------
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.isComposing || isTextEntry()) return;
       const id = matchShortcut(e, apple);
       if (!id) return;
+      if (id === "edit.paste" || id === "edit.pasteInPlace") pasteInPlace = id === "edit.pasteInPlace";
       // Anything but another nudge closes an open run first — so an unrelated
       // edit is never folded into it, and ⌘Z is not refused for the depth we
       // are holding.
-      if (id !== "move.nudge" && id !== "move.nudgeFar") endNudgeRun();
+      if (id !== "move.nudge" && id !== "move.nudgeFar") run.end();
       if (!commands[id](e)) return;
       e.preventDefault();
       // The canvas is inside a ProseMirror document that wants these same keys.
@@ -1438,14 +1248,8 @@ export function useCanvasShortcuts({
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
-      if (nudgeDelta(e)) endNudgeRun();
+      if (nudgeDelta(e)) run.end();
     };
-
-    const unsubscribeSelection = latest.current.selection.subscribe(() => {
-      if (latest.current.selection.getSnapshot().ids !== nudgeSelection) {
-        endNudgeRun();
-      }
-    });
 
     /**
      * Clipboard events are listened for on the document in the capture phase,
@@ -1457,12 +1261,9 @@ export function useCanvasShortcuts({
 
     const onCopy = (e: ClipboardEvent) => {
       if (!isActive()) return;
-      const html = clipboardHtml(
-        scene(),
-        latest.current.selection.getSnapshot().ids,
-      );
+      const html = clipboardHtml(scene(), latest.current.selection.getSnapshot().ids);
       if (!html) return;
-      internalClipboard = html;
+      rememberCopy(html);
       e.clipboardData?.setData("text/plain", html);
       e.preventDefault();
       e.stopPropagation();
@@ -1473,7 +1274,7 @@ export function useCanvasShortcuts({
       const ids = targetIds();
       onCopy(e);
       if (e.defaultPrevented && ids.length > 0) {
-        dispatch({ type: "remove", ids });
+        latest.current.scene.dispatch({ type: "remove", ids });
         latest.current.selection.clear();
       }
     };
@@ -1485,7 +1286,7 @@ export function useCanvasShortcuts({
       e.preventDefault();
       e.stopPropagation();
       const text = e.clipboardData?.getData("text/plain") ?? "";
-      const html = isCanvasHtml(text) ? text : internalClipboard;
+      const html = isCanvasHtml(text) ? text : lastCopy()?.html;
       const inPlace = pasteInPlace;
       pasteInPlace = false;
       if (html) paste(html, inPlace);
@@ -1499,8 +1300,7 @@ export function useCanvasShortcuts({
     return () => {
       // A bracket left open would wedge the store: undo and redo both refuse
       // while one is, and a remote scene waits for it.
-      endNudgeRun();
-      unsubscribeSelection();
+      run.dispose();
       el.removeEventListener("keydown", onKeyDown);
       el.removeEventListener("keyup", onKeyUp);
       document.removeEventListener("copy", onCopy, true);
@@ -1510,10 +1310,4 @@ export function useCanvasShortcuts({
     // `latest` carries the stores; only the element and the enabled flag decide
     // whether the listeners exist at all.
   }, [container, enabled]);
-}
-
-/** The id of the group holding `id`, or `null` at the top level. */
-function parentIdOf(scene: Scene, id: NodeId): NodeId | null {
-  const path = nodePath(scene, id);
-  return path.length > 1 ? path[path.length - 2].id : null;
 }

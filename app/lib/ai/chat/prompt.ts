@@ -18,7 +18,7 @@ export const DIALECT = `  <p>, <h1>–<h3>, <ul><li>, <ol start="3"><li>, <block
     ${AI.codeLanguages.join(", ")}; anything else shows as plaintext.
   <nt-math-block><nt-math-line>a = 1</nt-math-line></nt-math-block>
   <img src="https://…" alt="…"> — a picture, as a block of its own, never inside a <p>.
-  <nt-diagram w="600" h="200">…shapes…</nt-diagram> — a canvas. See THE CANVAS below.
+  <nt-diagram h="200">…shapes…</nt-diagram> — a canvas. See THE CANVAS below.
 These are the only blocks there are: any other element (<aside>, <figure>, <dl>, a callout)
 is discarded, and so is text that is not inside one of them.
 A table cell, a <blockquote> and a toggle's <summary> each hold ONE line of inline text — no

@@ -9,6 +9,7 @@ import {
   blockPosById,
   blocksInReadingOrder,
   blocksTouched,
+  caretBesidePlate,
   ownTextRange,
 } from "./blockNav";
 
@@ -116,5 +117,42 @@ describe("blockPosById", () => {
   it("finds nested blocks, and says when there is none", () => {
     expect(blockPosById(doc, "b1")).toBe(spot("b1").pos);
     expect(blockPosById(doc, "nope")).toBe(-1);
+  });
+});
+
+describe("caretBesidePlate", () => {
+  const page = pmDoc([
+    { id: "above", type: "paragraph", content: "Above" },
+    { id: "pic", type: "canvas" },
+    { id: "below", type: "paragraph", content: "Below" },
+    { id: "code", type: "codeBlock", props: { code: "x" } },
+    { id: "after", type: "paragraph", content: "After" },
+  ]);
+  const reading = blocksInReadingOrder(page);
+  const at = (id: string) => reading.find((s) => s.id === id)!;
+
+  it("steps off a void block into the text below, at its start", () => {
+    expect(caretBesidePlate(page, reading, [at("pic").pos], 1)).toBe(ownTextRange(page, at("below").pos)!.start);
+  });
+
+  it("and into the text above, at its end", () => {
+    expect(caretBesidePlate(page, reading, [at("pic").pos], -1)).toBe(ownTextRange(page, at("above").pos)!.end);
+  });
+
+  it("leaves a text block's plate stepping plate to plate", () => {
+    expect(caretBesidePlate(page, reading, [at("above").pos], 1)).toBeNull();
+  });
+
+  it("leaves a code block to its own keys", () => {
+    expect(caretBesidePlate(page, reading, [at("code").pos], 1)).toBeNull();
+  });
+
+  it("only ever for one block", () => {
+    expect(caretBesidePlate(page, reading, [at("pic").pos, at("below").pos], 1)).toBeNull();
+  });
+
+  it("stays put where the block beside has no text", () => {
+    expect(caretBesidePlate(page, reading, [at("below").pos], 1)).toBeNull();
+    expect(caretBesidePlate(page, reading, [at("code").pos], -1)).toBeNull();
   });
 });

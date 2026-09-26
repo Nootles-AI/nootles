@@ -81,6 +81,7 @@ import { useBlockMarquee } from "./useBlockMarquee";
 import { PageMentionMenu, SlashMenu } from "./SlashMenu";
 import * as Icon from "../Icons";
 import { ReadOnlyContext, useReadOnly } from "./readOnly";
+import { usePageCanvas } from "./canvas/page/PageCanvas";
 import { useAttachCommentsEditor } from "../comments/editorSlot";
 import { trailingParagraphExtension } from "./trailingParagraph";
 import { inlineShortcutsExtension } from "./inlineShortcutsExtension";
@@ -379,6 +380,8 @@ export function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[]
       onItemClick: () => {
         const block = editor.getTextCursorPosition().block;
         editor.updateBlock(block, { type: "canvas", props: { data: "" } });
+        // Selected as a block, so Enter, ↓ and ⌫ act on the diagram just made.
+        blockSelection(editor).select([block.id]);
         track("block_created", { type: "canvas" });
       },
     },
@@ -833,6 +836,9 @@ function EditorSurface({
 
   useRegisterEditor(pageId, editor, docId, pipeline);
   useAttachCommentsEditor(editor);
+  // What a draw on the page makes its diagrams in.
+  const pageCanvas = usePageCanvas();
+  useEffect(() => (readOnly ? undefined : pageCanvas.setEditor(editor)), [pageCanvas, editor, readOnly]);
   const autocomplete = useAutocomplete();
   // Not started until the setting is known: a lane begun on the default would
   // be torn down a round trip later by the account's own.

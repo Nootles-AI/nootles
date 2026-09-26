@@ -50,9 +50,12 @@
   opacity: 0.55;
 }
 
-/* A live gesture owns the frame; the passive hints would only lag behind it. */
+/* A live gesture owns the frame; the passive hints would only lag behind it —
+   here, or in a diagram whose shapes another diagram's gesture is moving. */
 .nt-ov.is-live .nt-ov-members,
-.nt-ov.is-live .nt-ov-hover {
+.nt-ov.is-live .nt-ov-hover,
+.nt-ov.is-passive .nt-ov-members,
+.nt-ov.is-passive .nt-ov-hover {
   display: none;
 }
 

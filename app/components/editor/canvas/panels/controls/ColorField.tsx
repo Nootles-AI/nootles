@@ -15,8 +15,15 @@ import {
   type ColorVariable,
   type ColorVariablesApi,
 } from "../colorVariables";
-import { useCanvasShell } from "../../shell";
-import { canSampleScreen, colorPick, useColorPick, type PickDestination, type PickResult, type PickSource } from "./colorPick";
+import {
+  canSampleScreen,
+  colorPick,
+  useColorPick,
+  usePickHost,
+  type PickDestination,
+  type PickResult,
+  type PickSource,
+} from "./colorPick";
 import { Dropper } from "./glyphs";
 import { useLiveEdit } from "./live";
 import { Popover } from "./Popover";
@@ -246,7 +253,7 @@ function Body({
   const rgba = parseColor(value) ?? BLACK;
   const literal = formatColor(rgba);
   const live = useLiveEdit();
-  const shell = useCanvasShell();
+  const host = usePickHost();
   const pick = useColorPick();
   // A bound field edits the variable's own declaration — the shape keeps its
   // reference, and every other shape on it follows. Memoised so it has a
@@ -283,7 +290,6 @@ function Body({
 
   const startPick = useCallback(
     (source: PickSource) => {
-      const host = shell.active?.api ?? null;
       const dest: PickDestination = {
         accepts,
         current: value,
@@ -292,7 +298,7 @@ function Body({
       };
       colorPick.start(dest, source, host);
     },
-    [shell, accepts, value, applyPick, target, onPreview],
+    [host, accepts, value, applyPick, target, onPreview],
   );
 
   const canScreen = canSampleScreen();
@@ -343,13 +349,13 @@ function Body({
           className="nt-icon-btn is-sm"
           aria-label="Pick a colour"
           title={canScreen ? "Pick from canvas (I) · Shift for anywhere on screen" : "Pick from canvas (I)"}
-          disabled={!shell.active && !canScreen}
+          disabled={!host && !canScreen}
           // Matches `Refit`'s own rule in `CanvasSurface.tsx`: a pointerdown
           // on a panel button must not blur — and so end — a label mid-edit
           // before the pick session even starts.
           onPointerDown={(e) => e.preventDefault()}
           onClick={(e) =>
-            startPick((e.shiftKey || !shell.active) && canScreen ? "screen" : "canvas")
+            startPick((e.shiftKey || !host) && canScreen ? "screen" : "canvas")
           }
         >
           <Dropper width={15} height={15} />

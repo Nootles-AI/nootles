@@ -17,7 +17,8 @@ import { applyBatch, caretTarget, type ApplyResult } from "@/app/lib/ai/apply";
 import { broadcastFimFlash } from "@/app/lib/sync/fimFlash";
 import { loadIconCatalog } from "@/app/components/editor/canvas/icons/registry";
 import { adoptScene } from "@/app/components/editor/canvas/scene/adopt";
-import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
+import { fitToBand } from "@/app/components/editor/canvas/scene/band";
+import { parseFragment } from "@/app/components/editor/canvas/scene/parse";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import {
   toDocHtml,
@@ -1024,12 +1025,13 @@ export function useTabCompletion(
       // Whole shapes only: the tail of the stream is usually a tag cut
       // mid-attribute, and the scene parser drops it. Re-serialized so what is
       // placed is closed and canonical — spliced in unclosed, the rest of the
-      // document would parse as being inside the diagram. Adopted for the same
-      // reason `canvasData` adopts: a path arrives with the box the model
-      // guessed, and the preview has to be drawn against the box the document
-      // will end up with, or accepting the diagram would move it.
+      // document would parse as being inside the diagram. Adopted and fitted
+      // for the same reason `canvasData` does both: a path arrives with the
+      // box the model guessed and shapes past the band arrive unscaled, and
+      // the preview has to be drawn as the document will end up, or accepting
+      // the diagram would move it.
       const soFar = (): string => {
-        const scene = adoptScene(migrateLegacyCanvas(out));
+        const scene = fitToBand(adoptScene(parseFragment(out).scene));
         return scene.nodes.length ? serializeScene(scene) : "";
       };
 

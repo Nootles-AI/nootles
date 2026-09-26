@@ -18,8 +18,7 @@ import { createServer } from "node:http";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import postcss from "postcss";
-import tailwind from "@tailwindcss/postcss";
+import { writeAppStylesheet } from "./canvas-harness.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -108,9 +107,7 @@ export async function bundleSurfaces(entry, output, { probe = true, rewrite = {}
     } }],
     loader: { ".woff": "file", ".woff2": "file", ".ttf": "file", ".svg": "dataurl", ".png": "dataurl" }, logLevel: "warning",
   });
-  const appCss = path.join(repo, "app/globals.css");
-  const styles = await postcss([tailwind({ base: repo })]).process(await readFile(appCss, "utf8"), { from: appCss });
-  await writeFile(path.join(output, "app.css"), styles.css);
+  await writeAppStylesheet(output);
   await writeFile(path.join(output, "index.html"), `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/app.css"><link rel="stylesheet" href="/${name}.css"></head><body><div id="app"></div><script type="module" src="/${name}.js"></script></body></html>`);
 }
 

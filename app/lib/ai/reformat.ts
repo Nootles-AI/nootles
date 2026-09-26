@@ -55,7 +55,7 @@ back into a single block is the most valuable thing you do here.
 The document is HTML with a few custom elements:
   <nt-code-block lang="python">code</nt-code-block>
   <nt-math-block><nt-math-line>a = 1</nt-math-line></nt-math-block>
-  <nt-diagram w="600" h="200"><nt-rect id="s1" x="40" y="40" w="180" h="56">Step</nt-rect>
+  <nt-diagram h="200"><nt-rect id="s1" x="40" y="40" w="180" h="56">Step</nt-rect>
     <nt-rect id="s2" x="40" y="120" w="180" h="56">Next</nt-rect><nt-edge from="s1" to="s2"></nt-edge></nt-diagram>
   <nt-math>x^2</nt-math>            inline maths
   <code>maxRetries</code>           inline code

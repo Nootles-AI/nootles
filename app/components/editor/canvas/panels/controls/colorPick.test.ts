@@ -51,6 +51,7 @@ function setupHost(scene: Scene) {
   const hover = vi.fn();
   const viewport = {
     get: () => ({ x: 0, y: 0, zoom: 1 }),
+    screenScale: () => 1,
     containerRef: { current: container as unknown as HTMLElement },
   } as unknown as PickHost["viewport"];
   const selection = { hover } as unknown as PickHost["selection"];

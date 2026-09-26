@@ -23,21 +23,18 @@ import { PageCommentsProvider } from "./comments/PageComments";
 import { CommentsLayer } from "./comments/CommentsLayer";
 import { CommentsButton } from "./comments/CommentsButton";
 import { useCornerSlot } from "./cornerSlot";
+import { PagePane } from "./PagePane";
+import { PageCanvasContext, usePaneCanvas } from "./editor/canvas/page/PageCanvas";
 
 /** Mirrors the real column so the title and first paragraphs land in place. */
 export function PageSkeleton() {
   return (
-    <main className="flex flex-1 flex-col overflow-hidden" aria-busy="true">
-      <div
-        className="mx-auto w-full px-6 py-12 sm:px-14 sm:py-20"
-        style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
-      >
-        <div className="nt-skeleton mt-[4.5rem] h-10 w-1/2" />
-        <div className="mt-4">
-          <BodySkeleton />
-        </div>
+    <PagePane busy>
+      <div className="nt-skeleton mt-[4.5rem] h-10 w-1/2" />
+      <div className="mt-4">
+        <BodySkeleton />
       </div>
-    </main>
+    </PagePane>
   );
 }
 
@@ -68,6 +65,7 @@ export function PageSurface({
   const { main, aside, focus, back, closeAside, focusPane } = useOpenPage();
   const registry = useEditorRegistry();
   const cornerSlot = useCornerSlot();
+  const canvas = usePaneCanvas(pane, pageId, readOnly);
   const canGoBack = (pane === "aside" ? aside : main)?.canGoBack ?? false;
   /** Only ever true beside another pane: alone, a page is the one you are in. */
   const idle = aside !== null && focus !== pane;
@@ -153,13 +151,15 @@ export function PageSurface({
 
   return (
     <CurrentPageProvider pageId={pageId}>
+    <PageCanvasContext value={canvas}>
     {/* Focus on the way down, before any click inside lands: what the chat and
         the agent act on is the pane you last put a pointer or a caret in, and
         every verb that navigates — a followed chip, the back arrow — reads the
         same answer. */}
-    <main
-      className={`nt-pane flex flex-1 flex-col overflow-auto${idle ? " is-idle" : ""}`}
-      data-page-id={pageId}
+    <PagePane
+      pane={pane}
+      pageId={pageId}
+      idle={idle}
       onPointerDownCapture={() => focusPane(pane)}
       onFocusCapture={() => focusPane(pane)}
     >
@@ -167,13 +167,6 @@ export function PageSurface({
           the column is measured against the room the panels leave, so opening
           or collapsing a panel moves the text. The left gutter also houses
           BlockNote's drag handle and + button. */}
-      {/* Grows to fill the pane so the empty room under the last block still
-          belongs to the document — that is where a hand reaches to start a box
-          selection, and a content-height column would leave it to the scroller. */}
-      <div
-        className="mx-auto flex w-full flex-1 flex-col px-6 py-12 sm:px-14 sm:py-20"
-        style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
-      >
         <PageCommentsProvider pageId={pageId}>
         <CommentsLayer linked={pane === "main"}>
         <div className="mb-10 flex min-h-7 items-center justify-start gap-2">
@@ -239,8 +232,8 @@ export function PageSurface({
         </div>
         </CommentsLayer>
         </PageCommentsProvider>
-      </div>
-    </main>
+    </PagePane>
+    </PageCanvasContext>
     </CurrentPageProvider>
   );
 }

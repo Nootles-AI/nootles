@@ -2,10 +2,10 @@ import { DOMParser } from "linkedom";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import * as Y from "yjs";
 import { SceneStore } from "../engine/useScene";
-import { migrateLegacyCanvas } from "../scene/migrate";
+import { migrateLegacyCanvas, readCanvasSource } from "../scene/migrate";
 import { walk, type Scene } from "../scene/types";
 import { CanvasCollab } from "./binding";
-import { canvasMapName, materializeCanvas } from "./ymap";
+import { canvasMapName, materializeCanvas, populateCanvas } from "./ymap";
 
 /**
  * The binding between two people on one diagram: their maps, their scene
@@ -425,5 +425,89 @@ describe("a change nobody made", () => {
     expect(a.maps()).toEqual(b.maps());
     expect(a.shown()).toEqual(b.shown());
     expect(a.sizes("b")).toEqual(b.sizes("b"));
+  });
+});
+
+/**
+ * Maps a client wrote before bands hold the old root, and the store reads the
+ * band it becomes. Nothing has changed between the two, so nothing is news.
+ */
+describe("maps from before bands", () => {
+  function oldMaps() {
+    const doc = new Y.Doc();
+    doc.transact(() => {
+      const block = new Y.XmlElement("canvas");
+      block.setAttribute("data", SOURCE);
+      doc.getXmlFragment("prosemirror").insert(0, [block]);
+      populateCanvas(doc.getMap(canvasMapName("b1")), readCanvasSource(SOURCE));
+    });
+    return doc;
+  }
+
+  test("a warm store keeps its history across a remount", () => {
+    const doc = oldMaps();
+    const store = new SceneStore(SOURCE);
+    store.dispatch({ type: "move", ids: ["a"], dx: 10, dy: 0 });
+    store.dispatch({ type: "move", ids: ["a"], dx: -10, dy: 0 });
+    // Its own flush put the band's form down as what it last wrote.
+    store.flush();
+    let cleared = 0;
+    store.onHistory((event) => void (event.type === "clear" && (cleared += 1)));
+
+    const collab = new CanvasCollab("b1");
+    collab.attach(doc, SOURCE);
+    collab.setStore(store);
+    expect([store.canUndo(), cleared]).toEqual([true, 0]);
+  });
+
+  test("the first edit writes the band's root into the maps", () => {
+    const doc = oldMaps();
+    const collab = new CanvasCollab("b1");
+    collab.attach(doc, SOURCE);
+    const store = new SceneStore(collab.seed(SOURCE));
+    collab.setStore(store);
+    const meta = () => (doc.getMap(canvasMapName("b1")).get("meta") as Y.Map<unknown>).toJSON();
+    expect(meta().w).toBe(640);
+
+    store.dispatch({ type: "move", ids: ["a"], dx: 10, dy: 0 });
+    // An old root's height was never pinned by hand, so the band follows its content.
+    expect([meta().w, meta().h]).toEqual([undefined, undefined]);
+    expect(materializeCanvas(doc.getMap(canvasMapName("b1")))).toEqual(store.getScene());
+  });
+});
+
+/**
+ * A local edit can leave a band storing less height than its content is drawn
+ * at. The maps then hold exactly what the store does, and a re-attach — a
+ * review's fork swapping in — must read that as nothing new.
+ */
+describe("a band outgrowing its stored height", () => {
+  test("a re-attach before the flush keeps the history and the flush", () => {
+    const source = `<nt-diagram h="120">
+  <nt-rect id="a" x="40" y="24" w="160" h="72"></nt-rect>
+</nt-diagram>`;
+    const doc = new Y.Doc();
+    doc.transact(() => {
+      const block = new Y.XmlElement("canvas");
+      block.setAttribute("data", source);
+      doc.getXmlFragment("prosemirror").insert(0, [block]);
+    });
+    const collab = new CanvasCollab("b1");
+    collab.attach(doc, source);
+    const store = new SceneStore(collab.seed(source));
+    let writes = 0;
+    store.setWriter((html, scene) => {
+      collab.writeLocal(html, scene);
+      writes += 1;
+    });
+    collab.setStore(store);
+    let cleared = 0;
+    store.onHistory((event) => void (event.type === "clear" && (cleared += 1)));
+
+    store.dispatch({ type: "move", ids: ["a"], dx: 0, dy: 100 });
+    expect(store.getScene().h).toBeLessThan(196);
+    collab.attach(doc, source);
+    store.flush();
+    expect([store.canUndo(), cleared, writes]).toEqual([true, 0, 1]);
   });
 });

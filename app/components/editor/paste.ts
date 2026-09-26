@@ -2,6 +2,9 @@ import { createExtension, type BlockNoteEditorOptions } from "@blocknote/core";
 import { Fragment, Slice } from "prosemirror-model";
 import { Plugin, TextSelection } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
+import { blockAt, ownTextRange } from "./blockNav";
+import { diagramFromClipboard, isCanvasHtml } from "./canvas/engine/clipboard";
+import { diagramPasted } from "./canvas/page/diagramKeys";
 
 type PasteHandler = NonNullable<
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -147,8 +150,42 @@ export function dividersNotHeadings(markdown: string): string {
   return out.join("\n");
 }
 
+type PasteEditor = Parameters<PasteHandler>[0]["editor"];
+
 /**
- * Plain text when it was asked for; otherwise BlockNote's own paste, which
+ * Shapes pasted into the page's text make a diagram of them — a shape lives
+ * only in a diagram — in one step: in place of an empty line, before a line
+ * the caret starts, and otherwise after the block the selection ends in. Its
+ * pictures travel inline and are moved into storage once the diagram is up.
+ * Then its shapes are selected, as a paste into a diagram leaves them.
+ */
+function pasteDiagram(editor: PasteEditor, html: string): boolean {
+  const view = editor.prosemirrorView;
+  if (!view) return false;
+  const { selection, doc } = view.state;
+  if (!(selection instanceof TextSelection) || selection.$from.parent.type.spec.code) return false;
+  const data = diagramFromClipboard(html);
+  if (!data) return false;
+  const spot = blockAt(doc, selection.empty ? selection.from : selection.to);
+  const block = spot && editor.getBlock(spot.id);
+  if (!spot || !block) return false;
+  const text = ownTextRange(doc, spot.pos);
+  const diagram = { type: "canvas", props: { data } } as const;
+  let id: string;
+  if (selection.empty && block.type === "paragraph" && text && text.start === text.end) {
+    editor.updateBlock(block, diagram);
+    id = block.id;
+  } else {
+    const before = selection.empty && text !== null && selection.from === text.start;
+    id = editor.insertBlocks([diagram], block, before ? "before" : "after")[0].id;
+  }
+  diagramPasted(view.dom, id);
+  return true;
+}
+
+/**
+ * Plain text when it was asked for; canvas shapes as a diagram; otherwise
+ * BlockNote's own paste, which
  * alone knows which flavour to read as markdown, with that markdown rewritten
  * for the length of the call.
  */
@@ -162,6 +199,8 @@ export const pasteHandler: PasteHandler = ({ event, editor, defaultPasteHandler 
       return true;
     }
   }
+  const text = event.clipboardData?.getData("text/plain") ?? "";
+  if (isCanvasHtml(text) && pasteDiagram(editor, text)) return true;
   const pasteMarkdown = editor.pasteMarkdown;
   editor.pasteMarkdown = (markdown) => pasteMarkdown.call(editor, dividersNotHeadings(markdown));
   try {

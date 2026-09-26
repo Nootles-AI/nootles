@@ -139,7 +139,8 @@ export const COMPILE_FIXTURES: Record<string, string> = {
   </nt-group>
 </nt-diagram>`,
 
-  "scene-w0": `<nt-diagram w="0" h="0">
+  // A diagram block's own root states no width: the band's is the column's.
+  band: `<nt-diagram h="96">
   <nt-rect id="a" x="10" y="10" w="80" h="40" style="background: #eee">A</nt-rect>
   <nt-rect id="b" x="120" y="60" w="60" h="30" style="background: #ddd">B</nt-rect>
 </nt-diagram>`,

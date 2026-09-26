@@ -5,7 +5,9 @@ import { serializeLocation } from "@/app/components/editor/location/serialize";
 import { parseStoryboard } from "@/app/components/editor/storyboard/parse";
 import { serializeStoryboard } from "@/app/components/editor/storyboard/serialize";
 import { adoptScene } from "@/app/components/editor/canvas/scene/adopt";
-import { parseScene } from "@/app/components/editor/canvas/scene/parse";
+import { fitToBand } from "@/app/components/editor/canvas/scene/band";
+import { reflowHugs } from "@/app/components/editor/canvas/scene/ops";
+import { parseFragment } from "@/app/components/editor/canvas/scene/parse";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import type {
   Batch,
@@ -72,14 +74,21 @@ const MEDIA = new Set(["image", "video", "audio", "file"]);
  * ways of writing one, and so a model's markup lands normalized. The root id is
  * dropped: it is the block's, and the block already knows its own name.
  *
- * `adoptScene` runs here because this is the seam every AI-authored diagram
- * crosses, from both lanes: the chat's `edit_page` and the completion lane's
- * `compileWith` are the only two callers of `compileDocHtml`. It is also why
- * the diff below is honest — both sides are adopted, so a path the model wrote
- * with a loose box does not read as a change to a path already stored tight.
+ * `adoptScene` and `fitToBand` run here — a hugging group given its hugged
+ * size first, so the fit of a fit is the same diagram — because this is the seam every
+ * AI-authored diagram crosses, from both lanes: the chat's `edit_page` and the
+ * completion lane's `compileWith` are the only two callers of
+ * `compileDocHtml`. The parse is raw on purpose — the read form carries the
+ * band's `w`, which reads as an old root to the block reader, and the fit is
+ * what drops it and lands out-of-band shapes by scaling rather than widening.
+ * It is also why the diff below is honest — both sides go the same way, so a
+ * path written with a loose box, or an echoed `w`, does not read as a change.
  */
 function canvasData(html: string): string {
-  return serializeScene({ ...adoptScene(parseScene(html)), id: undefined });
+  return serializeScene({
+    ...fitToBand(reflowHugs(adoptScene(parseFragment(html).scene))),
+    id: undefined,
+  });
 }
 
 /** An album as the block stores it, for the same reason and by the same route. */

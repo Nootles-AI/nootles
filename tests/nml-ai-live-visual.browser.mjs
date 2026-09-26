@@ -69,16 +69,9 @@ try {
     { name: "generated-diagram", html: diagram },
     { name: "chat-edited-canvas", html: chatCanvas },
   ]) {
-    const width = Number(
-      /\bw="(\d+(?:\.\d+)?)"/.exec(fixture.html)?.[1] ?? 600,
-    );
-    const height = Number(
-      /\bh="(\d+(?:\.\d+)?)"/.exec(fixture.html)?.[1] ?? 300,
-    );
     await page.evaluate(
-      ({ html, width, height }) =>
-        window.canvasHarness.mount({ html }, { readOnly: true, width, height }),
-      { html: fixture.html, width, height },
+      (html) => window.canvasHarness.mount({ html }, { readOnly: true }),
+      fixture.html,
     );
     await page.evaluate(() => window.canvasHarness.nextFrame());
     const seen = await page.evaluate(() => {

@@ -18,6 +18,14 @@ import "./canvas-harness.browser.css";
  * reading them), which is the whole reason `ShapeLabel`'s mention machinery
  * doesn't need one here.
  *
+ * The surface stands where a page puts it: in a 720px text column with the
+ * band's origin on the column's left edge, inside a scrolling page (`#app`).
+ * A diagram has no camera of its own, so nothing here moves one. `look()`
+ * scales the column with CSS `zoom` — the way a document is zoomed — and
+ * scrolls the page to the point; `toClient`/`domRect` convert through the
+ * scene layer's own box and that zoom, never through the surface's
+ * conversions, so they check those rather than repeat them.
+ *
  * Every counter below is wired up AFTER `mount()`'s settle window, not
  * inside the `onApi` callback itself — `<StrictMode>` double-invokes mount
  * effects in dev, so `onApi(api)` fires, `onApi(null)` fires, `onApi(api)`
@@ -37,6 +45,8 @@ let sceneTokenValue = 0;
 let lastScene: unknown = null;
 let unsubscribe: Array<() => void> = [];
 let mutationObserver: MutationObserver | null = null;
+/** The column's CSS zoom — `look()`'s scale. */
+let zoom = 1;
 
 interface Counters {
   notifications: number;
@@ -76,6 +86,11 @@ function appEl(): HTMLElement {
   return document.getElementById("app")!;
 }
 
+/** The page's text column — the block wrapper a band sits in. */
+function columnEl(): HTMLElement | null {
+  return appEl().querySelector<HTMLElement>(".nt-harness-column");
+}
+
 function sceneLayerEl(): HTMLElement | null {
   return appEl().querySelector<HTMLElement>(".nt-canvas-scene");
 }
@@ -96,18 +111,18 @@ function teardownSurface(): void {
 
 async function mount(
   fixture: FixtureName | { html: string },
-  opts: { readOnly?: boolean; width?: number; height?: number } = {},
+  opts: { readOnly?: boolean } = {},
 ): Promise<void> {
   teardownSurface();
 
   const html = typeof fixture === "string" ? FIXTURES[fixture].html : fixture.html;
-  const width = opts.width ?? 1200;
-  const height = opts.height ?? 800;
   const app = appEl();
-  app.classList.add("nt-harness-sized");
-  app.style.setProperty("--nt-harness-w", `${width}px`);
-  app.style.setProperty("--nt-harness-h", `${height}px`);
   app.innerHTML = "";
+  app.scrollTo(0, 0);
+  zoom = 1;
+  const column = document.createElement("div");
+  column.className = "nt-harness-column nt-canvas-block";
+  app.appendChild(column);
 
   lastSource = html;
   counters = zeroCounters();
@@ -115,7 +130,7 @@ async function mount(
   const blocked = (window as unknown as { __blocked?: string[] }).__blocked;
   if (blocked) blocked.length = 0;
 
-  root = createRoot(app);
+  root = createRoot(column);
   await new Promise<void>((resolve) => {
     root!.render(
       <StrictMode>
@@ -137,9 +152,6 @@ async function mount(
     );
   });
 
-  // Instant placement, before anything is measured — a fixture's own
-  // first-paint `zoomToFit` must never leak into what a runner sees.
-  api!.viewport.set({ x: 0, y: 0, zoom: 1 });
   await nextFrame();
   await nextFrame();
   await sleep(200);
@@ -212,15 +224,29 @@ function resetCounters(): void {
 // Geometry and DOM reads
 // ---------------------------------------------------------------------------
 
-function look(centre: Point, zoom: number): void {
-  const container = api!.viewport.containerRef.current!;
-  const cw = container.clientWidth;
-  const ch = container.clientHeight;
-  api!.viewport.set({ x: cw / 2 - centre.x * zoom, y: ch / 2 - centre.y * zoom, zoom });
+/** Scene (0, 0) in client px: the scene layer's own top-left. */
+function origin(): Point {
+  const r = sceneLayerEl()!.getBoundingClientRect();
+  return { x: r.left, y: r.top };
+}
+
+/**
+ * The page at `scale`, scrolled so `centre` (scene px) is in the middle of the
+ * view — or as near as the page's scroll range allows.
+ */
+function look(centre: Point, scale: number): void {
+  zoom = scale;
+  columnEl()!.style.zoom = String(scale);
+  const app = appEl();
+  const at = toClient(centre);
+  const box = app.getBoundingClientRect();
+  app.scrollLeft += at.x - (box.left + app.clientWidth / 2);
+  app.scrollTop += at.y - (box.top + app.clientHeight / 2);
 }
 
 function toClient(point: Point): Point {
-  return api!.viewport.sceneToClient(point);
+  const o = origin();
+  return { x: o.x + point.x * zoom, y: o.y + point.y * zoom };
 }
 
 function laidRect(id: NodeId): Rect {
@@ -231,9 +257,13 @@ function domRect(id: NodeId): Rect {
   const el = appEl().querySelector(`[data-id="${CSS.escape(id)}"]`);
   if (!el) return { x: 0, y: 0, w: 0, h: 0 };
   const r = el.getBoundingClientRect();
-  const a = api!.viewport.clientToScene({ x: r.left, y: r.top });
-  const b = api!.viewport.clientToScene({ x: r.right, y: r.bottom });
-  return { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
+  const o = origin();
+  return {
+    x: (r.left - o.x) / zoom,
+    y: (r.top - o.y) / zoom,
+    w: r.width / zoom,
+    h: r.height / zoom,
+  };
 }
 
 function centreOf(id: NodeId): Point {
@@ -251,9 +281,15 @@ function selection() {
   };
 }
 
-function sceneStyle(): { transform: string; willChange: string } {
-  const el = sceneLayerEl();
-  return { transform: el?.style.transform ?? "", willChange: el?.style.willChange ?? "" };
+/** Where the page stands: its scale, its scroll, and the scene layer's placement in the band. */
+function view(): { zoom: number; scrollLeft: number; scrollTop: number; transform: string } {
+  const app = appEl();
+  return {
+    zoom,
+    scrollLeft: app.scrollLeft,
+    scrollTop: app.scrollTop,
+    transform: sceneLayerEl()?.style.transform ?? "",
+  };
 }
 
 function shapeDom(): string {
@@ -267,7 +303,8 @@ function source(): string {
 }
 
 function contextMenu(): { open: boolean; rows: { label: string; disabled: boolean; layerId: string | null }[] } {
-  const menu = appEl().querySelector<HTMLElement>('[role="menu"]');
+  // Portalled to the body, like every fixed menu inside a page that can zoom.
+  const menu = document.querySelector<HTMLElement>('.nt-ctx[role="menu"]');
   if (!menu) return { open: false, rows: [] };
   const rows = [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].map((button) => {
     const label = [...button.childNodes].find((n) => n.nodeType === Node.TEXT_NODE)?.textContent?.trim() ?? "";
@@ -292,90 +329,6 @@ function aiReach(): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Frame and handler sampling (§3.1.4)
-// ---------------------------------------------------------------------------
-
-interface LoafEntry {
-  start: number;
-  duration: number;
-  blocking: number;
-}
-
-interface FrameSampler {
-  raf: number;
-  intervals: number[];
-  last: number;
-  loaf: LoafEntry[];
-  observer: PerformanceObserver | null;
-  wheelHandlerMs: number[];
-  wheelStart: number;
-  onCapture: (event: Event) => void;
-  onBubble: (event: Event) => void;
-}
-
-let sampler: FrameSampler | null = null;
-
-function startFrames(): void {
-  sampler?.observer?.disconnect();
-  if (sampler) cancelAnimationFrame(sampler.raf);
-
-  const s: FrameSampler = {
-    raf: 0,
-    intervals: [],
-    last: 0,
-    loaf: [],
-    observer: null,
-    wheelHandlerMs: [],
-    wheelStart: 0,
-    onCapture: () => {
-      s.wheelStart = performance.now();
-    },
-    onBubble: () => {
-      s.wheelHandlerMs.push(performance.now() - s.wheelStart);
-    },
-  };
-
-  const tick = (now: number) => {
-    if (s.last !== 0) s.intervals.push(now - s.last);
-    s.last = now;
-    s.raf = requestAnimationFrame(tick);
-  };
-  s.raf = requestAnimationFrame(tick);
-
-  // Chromium >= 123 only; the runner's pinned 151 has it. Absent elsewhere,
-  // `loaf` is simply always empty, which the caller treats as "nothing long."
-  const PerfObserverCtor = (window as unknown as { PerformanceObserver?: typeof PerformanceObserver })
-    .PerformanceObserver;
-  if (PerfObserverCtor && PerformanceObserver.supportedEntryTypes?.includes("long-animation-frame")) {
-    s.observer = new PerfObserverCtor((list) => {
-      for (const entry of list.getEntries() as unknown as Array<{
-        startTime: number;
-        duration: number;
-        blockingDuration?: number;
-      }>) {
-        s.loaf.push({ start: entry.startTime, duration: entry.duration, blocking: entry.blockingDuration ?? 0 });
-      }
-    });
-    s.observer.observe({ type: "long-animation-frame", buffered: false } as PerformanceObserverInit);
-  }
-
-  window.addEventListener("wheel", s.onCapture, { capture: true, passive: true });
-  window.addEventListener("wheel", s.onBubble, { capture: false, passive: true });
-  sampler = s;
-}
-
-function stopFrames(): { intervals: number[]; wheelHandlerMs: number[]; loaf: LoafEntry[] } {
-  if (!sampler) return { intervals: [], wheelHandlerMs: [], loaf: [] };
-  const s = sampler;
-  sampler = null;
-  cancelAnimationFrame(s.raf);
-  s.observer?.disconnect();
-  window.removeEventListener("wheel", s.onCapture, true);
-  window.removeEventListener("wheel", s.onBubble, false);
-  return { intervals: s.intervals, wheelHandlerMs: s.wheelHandlerMs, loaf: s.loaf };
-}
-
-// ---------------------------------------------------------------------------
 // window.canvasHarness
 // ---------------------------------------------------------------------------
 
@@ -383,13 +336,14 @@ const harness = {
   mount,
   unmount,
   api: () => api!,
-  focus: () => api!.viewport.containerRef.current?.focus({ preventScroll: true }),
+  focus: () => api!.focus(),
   look,
   toClient,
   laidRect,
   domRect,
   centreOf,
   selection,
+  view,
   counters: () => ({
     notifications: counters.notifications,
     writes: counters.writes,
@@ -403,10 +357,7 @@ const harness = {
   resetCounters,
   sceneToken: () => sceneTokenValue,
   shapeDom,
-  sceneStyle,
   source,
-  startFrames,
-  stopFrames,
   nextFrame,
   contextMenu,
   editingLabel,

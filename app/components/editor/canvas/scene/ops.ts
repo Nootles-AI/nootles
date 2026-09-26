@@ -459,16 +459,24 @@ export function setStyle(
  *  are string→string records where `undefined` removes a key. */
 function setDiagram(
   scene: Scene,
-  op: { w?: number; h?: number; style?: StylePatch; attrs?: Record<string, string | undefined> },
+  op: Extract<SceneOp, { type: "setDiagram" }>,
 ): Scene {
   const w = op.w ?? scene.w;
   const h = op.h ?? scene.h;
+  const wide = op.wide === undefined ? scene.wide === true : op.wide;
   const style = op.style ? mergeStyle(scene.style, op.style) : scene.style;
   const attrs = op.attrs ? mergeStyle(scene.attrs, op.attrs) : scene.attrs;
-  if (w === scene.w && h === scene.h && style === scene.style && attrs === scene.attrs) {
+  if (
+    w === scene.w &&
+    h === scene.h &&
+    wide === (scene.wide === true) &&
+    style === scene.style &&
+    attrs === scene.attrs
+  ) {
     return scene;
   }
-  return { ...scene, w, h, style, attrs };
+  const { wide: _wide, ...rest } = scene;
+  return { ...rest, w, h, style, attrs, ...(wide ? { wide: true as const } : {}) };
 }
 
 export function setLabel(scene: Scene, id: NodeId, label: string): Scene {

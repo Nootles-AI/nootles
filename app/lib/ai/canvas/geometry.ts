@@ -1,4 +1,5 @@
 import { laidOutScene, layoutModeOf } from "@/app/components/editor/canvas/scene/autoLayout";
+import { bandHeight, bandLeft, bandWidth } from "@/app/components/editor/canvas/scene/band";
 import { edgePoints, polylineMidpoint } from "@/app/components/editor/canvas/scene/edgePath";
 import { absoluteBounds, absoluteRect, absoluteRotation } from "@/app/components/editor/canvas/scene/geometry";
 import {
@@ -53,7 +54,9 @@ export type EdgeGeometry = {
 };
 
 export type GeometryReport = {
-  diagram: { w: number; h: number };
+  /** The band the shapes sit in: its left edge (negative when wide), width
+   *  and drawn height, all in the same px as the boxes. */
+  diagram: { x: number; w: number; h: number };
   nodes: NodeGeometry[];
   edges: EdgeGeometry[];
   omitted?: number;
@@ -133,7 +136,7 @@ export function geometryReport(
   }
 
   return {
-    diagram: { w: laid.w, h: laid.h },
+    diagram: { x: bandLeft(scene), w: bandWidth(scene), h: bandHeight(scene) },
     nodes,
     edges,
     ...(omitted ? { omitted } : {}),

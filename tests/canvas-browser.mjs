@@ -8,9 +8,8 @@
  * `canvas-stage` landed five days later without anyone hearing about it
  * (NT-72). One harness's verdict is not the gate's; the gate is all of them.
  *
- * Sequential on purpose: `canvas-camera` measures frame timing, and a second
- * Chromium on the same machine is exactly the noise its gate is trying to
- * read through.
+ * Sequential on purpose: one Chromium at a time keeps a slow runner's timeouts
+ * the harnesses' own, not each other's.
  *
  *   node tests/canvas-browser.mjs
  */
@@ -23,9 +22,13 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const HARNESSES = [
   "canvas-block-drag",
   "canvas-picking",
-  "canvas-camera",
-  "canvas-stage",
   "canvas-presence",
+  // Diagrams on one page: a selection, a drag, a marquee and an undo that
+  // reach across two of them.
+  "canvas-page",
+  // The shell's rails as a diagram takes them, in the real workspace: a rail
+  // that is out turns over in place, one put away floats, the column holds.
+  "canvas-rails",
   // Not a canvas harness, but the collaboration path beside it: a collaborator
   // who goes stale and comes back is on the carets again (NT-26). Outside any
   // gate it hung on `main` from #150 on without anyone hearing (NT-74).

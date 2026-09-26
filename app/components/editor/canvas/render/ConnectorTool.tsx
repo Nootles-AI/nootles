@@ -7,8 +7,8 @@
  * canvas may mean "start a connector here". What it *draws*, though, hangs off
  * an inner group that carries the scene transform, written straight onto the
  * element from a viewport subscription — so every coordinate below is scene px,
- * the plugs stay glued to their shapes for free, and a pan or a zoom re-renders
- * nothing at all. Anything that must be a fixed size on screen — a plug, the
+ * the plugs stay glued to their shapes for free, and a change of the transform
+ * re-renders nothing at all. Anything that must be a fixed size on screen — a plug, the
  * target ring, the preview's stroke — is drawn at `--k` scene px, one screen px
  * in scene units, which is how the selection overlay does the same thing.
  *
@@ -85,6 +85,8 @@ export interface ConnectorToolProps {
   store: SceneStore;
   viewport: ViewportController;
   selection: SelectionStore;
+  /** An edge went in: the tool's one use is spent. */
+  onLanded?: () => void;
 }
 
 /** The nodes a connector may start from or land on at this level. */
@@ -94,7 +96,7 @@ function candidates(scene: Scene, enteredId: NodeId | null): SceneNode[] {
   return list.filter((node) => !node.hidden && !node.locked);
 }
 
-export function ConnectorTool({ store, viewport, selection }: ConnectorToolProps) {
+export function ConnectorTool({ store, viewport, selection, onLanded }: ConnectorToolProps) {
   // Laid out: everything below asks this scene where a shape IS — to aim a
   // plug, to decide what the pointer is over, to draw the preview. A child an
   // auto-layout group places is not at the `x`/`y` the model holds for it, so
@@ -125,8 +127,8 @@ export function ConnectorTool({ store, viewport, selection }: ConnectorToolProps
   );
 
   /**
-   * The scene transform, straight onto the group once per viewport frame. This
-   * one write is the whole reason moving around costs the tool nothing.
+   * The scene transform, straight onto the group once per viewport frame — the
+   * same one the scene layer carries, so the tool draws where the shapes are.
    */
   useLayoutEffect(() => {
     const g = layer.current;
@@ -135,11 +137,12 @@ export function ConnectorTool({ store, viewport, selection }: ConnectorToolProps
     const place = () => {
       const { x, y, zoom } = viewport.get();
       g.setAttribute("transform", `translate(${x} ${y}) scale(${zoom})`);
-      // The transform moves on every frame; `--k` only on a zoom, and a
-      // discarded custom-property parse per pan frame is not free.
-      if (zoom === painted) return;
-      painted = zoom;
-      g.style.setProperty("--k", String(1 / zoom));
+      // `--k` only when the scale moves: a discarded custom-property parse
+      // per frame is not free.
+      const scale = viewport.screenScale();
+      if (scale === painted) return;
+      painted = scale;
+      g.style.setProperty("--k", String(1 / scale));
     };
     place();
     return viewport.subscribe(place);
@@ -273,7 +276,7 @@ export function ConnectorTool({ store, viewport, selection }: ConnectorToolProps
     // call inside `!current` and the drag-branch `hitTest` after it — the
     // latter has no zoom-derived variable of its own in scope otherwise (PICK
     // §1.2/§5.3, review issue #2).
-    const k = 1 / viewport.get().zoom;
+    const k = 1 / viewport.screenScale();
     const current = dragRef.current;
     if (!current) {
       const found = resolve(at, k);
@@ -293,7 +296,7 @@ export function ConnectorTool({ store, viewport, selection }: ConnectorToolProps
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     const at = viewport.clientToScene({ x: e.clientX, y: e.clientY });
-    const start = resolve(at, 1 / viewport.get().zoom);
+    const start = resolve(at, 1 / viewport.screenScale());
     if (!start) return;
     e.preventDefault();
     e.stopPropagation();
@@ -337,6 +340,7 @@ export function ConnectorTool({ store, viewport, selection }: ConnectorToolProps
     // the edge actually landed before selecting it.
     if (store.getScene().edges.some((edge) => edge.id === id)) {
       selection.selectEdges([id]);
+      onLanded?.();
     }
   };
 

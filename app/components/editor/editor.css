@@ -59,14 +59,9 @@
 /* `height: auto` is the fix for BlockNote's per-block-type heights, which the
    cluster inherits through `bn-side-menu` — kept on it only so the drag menu
    still picks up the item metrics BlockNote hangs off that class. */
-/* A staged canvas covers the page, but the handles are portalled to the body
-   and would float over it: they are the page's, so they go with it. */
-body[data-nt-staged] .nt-side-menu-anchor {
-  visibility: hidden;
-}
 /* The same while a shape is armed on the page: the margin is somewhere to
    draw from, and the handles would take the press. */
-body:has(.nt-well[data-drawing]) .nt-side-menu-anchor {
+body:has(.nt-pane[data-drawing]) .nt-side-menu-anchor {
   visibility: hidden;
 }
 .nt-side-menu-anchor .nt-block-handles {
@@ -448,11 +443,11 @@ body:has(.nt-well[data-drawing]) .nt-side-menu-anchor {
 }
 
 /* ---- Table --------------------------------------------------------------
-   A table takes the document column and then keeps going, like the canvas, the
-   album and the storyboard: none of them carries a width of its own, so a
-   fresh one fits the column and leaves no margin beside it, and none of them is
-   fenced in at that edge, so a widened one runs on into the pane and the pane
-   scrolls after it. BlockNote's is content-sized (`width: auto`, and
+   A table takes the document column and then keeps going, like the album and
+   the storyboard: none of them carries a width of its own, so a fresh one fits
+   the column and leaves no margin beside it, and none of them is fenced in at
+   that edge, so a widened one runs on into the pane and the pane scrolls after
+   it. BlockNote's is content-sized (`width: auto`, and
    `!important`, hence the answer in kind) inside a scroller of its own.
 
    That scroller is what cut a widened table off flat at the column's edge:
@@ -1490,15 +1485,10 @@ body:has(.nt-well[data-drawing]) .nt-side-menu-anchor {
   animation: nt-fim-arrive-frame 1.6s var(--ease);
 }
 
-/* A diagram arriving: the surface flashes its outline gold, and each shape
-   shows a gold stroke first — a veil in the page's own paper that the real
-   fills and strokes come up through, the way a drawing appears. The viewport
-   rests at `outline: none`, so the line is declared here. */
-.nt-editor .nt-fim-arrive-canvas .nt-canvas-viewport {
-  outline: 1.5px solid transparent;
-  outline-offset: -1.5px;
-  animation: nt-fim-arrive-frame 1.9s var(--ease);
-}
+/* A diagram arriving: each shape shows a gold stroke first — a veil in the
+   page's own paper that the real fills and strokes come up through, the way a
+   drawing appears. The shapes only: the band is the column's width, and a
+   frame round it would outline the page rather than what arrived. */
 @keyframes nt-shape-veil {
   0%,
   35% {
@@ -1523,8 +1513,7 @@ body:has(.nt-well[data-drawing]) .nt-side-menu-anchor {
   animation: nt-shape-veil 1.9s var(--ease);
 }
 /* The color flashes are already the calm substitute for motion; the veil is
-   a full-surface reveal, so it alone stands down. The outline still marks
-   the arrival. */
+   a full-surface reveal, so it stands down. */
 @media (prefers-reduced-motion: reduce) {
   .nt-editor .nt-fim-arrive-canvas .nt-canvas-viewport [data-id]::after {
     animation: none;

@@ -1,16 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type RefObject,
+} from "react";
 import { createReactBlockSpec } from "@blocknote/react";
 import { useConvex } from "convex/react";
 import { ySyncPluginKey } from "y-prosemirror";
 import type * as Y from "yjs";
 import { flattenBlocks, type AnyBlock } from "@/app/lib/ai/projection";
 import { useHints } from "@/app/components/hints/useHints";
+import { Merge, X } from "@/app/components/Icons";
 import { useReadOnly } from "../readOnly";
 import { putDataUri } from "../album/upload";
 import { canonicalPathOps } from "../canvas/scene/canonicalPaths";
-import { shapeIdsIn } from "../canvas/scene/reveal";
 import { hoistOps, inlinePictures } from "../canvas/scene/inlineImages";
 import { CanvasAiContext } from "../canvas/canvasAi";
 import { CANVAS_MIRROR_META, CanvasCollab, onDiagramSettle } from "../canvas/collab/binding";
@@ -28,11 +37,14 @@ import { useCanvasUndoDomain } from "@/app/lib/history/canvasDomain";
 import { registerSurface } from "@/app/lib/history/surfaceRegistry";
 import { useWorkspaceHistory } from "@/app/lib/history/useWorkspaceHistory";
 import { useCurrentPage } from "@/app/components/OpenPageContext";
+import { effectiveScale } from "@/app/lib/columnScale";
 import { peekSceneStore, sceneStoreKey } from "../canvas/engine/useScene";
 import { serializeScene } from "../canvas/scene/serialize";
 import type { Scene } from "../canvas/scene/types";
 import { CanvasSurface, type CanvasApi } from "../canvas/render/CanvasSurface";
-import { useCanvasShell } from "../canvas/shell";
+import { usePageCanvas } from "../canvas/page/PageCanvas";
+import { deleteDiagramBlock, mergeOps, type LifecycleEditor } from "../canvas/page/lifecycle";
+import { blockSelection, type BlockSelectionEditor } from "../blockSelection";
 
 /** How many preceding blocks of page text to hand the canvas for context. */
 const CONTEXT_BLOCKS = 4;
@@ -45,21 +57,67 @@ const CONTEXT_BLOCKS = 4;
  * serialized diagram, and putting that into the page's update log on the
  * store's own 500ms cadence writes a copy of the drawing per edit pause. The
  * mirror is display-grade by contract (see `canvas/collab/binding.ts`), so it
- * waits — and lands early whenever the diagram is let go or the tab is.
+ * waits — and lands early whenever the diagram's selection is let go, or the
+ * tab is.
  */
 const MIRROR_MS = 5000;
 
 /** The editor members this block needs beyond what the spec hands over. */
-type HostEditor = {
+type HostEditor = LifecycleEditor & {
   prosemirrorState: unknown;
   getExtension: (key: string) => unknown;
   getBlock: (id: string) => { props?: unknown } | undefined;
+  onChange: (cb: () => void) => (() => void) | void;
 };
+
+/** The diagram block right after this one's, when the two touch: what a merge takes in. */
+function nextDiagram(host: HTMLElement | null): string | null {
+  const outer = host?.closest(".bn-block-outer");
+  if (!outer || outer.querySelector(":scope > .bn-block > .bn-block-group")) return null;
+  const next = outer.nextElementSibling;
+  const diagram = next?.querySelector(':scope > .bn-block > .react-renderer > .bn-block-content[data-content-type="canvas"]');
+  return diagram ? ((next as HTMLElement).dataset.id ?? null) : null;
+}
 
 type ForkStore = {
   state?: { isForked?: boolean };
   subscribe?: (cb: () => void) => () => void;
 };
+
+const NEVER_CHANGES = () => () => {};
+
+/**
+ * Keeps a band on the text column however deep its block is nested: BlockNote
+ * indents a child block's content, and a band's origin is the text's edge,
+ * not the indent's. Written to the element — the indent is layout, not state —
+ * and read again whenever the block content or the editor changes width,
+ * which is what an indent or an outdent does.
+ */
+function useColumnAnchor(): RefObject<HTMLDivElement | null> {
+  const host = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = host.current;
+    const content = el?.closest<HTMLElement>(".bn-block-content");
+    const root = el?.closest<HTMLElement>(".bn-editor");
+    // A top-level block is on the column already, and one moved in or out of
+    // a nest is a new node view: an observer per band on the one editor would
+    // be every band read and written in turn on each resize of the pane.
+    const nested = !!content?.closest(".bn-block-outer")?.parentElement?.closest(".bn-block-outer");
+    if (!el || !content || !root || !nested) return;
+    const anchor = () => {
+      const visual = content.getBoundingClientRect().left - root.getBoundingClientRect().left;
+      const indent = Math.round(visual / effectiveScale(el));
+      el.style.marginLeft = indent ? `${-indent}px` : "";
+      el.style.width = indent ? `calc(100% + ${indent}px)` : "";
+    };
+    anchor();
+    const observer = new ResizeObserver(anchor);
+    observer.observe(content);
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
+  return host;
+}
 
 const forkStore = (editor: HostEditor) =>
   (editor.getExtension("yForkDoc") as { store?: ForkStore } | undefined)?.store;
@@ -98,11 +156,22 @@ function CanvasBlockView({
   /** Surrounding page text, used to inform shape-label completion. */
   getDocContext: () => string;
 }) {
-  const shell = useCanvasShell();
+  const page = usePageCanvas();
   const readOnly = useReadOnly();
-  const mine = shell.active?.blockId === blockId;
   const api = useRef<CanvasApi | null>(null);
   const [liveApi, setLiveApi] = useState<CanvasApi | null>(null);
+  const host = useColumnAnchor();
+  // The diagram holds a selection of its own: the moment its first-touch
+  // lesson is an answer rather than a caption.
+  const selection = liveApi?.selection;
+  const engaged = useSyncExternalStore(
+    selection?.subscribe ?? NEVER_CHANGES,
+    () => {
+      const snapshot = selection?.getSnapshot();
+      return !!snapshot && (snapshot.ids.length > 0 || snapshot.edgeIds.length > 0);
+    },
+    () => false,
+  );
 
   // ---- CRDT binding (Yjs pipeline only) ----------------------------------
   // The maps are the truth and the block prop is a mirror; see
@@ -197,19 +266,8 @@ function CanvasBlockView({
     return () => collab.detach();
   }, [collab, yDoc, forked, dropMirror]);
 
-  // What arrived from outside this canvas was not placed by the user, so the
-  // user is not looking at it: the shapes an outside edit added are brought
-  // into view. Diffed on the strings rather than the scenes because the
-  // legacy pipeline adopts the prop in the surface before this block sees it.
+  /** The last prop from outside this canvas that this block has taken in. */
   const outsideSeen = useRef(source);
-  const revealAdded = useCallback(
-    (before: string, after: string) => {
-      const had = shapeIdsIn(before);
-      const added = [...shapeIdsIn(after)].filter((id) => !had.has(id));
-      if (added.length) api.current?.reveal(added);
-    },
-    [],
-  );
 
   /**
    * A prop this block has not reconciled yet. Unless it is our own mirror, it
@@ -224,12 +282,10 @@ function CanvasBlockView({
       written.current = null;
       if (ours) return;
       dropMirror();
-      const before = outsideSeen.current;
       outsideSeen.current = next;
       collab.adoptExternal(next, authored);
-      revealAdded(before, next);
     },
-    [collab, dropMirror, revealAdded],
+    [collab, dropMirror],
   );
 
   useEffect(() => {
@@ -265,10 +321,8 @@ function CanvasBlockView({
   useEffect(() => {
     if (yDoc) return;
     if (source === ownWrite.current || source === outsideSeen.current) return;
-    const before = outsideSeen.current;
     outsideSeen.current = source;
-    revealAdded(before, source);
-  }, [yDoc, source, revealAdded]);
+  }, [yDoc, source]);
 
   /** The prop mirror, written once the diagram has been quiet for MIRROR_MS. */
   const scheduleMirror = useCallback(
@@ -293,18 +347,12 @@ function CanvasBlockView({
   // it up to date, on the same cadence as its own edits.
   useEffect(() => collab.onStaleMirror(scheduleMirror), [collab, scheduleMirror]);
 
-  // Letting the diagram go, hiding the tab, and unmounting are all moments a
-  // reader of the prop — a thumbnail, `read_page`, a copy — may come next.
+  // Letting the diagram's selection go, hiding the tab, and unmounting are all
+  // moments a reader of the prop — a thumbnail, `read_page`, a copy — may
+  // come next.
   useEffect(() => {
-    if (!mine) writeMirror();
-  }, [mine, writeMirror]);
-  // One stage per screen falls out of "one claimed canvas": claiming another
-  // block unclaims this one, and losing the shell resets its screen modes —
-  // pure view state, no scene write, so this costs nothing when `mine` never
-  // goes false for the life of the page.
-  useEffect(() => {
-    if (!mine) api.current?.screen.reset();
-  }, [mine]);
+    if (!engaged) writeMirror();
+  }, [engaged, writeMirror]);
   useEffect(() => {
     const onHide = () => {
       if (document.visibilityState === "hidden") writeMirror();
@@ -329,13 +377,43 @@ function CanvasBlockView({
   }, [liveApi, yDoc, blockId]);
 
   // Only the person actually ON the diagram broadcasts — the leaf is
-  // attention, not an open tab.
+  // attention, not an open tab — and a viewer, who is reading, never does.
+  // The awareness field names one diagram, so on a page that is the one
+  // holding the page's focus. A press that brings the selection here is under
+  // way before the selection is, and the broadcaster has to be up in the
+  // press's capture to stream the drag it starts; while another diagram holds
+  // the focus it is that one's field, and this press waits for the focus to
+  // arrive rather than writing over it.
+  const focus = useSyncExternalStore(
+    page.selection.subscribe,
+    () => {
+      const holder = page.selection.getSnapshot().focused;
+      return holder === blockId ? "here" : holder ? "elsewhere" : "none";
+    },
+    () => "none" as const,
+  );
+  const [pressing, setPressing] = useState(false);
+  // Listened for in the press itself: a tap can let go before an effect
+  // started after the render would be listening.
+  const press = () => {
+    setPressing(true);
+    const release = () => {
+      setPressing(false);
+      window.removeEventListener("pointerup", release, true);
+      window.removeEventListener("pointercancel", release, true);
+    };
+    window.addEventListener("pointerup", release, true);
+    window.addEventListener("pointercancel", release, true);
+  };
+  const broadcasting = page.pane
+    ? focus === "here" || (pressing && focus === "none")
+    : pressing || engaged;
   useEffect(() => {
-    if (!mine || !liveApi || !yDoc) return;
+    if (readOnly || !broadcasting || !liveApi || !yDoc) return;
     const provider = providerForDoc(yDoc);
     if (!provider) return;
     return broadcastCanvasPresence(provider.awareness, blockId, liveApi);
-  }, [mine, liveApi, yDoc, blockId]);
+  }, [readOnly, broadcasting, liveApi, yDoc, blockId]);
 
   const surfaceSource = yDoc ? seed : source;
   const surfaceChange = yDoc ? collabChange : legacyChange;
@@ -385,12 +463,13 @@ function CanvasBlockView({
   /**
    * The first-touch lesson: this is an editor, not a picture. Shown only over
    * a diagram with something on it — an empty canvas already explains itself —
-   * and retired the first time a shape actually moves.
+   * once one of its shapes is in hand, and retired the first time a shape
+   * actually moves.
    */
   const hints = useHints();
   const hinted = hints.alive("canvas") && Boolean(source.trim());
   useEffect(() => {
-    if (!hinted || !mine || !liveApi) return;
+    if (!hinted || !engaged || !liveApi) return;
     const store = liveApi.store;
     const entered = store.getScene();
     const opened = performance.now();
@@ -402,7 +481,7 @@ function CanvasBlockView({
         hints.die("canvas");
       }
     });
-  }, [hinted, mine, liveApi, hints]);
+  }, [hinted, engaged, liveApi, hints]);
 
   // Keep the context value referentially stable. The block spec passes a fresh
   // closure on every render, and a changing context value would re-render every
@@ -413,44 +492,89 @@ function CanvasBlockView({
   });
   const ai = useMemo(() => ({ getDocContext: () => context.current() }), []);
 
-  // Not on mount: a page can hold several diagrams, and none of them should
-  // take the screen's panels for being on it. Claimed on the way DOWN, and on
-  // pointer rather than focus — the block is a void node, so ProseMirror keeps
-  // the selection and the focus the canvas would otherwise be waiting for.
-  const claim = () => {
-    if (!mine && api.current) shell.set({ blockId, api: api.current });
-  };
-
   // The workspace history spine: this diagram is one undo domain, and the
-  // surface registry is how a focus restore re-claims it — after navigating
-  // back to this page, if that is where the undo led.
+  // surface registry is how a focus restore finds it — after navigating back
+  // to this page, if that is where the undo led.
   const spine = useWorkspaceHistory();
   const pageId = useCurrentPage();
   useCanvasUndoDomain(spine, liveApi?.store ?? null, blockId, pageId);
-  const claimRef = useRef(claim);
-  useEffect(() => {
-    claimRef.current = claim;
-  });
   useEffect(() => {
     if (readOnly) return;
-    return registerSurface(blockId, () => claimRef.current());
-  }, [blockId, readOnly]);
+    return registerSurface(blockId, () => page.focus(blockId));
+  }, [page, blockId, readOnly]);
+
+  // One of the page's diagrams, for as long as its surface is up.
+  const flushMirror = useCallback(() => {
+    liveApi?.store.flush();
+    writeMirror();
+  }, [liveApi, writeMirror]);
+  const remove = useCallback(() => editor.removeBlocks([blockId]), [editor, blockId]);
+  // The last shape going takes the block with it, as one text step: the prop
+  // written first holds the diagram as it stood with that shape, so undoing
+  // the delete brings back both.
+  const onEmpty = useCallback(() => {
+    flushMirror();
+    page.batch(() => deleteDiagramBlock(editor, blockId));
+  }, [flushMirror, page, editor, blockId]);
+
+  // Two diagrams that touch can be one: the one below brought into this one's
+  // store, and its block taken out, as one step. The seam's button shows by
+  // the page's own structure (canvas.css), unless dismissed for this pair.
+  const seam = useRef<HTMLDivElement>(null);
+  const reseam = useCallback(() => {
+    const el = seam.current;
+    if (!el) return;
+    const below = nextDiagram(host.current);
+    el.toggleAttribute("data-dismissed", !!below && page.mergeDismissed(blockId, below));
+  }, [host, page, blockId]);
+  useLayoutEffect(reseam);
+  // The pair below can change without this block rendering: a block put in
+  // or taken out between them, or the diagram below replaced.
+  useEffect(() => {
+    const offEditor = editor.onChange(reseam);
+    const offSelection = page.selection.subscribe(reseam);
+    return () => {
+      offEditor?.();
+      offSelection();
+    };
+  }, [editor, page, reseam]);
+  const merge = () => {
+    const below = nextDiagram(host.current);
+    const lower = below ? page.get(below) : undefined;
+    if (!below || !lower || lower.readOnly || !liveApi) return;
+    flushMirror();
+    lower.flushMirror();
+    const ops = mergeOps(liveApi.store.getScene(), lower.api.store.getScene());
+    page.batch(() => {
+      liveApi.store.dispatch(ops);
+      editor.transact(() => editor.removeBlocks([below]));
+    });
+  };
+  const keepApart = () => {
+    const below = nextDiagram(host.current);
+    if (below) page.dismissMerge(blockId, below);
+    reseam();
+  };
+  const blocks = useMemo(() => blockSelection(editor as unknown as BlockSelectionEditor), [editor]);
+  const onPage = useMemo(() => (page.pane ? { canvas: page, blockId } : undefined), [page, blockId]);
+  useEffect(() => {
+    if (!liveApi) return;
+    return page.register({ blockId, api: liveApi, readOnly, flushMirror, remove, blocks });
+  }, [page, blockId, liveApi, readOnly, flushMirror, remove, blocks]);
 
   if (readOnly) {
     // The surface's own view-only mode: a click still picks out one shape, and
-    // everything that would move one — or move the view — is off, as is the
-    // shell, which is never claimed. The api is still captured so remote edits
-    // keep flowing into the store.
+    // everything that would move one is off. The api is still captured so
+    // remote edits keep flowing into the store.
     return (
-      <div className="relative w-full">
+      <div ref={host} className="nt-canvas-block relative w-full">
         <CanvasAiContext value={ai}>
           <CanvasSurface
             source={surfaceSource}
             onChange={() => {}}
             storeKey={sceneStoreKey(blockId)}
             readOnly
-            // Captured so remote edits flow in and co-presence paints; a
-            // viewer never claims the shell, so they never broadcast.
+            // Captured so remote edits flow in and co-presence paints.
             onApi={(next) => {
               setLiveApi(next);
               collab.setStore(next?.store ?? null);
@@ -464,30 +588,50 @@ function CanvasBlockView({
   return (
     // `w-full` is load-bearing: BlockNote lays a block's content out with flex,
     // so this wrapper is a flex item and would otherwise shrink to nothing —
-    // the canvas sizes itself against it, and everything inside the canvas is
-    // absolutely positioned, so there is no content to hold it open.
-    <div className="relative w-full" onPointerDownCapture={claim} onFocus={claim}>
+    // the hint places itself against it, and a wide band is centred on it.
+    <div
+      ref={host}
+      className="nt-canvas-block relative w-full"
+      onPointerDownCapture={press}
+      onPointerEnter={reseam}
+    >
       <CanvasAiContext value={ai}>
         <CanvasSurface
           source={surfaceSource}
           onChange={surfaceChange}
           storeKey={sceneStoreKey(blockId)}
-          // Published once and withdrawn on unmount; either way it speaks for
-          // this block only while this block holds the shell.
+          tools={page.tools ?? undefined}
+          page={onPage}
+          keymap={page.pane ? "page" : "container"}
+          onEmpty={onEmpty}
           onApi={(next) => {
             api.current = next;
             setLiveApi(next);
             collab.setStore(next?.store ?? null);
-            if (mine && shell.active?.api !== next) {
-              shell.set(next ? { blockId, api: next } : null);
-            }
           }}
         />
       </CanvasAiContext>
-      {hinted && (
+      {hinted && engaged && (
         <p className="nt-canvas-hint is-low" aria-hidden>
-          A real canvas, not a picture — click in and drag a shape
+          A real canvas, not a picture — drag a shape
         </p>
+      )}
+      {page.pane && (
+        <div ref={seam} className="nt-canvas-merge">
+          <button type="button" className="nt-canvas-merge-go" onClick={merge}>
+            <Merge width={12} height={12} aria-hidden />
+            Merge
+          </button>
+          <button
+            type="button"
+            className="nt-canvas-merge-no"
+            aria-label="Keep these diagrams apart"
+            title="Keep apart"
+            onClick={keepApart}
+          >
+            <X width={12} height={12} />
+          </button>
+        </div>
       )}
     </div>
   );

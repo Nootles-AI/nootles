@@ -274,13 +274,24 @@ function stringAttr(node: Y.XmlElement, key: string, path: Array<string | number
   return value;
 }
 
+/**
+ * A canvas root's attrs as the NML copy holds them: `wide` rides inside, as
+ * `wide: ""`, rather than as a key of its own. The attrs map is free-form to
+ * every decoder, so a tab from before `wide` still reads the scene (and writes
+ * it back as `wide=""`, which the parser takes by presence), and neither the
+ * encoding version nor `updateCanvas`'s patchable fields had to move.
+ */
+export function nmlCanvasAttrs(scene: Pick<Scene, "attrs" | "wide">): Scene["attrs"] {
+  return scene.wide ? { ...scene.attrs, wide: "" } : scene.attrs;
+}
+
 function canvasToY(scene: Scene): Y.Map<unknown> {
   const root = mapOf({
     schemaVersion: NML_YJS_ENCODING_VERSION,
     w: scene.w,
     h: scene.h,
     style: scene.style,
-    attrs: scene.attrs,
+    attrs: nmlCanvasAttrs(scene),
     ...(scene.id === undefined ? {} : { id: scene.id }),
   });
   const shapes = new Y.Map<unknown>();
@@ -407,13 +418,15 @@ function canvasFromY(value: unknown, path: Array<string | number>): Scene {
     });
   });
   edges.sort((a, b) => a.orderKey.localeCompare(b.orderKey) || a.edge.id.localeCompare(b.edge.id));
+  const { wide, ...attrs } = plainValue(expectMap(root.get("attrs"), [...path, "attrs"])) as Record<string, string>;
   return {
     w: expectNumber(root.get("w"), [...path, "w"]),
     h: expectNumber(root.get("h"), [...path, "h"]),
+    ...(wide === undefined ? {} : { wide: true as const }),
     style: plainValue(expectMap(root.get("style"), [...path, "style"])) as Record<string, string>,
     nodes: build(null),
     edges: edges.map(({ edge }) => edge),
-    attrs: plainValue(expectMap(root.get("attrs"), [...path, "attrs"])) as Record<string, string>,
+    attrs,
     ...(root.has("id") ? { id: expectString(root.get("id"), [...path, "id"]) } : {}),
   };
 }
@@ -1189,6 +1202,7 @@ export function isNmlOrigin(value: unknown): value is NmlTransactionOrigin {
 /** Internal shared-type constructors used exclusively by the semantic executor. */
 export {
   blockToY as nmlBlockToY,
+  canvasFromY as nmlCanvasFromY,
   canvasToY as nmlCanvasToY,
   inlineToY as nmlInlineToY,
   inlineNodesToY as nmlInlineNodesToY,

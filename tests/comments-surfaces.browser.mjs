@@ -7,8 +7,9 @@
  * operator standing in for the commenter, and a signed-out guest on a comment
  * link. For each, the harness asserts:
  *
- * - the page: whether a keystroke, a `/`, a drag handle, the page's tools, the
- *   title and the chat reach it, and that a reader's tab never so much as
+ * - the page: whether a keystroke, a `/`, a drag handle, the page's tools (or,
+ *   for a reader, a bar with only the page's zoom), the title and the chat
+ *   reach it, and that a reader's tab never so much as
  *   attempts a write to the page's document;
  * - selection: that words can be selected in the read-only page too, and what
  *   `useCommentableSelection` offers for them — a thread (owner, editor,
@@ -68,9 +69,20 @@ try {
   const refused = async (page) => (await calls(page)).filter((c) => c.refused);
   const start = (page, blockId, word, body) => startThread(page, { blockId, word, body, lastBlockId: "p_second" });
 
+  /** Which bar is out, whether it reads the zoom, and whether any tool is on it. */
+  const barChecks = (page) => page.evaluate(() => ({
+    page: !!document.querySelector('[role="toolbar"][aria-label="Page tools"]'),
+    zoom: !!document.querySelector('[role="toolbar"][aria-label="Document zoom"]'),
+    readout: [...document.querySelectorAll('[role="toolbar"] .nt-toolbar-zoom')].some((el) => el.textContent === "100%"),
+    tools: !!document.querySelector('[role="toolbar"] [aria-label="Rectangle"], [role="toolbar"] [aria-label="Move"]'),
+  }));
+
   const surfaceChecks = async (page, visitor, { writes }) => {
     check(`[${visitor}] the document ${writes ? "is" : "is not"} editable`, await page.$eval(".bn-editor", (el) => el.getAttribute("contenteditable")), writes ? "true" : "false");
-    check(`[${visitor}] the page's tools ${writes ? "are" : "are not"} out`, (await page.$$('[role="toolbar"][aria-label="Page tools"]')).length > 0, writes);
+    check(`[${visitor}] the page's tools ${writes ? "are" : "are not"} out`, (await page.$$('[role="toolbar"][aria-label="Page tools"] [aria-label="Rectangle"]')).length > 0, writes);
+    check(`[${visitor}] ${writes ? "the zoom rides on the page's tools" : "a bar of the page's zoom alone"}`, await barChecks(page), writes
+      ? { page: true, zoom: false, readout: true, tools: true }
+      : { page: false, zoom: true, readout: true, tools: false });
     check(`[${visitor}] the title ${writes ? "is" : "is not"} editable`, (await page.$$('[aria-label="Page title"]')).length > 0, writes);
     check(`[${visitor}] the chat ${writes ? "is" : "is not"} there to edit pages with`, (await page.$$('[aria-label="Chat"]')).length > 0, writes);
   };
@@ -259,6 +271,7 @@ try {
     const { page, context, lanes } = await open("guest", { seedThread: true });
     const askedForComments = async () => (await calls(page)).filter((c) => c.name === "comments:docFor" || c.docId === "comments-doc-1").length;
     check("[guest] the document is not editable", await page.$eval(".bn-editor", (el) => el.getAttribute("contenteditable")), "false");
+    check("[guest] a bar of the page's zoom alone", await barChecks(page), { page: false, zoom: true, readout: true, tools: false });
     check("[guest] comments: none to read, the sign-in door to offer", await probe(page).then((p) => [p.status, p.canRead, p.canComment, p.signIn, p.threads]), ["absent", false, false, true, []]);
     check("[guest] the tab never asks for the comments", await askedForComments(), 0);
     await selectionChecks(page, "guest", "signIn");

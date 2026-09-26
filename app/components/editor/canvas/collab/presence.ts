@@ -1,4 +1,5 @@
 import type { Awareness } from "y-protocols/awareness";
+import { effectiveScale } from "@/app/lib/columnScale";
 import { laidOutScene } from "../scene/autoLayout";
 import {
   absoluteRect,
@@ -25,7 +26,7 @@ import { offsetIn, pointAt } from "./labelCaret";
  * All of it rides the page's awareness channel in one `canvas` field —
  * ephemeral by construction, gone when they are. The painter is deliberately
  * imperative DOM: ghosts live INSIDE the transformed scene layer, positioned
- * in scene pixels, so pan and zoom carry them for free and nothing re-renders
+ * in scene pixels, so the layer's transform carries them and nothing re-renders
  * a single shape. Every painted element is keyed and reused across paints, so
  * a position change rides a CSS transition — remote motion glides at the
  * awareness cadence instead of ticking — and chrome weights are counter-scaled
@@ -37,7 +38,7 @@ import { offsetIn, pointAt } from "./labelCaret";
  */
 
 export type CanvasSignal = {
-  /** The diagram this person's shell is on. */
+  /** The diagram this person is on. */
   b: string;
   ids: string[];
   /** Selected connectors — present only when any are. */
@@ -70,6 +71,7 @@ type Api = {
     sceneRef: { current: HTMLDivElement | null };
     clientToScene(point: Point): Point;
     get(): Viewport;
+    screenScale(): number;
     subscribe(cb: () => void): () => void;
   };
   live: {
@@ -117,8 +119,10 @@ export function broadcastCanvasPresence(
     if (!layer || !container) return undefined;
 
     const host = container.getBoundingClientRect();
-    const originX = host.left + container.clientLeft;
-    const originY = host.top + container.clientTop;
+    // Client px → the container's own, under whatever zoom the page is at.
+    const scale = effectiveScale(container);
+    const originX = host.left + container.clientLeft * scale;
+    const originY = host.top + container.clientTop * scale;
     const viewport = api.viewport.get();
     const measured: { id: string; rect: DOMRect }[] = [];
     for (const id of api.selection.getSnapshot().ids) {
@@ -133,11 +137,11 @@ export function broadcastCanvasPresence(
     const frames: NonNullable<CanvasSignal["frames"]> = {};
     for (const { id, rect } of measured) {
       const a = viewportToScene(
-        { x: rect.left - originX, y: rect.top - originY },
+        { x: (rect.left - originX) / scale, y: (rect.top - originY) / scale },
         viewport,
       );
       const b = viewportToScene(
-        { x: rect.right - originX, y: rect.bottom - originY },
+        { x: (rect.right - originX) / scale, y: (rect.bottom - originY) / scale },
         viewport,
       );
       frames[id] = { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
@@ -444,8 +448,7 @@ export function paintCanvasPresence(
   // One property on the mount; the geometry itself is scene px and needs
   // nothing on a zoom.
   const syncScale = () => {
-    const zoom = api.viewport.get().zoom || 1;
-    ghosts?.style.setProperty("--k", String(1 / zoom));
+    ghosts?.style.setProperty("--k", String(1 / api.viewport.screenScale()));
   };
 
   /**

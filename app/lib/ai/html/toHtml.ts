@@ -21,6 +21,7 @@
  */
 
 import { laidOutScene, isPinned, layoutOf, isAutoLayout } from "@/app/components/editor/canvas/scene/autoLayout";
+import { bandHeight, bandLeft, bandWidth } from "@/app/components/editor/canvas/scene/band";
 import { derivedPath, loadClipper, operandsPath } from "@/app/components/editor/canvas/scene/boolean";
 import { cssKey, flowFor, isAutoSize, labelInsetOf, type Flow } from "@/app/components/editor/canvas/scene/boxModel";
 import { ARROW_MARKER } from "@/app/components/editor/canvas/scene/edgeMarker";
@@ -827,14 +828,21 @@ function buildEdgeSvg(ctx: Ctx, laid: Scene, pad: string): { svg: string | null;
 // The root (§3.12)
 // ---------------------------------------------------------------------------
 
-/** `w`/`h` of 0 (a bare fragment) sizes to the far edge of its own content —
- *  noted, since the diagram declared no frame of its own. */
-function rootSize(laid: Scene, notes: CompileNote[]): { w: number; h: number } {
-  if (laid.w !== 0 || laid.h !== 0) return { w: laid.w, h: laid.h };
-  const visible = laid.nodes.filter((n) => !n.hidden).map((n) => n.id);
-  const bounds = absoluteSelectionBounds(laid, visible);
-  notes.push({ id: null, note: "diagram has no declared size; sized to the content's bounds" });
-  return { w: bounds.x + bounds.w, h: bounds.y + bounds.h };
+/** The root's box, and how far right the content moves to sit in it. */
+type RootBox = { w: number; h: number; dx: number };
+
+/**
+ * A frame — a storyboard shot, an old root — states its own size. A band is
+ * the page's: the column's width, or the wide width with the text's left edge
+ * `WIDE_MARGIN` in from the root's, and as tall as it is drawn.
+ */
+function rootBox(scene: Scene): RootBox {
+  if (scene.w > 0) return { w: scene.w, h: scene.h, dx: 0 };
+  return { w: bandWidth(scene), h: bandHeight(scene), dx: -bandLeft(scene) };
+}
+
+function shiftX(scene: Scene, dx: number): Scene {
+  return dx ? { ...scene, nodes: scene.nodes.map((node) => ({ ...node, x: node.x + dx })) } : scene;
 }
 
 function rootDecls(ctx: Ctx, scene: Scene, w: number, h: number): Map<string, string> {
@@ -857,7 +865,11 @@ function rootDecls(ctx: Ctx, scene: Scene, w: number, h: number): Map<string, st
 
 /** Scene → markup. Pure and synchronous. */
 export function compileScene(scene: Scene, opts: CompileOptions = {}): Compiled {
-  const laid = laidOutScene(scene);
+  return compileIn(scene, rootBox(scene), opts);
+}
+
+function compileIn(scene: Scene, { w, h, dx }: RootBox, opts: CompileOptions): Compiled {
+  const laid = laidOutScene(shiftX(scene, dx));
   const notes: CompileNote[] = [];
   const ctx: Ctx = {
     f: flavourOf(opts.flavour),
@@ -870,7 +882,6 @@ export function compileScene(scene: Scene, opts: CompileOptions = {}): Compiled 
     flow: computeFlow(laid.nodes),
   };
 
-  const { w, h } = rootSize(laid, notes);
   const pad = "  ";
   const { svg, labels } = buildEdgeSvg(ctx, laid, pad);
   const nodeLines = laid.nodes
@@ -934,7 +945,7 @@ export function compileSelection(scene: Scene, ids: readonly NodeId[], opts?: Co
   for (const v of customProperties(scene.style)) rootStyle[v.name] = v.value;
 
   const fragment: Scene = { w: bounds.w, h: bounds.h, style: rootStyle, nodes: translated, edges, attrs: {} };
-  return compileScene(fragment, opts);
+  return compileIn(fragment, { w: bounds.w, h: bounds.h, dx: 0 }, opts ?? {});
 }
 
 function hasBooleanIn(nodes: readonly SceneNode[]): boolean {

@@ -302,10 +302,30 @@ describe("selection (§2.5, B26/B27)", () => {
 });
 
 describe("root sizing (§3.12)", () => {
-  it("a 0x0 scene sizes to its content's bounds, and notes it", () => {
-    const { code, notes } = compileScene(fixture("scene-w0"));
-    expect(notes.some((n) => n.note.includes("no declared size"))).toBe(true);
-    expect(code).toContain('width: 180px; height: 90px');
+  it("a band is the column's width and as tall as it is drawn — its floor, past a lower h", () => {
+    const { code, notes } = compileScene(fixture("band"));
+    expect(notes).toEqual([]);
+    // The lowest box ends at 90; the floor adds the 24px band below it.
+    expect(code.split("\n")[0]).toContain("width: 720px; height: 114px");
+  });
+
+  it("a band's stated h wins when it is taller than the content", () => {
+    const code = compileScene({ ...fixture("band"), h: 300 }).code;
+    expect(code.split("\n")[0]).toContain("width: 720px; height: 300px");
+  });
+
+  it("a wide band is 1200 across, with the text's left edge 240px in", () => {
+    const scene: Scene = { ...fixture("band"), wide: true };
+    scene.nodes = scene.nodes.map((node) => (node.id === "a" ? { ...node, x: -200 } : node));
+    const code = compileScene(scene).code;
+    expect(code.split("\n")[0]).toContain("width: 1200px; height: 114px");
+    expect(code).toMatch(/data-nt-id="a"[^>]*left: 40px; top: 10px/);
+    expect(code).toMatch(/data-nt-id="b"[^>]*left: 360px; top: 60px/);
+  });
+
+  it("a frame keeps the size it states", () => {
+    const code = compileScene(fixture("ellipse-border")).code;
+    expect(code.split("\n")[0]).toContain("width: 120px; height: 80px");
   });
 });
 

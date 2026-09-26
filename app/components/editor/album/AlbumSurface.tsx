@@ -26,6 +26,7 @@ import {
 } from "@/app/components/Icons";
 import { Tooltip } from "@/app/components/Tooltip";
 import { useMediaQuery } from "@/app/lib/useMediaQuery";
+import { effectiveScale, SHEET } from "@/app/lib/columnScale";
 import { useReadOnly } from "../readOnly";
 import { Lightbox } from "./Lightbox";
 import { handlesFor, indexByHandle } from "./handle";
@@ -113,9 +114,15 @@ function drag(
   return cancel;
 }
 
-/** The widest the block may be drawn without escaping the document's scroller. */
+/**
+ * The widest the block may be drawn without escaping the page, in the page's
+ * own px: from the album's left edge to the sheet's right, whatever the zoom.
+ */
 function maxWidth(el: HTMLElement): number {
-  const room = el.closest("main")?.clientWidth ?? window.innerWidth;
+  const sheet = el.closest(SHEET);
+  const room = sheet
+    ? (sheet.getBoundingClientRect().right - el.getBoundingClientRect().left) / effectiveScale(el)
+    : (el.closest("main")?.clientWidth ?? window.innerWidth);
   return Math.max(ALBUM_MIN_W, room - ALBUM_GUTTER);
 }
 
@@ -231,8 +238,8 @@ export function AlbumSurface({
   const [open, setOpen] = useState<number | null>(null);
   /**
    * Whether the album is the thing being worked on, which is what the bar
-   * follows. Claimed the way the canvas claims the screen's panels — on the
-   * way down, pointer or focus — and released when a press lands elsewhere.
+   * follows. Taken on the way down, pointer or focus, and let go when a press
+   * lands elsewhere.
    */
   const [active, setActive] = useState(false);
   useEffect(() => {
@@ -468,15 +475,18 @@ export function AlbumSurface({
     let scroller: Element | null = null;
     let edge = { top: 0, bottom: 0 };
 
+    // Pointer and rects are client px; the tiles and the packer's boxes are
+    // the page's own, which a zoomed page magnifies.
+    const scale = effectiveScale(el);
     const placeCarried = () => {
-      tile.style.setProperty("--dx", `${client.x - press.x + (origin.left - at.left)}px`);
-      tile.style.setProperty("--dy", `${client.y - press.y + (origin.top - at.top)}px`);
+      tile.style.setProperty("--dx", `${(client.x - press.x + (origin.left - at.left)) / scale}px`);
+      tile.style.setProperty("--dy", `${(client.y - press.y + (origin.top - at.top)) / scale}px`);
     };
 
     const aim = () => {
       const next = Math.min(
         dropIndex(
-          { x: client.x - at.left, y: client.y - at.top },
+          { x: (client.x - at.left) / scale, y: (client.y - at.top) / scale },
           shownBoxes,
           columns,
           insertion,
@@ -679,9 +689,9 @@ export function AlbumSurface({
   };
 
   /**
-   * The right grip. The left edge stays pinned to the text column, exactly as
-   * the canvas's does, so widening an album grows it into the right margin and
-   * the prose above and below keeps its own left edge.
+   * The right grip. The left edge stays pinned to the text column, so widening
+   * an album grows it into the right margin and the prose above and below
+   * keeps its own left edge.
    */
   const grip = (event: ReactPointerEvent) => {
     const el = wrap.current;
@@ -689,12 +699,13 @@ export function AlbumSurface({
     event.preventDefault();
     const startX = event.clientX;
     const startW = el.offsetWidth;
+    const scale = effectiveScale(el);
     const limit = maxWidth(el);
     let next = startW;
     let took = false;
     drag(
       (moved) => {
-        const grown = startW + (moved.clientX - startX);
+        const grown = startW + (moved.clientX - startX) / scale;
         const clamped = Math.round(Math.min(limit, Math.max(ALBUM_MIN_W, grown)));
         if (clamped === next) return;
         next = clamped;

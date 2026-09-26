@@ -5,6 +5,7 @@ import {
   NodeSelection,
   Plugin,
   PluginKey,
+  Selection,
   TextSelection,
   type EditorState,
   type Transaction,
@@ -73,6 +74,21 @@ function bindingOf(state: EditorState): ProsemirrorBinding | null {
 export function relativeSelection(state: EditorState): RelativeSelection | null {
   const binding = bindingOf(state);
   return binding ? getRelativeSelection(binding, state) : null;
+}
+
+/**
+ * A caret for a node-selected block, to hold while a history step runs.
+ * y-prosemirror puts a node selection back over whatever sits at its old
+ * position once the step lands, without asking whether a node is still there:
+ * a step that takes the block away throws, and leaves the view holding a block
+ * the doc no longer has. A caret it can always put back. Null when the
+ * selection is not a node's, or there is no text to put a caret in.
+ */
+export function caretOffNode(state: EditorState): TextSelection | null {
+  const { selection } = state;
+  if (!(selection instanceof NodeSelection)) return null;
+  const near = Selection.findFrom(selection.$from, -1, true) ?? Selection.findFrom(selection.$to, 1, true);
+  return near instanceof TextSelection ? near : null;
 }
 
 /** Puts a remembered selection on `tr`; false when it no longer resolves. */

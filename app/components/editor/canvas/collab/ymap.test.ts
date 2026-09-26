@@ -133,6 +133,71 @@ describe("round trip", () => {
   });
 });
 
+describe("a band's root", () => {
+  const band = (over: Partial<Scene> = {}): Scene => ({
+    ...scene([rect("n1", 0)]),
+    w: 0,
+    h: 312,
+    ...over,
+  });
+  const meta = (root: Y.Map<unknown>) => root.get("meta") as Y.Map<unknown>;
+
+  test("round-trips with h always, wide as its own key and no w", () => {
+    const wide = band({ wide: true });
+    const { root } = fresh(wide);
+    expect([meta(root).has("w"), meta(root).get("h"), meta(root).get("wide")]).toEqual([
+      false,
+      312,
+      true,
+    ]);
+    expect(meta(root).get("attrs")).toEqual({});
+    expect(materializeCanvas(root)).toEqual(wide);
+
+    const narrow = fresh(band());
+    expect(meta(narrow.root).has("wide")).toBe(false);
+    expect("wide" in materializeCanvas(narrow.root)).toBe(false);
+    expect(materializeCanvas(narrow.root)).toEqual(band());
+  });
+
+  test("a frame keeps its w", () => {
+    const shot = { ...scene([rect("n1", 0)]), w: 320, h: 180 };
+    const { root } = fresh(shot);
+    expect(meta(root).get("w")).toBe(320);
+    expect(materializeCanvas(root)).toEqual(shot);
+  });
+
+  test("an old root's w is deleted when it goes to 0, and wide is deleted when unset", () => {
+    const old = scene([rect("n1", 0)]);
+    const { doc, root } = fresh(old);
+    const next = band({ wide: true });
+    doc.transact(() => applySceneDiff(root, old, next));
+    expect(meta(root).has("w")).toBe(false);
+    expect(materializeCanvas(root)).toEqual(next);
+
+    doc.transact(() => applySceneDiff(root, next, band()));
+    expect(meta(root).has("wide")).toBe(false);
+    expect(materializeCanvas(root)).toEqual(band());
+  });
+
+  test("wide and a root attribute written concurrently both survive", () => {
+    const base = band();
+    const a = fresh(base);
+    const b = new Y.Doc();
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a.doc));
+    const rootB = b.getMap(canvasMapName("b1"));
+
+    a.doc.transact(() => applySceneDiff(a.root, base, band({ wide: true })));
+    b.transact(() =>
+      applySceneDiff(rootB, base, band({ attrs: { "data-legacy-edges": "[]" } })),
+    );
+    connect(a.doc, b);
+
+    const both = band({ wide: true, attrs: { "data-legacy-edges": "[]" } });
+    expect(materializeCanvas(a.root)).toEqual(both);
+    expect(materializeCanvas(rootB)).toEqual(both);
+  });
+});
+
 describe("diff granularity", () => {
   test("a recolor rewrites neither frame nor order", () => {
     const base = scene([rect("n1", 0), rect("n2", 200)]);
