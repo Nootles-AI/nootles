@@ -47,6 +47,9 @@ const HARNESSES = [
   // And the document's own keys: the title seam, the table keys and the
   // page-link menus.
   "editor-title-table-menus",
+  // A diagram suggestion as ghost content on the page, from a scripted
+  // stream: its three states, and Tab landing it exactly where it stood.
+  "diagram-suggest",
 ];
 
 function run(name) {

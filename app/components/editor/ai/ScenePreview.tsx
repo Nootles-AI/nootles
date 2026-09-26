@@ -5,7 +5,7 @@ import { EdgeLayer } from "../canvas/render/EdgeLayer";
 import { ShapeView, toCss } from "../canvas/render/ShapeView";
 import { bandHeight, bandLeft, bandWidth } from "../canvas/scene/band";
 import { migrateLegacyCanvas } from "../canvas/scene/migrate";
-import { walk, type EdgeId, type Scene } from "../canvas/scene/types";
+import type { EdgeId, Scene } from "../canvas/scene/types";
 import "../canvas/canvas.css";
 
 /**
@@ -28,25 +28,6 @@ const NO_EDGES: ReadonlySet<EdgeId> = new Set();
 /** The stored source as a scene, whichever generation wrote it. */
 export function sceneFrom(source: string): Scene {
   return migrateLegacyCanvas(source);
-}
-
-/**
- * What the head line claims the diagram is. Counted off the parsed scene rather
- * than off the markup, so it counts what will actually be drawn — nested shapes
- * included, and connectors, which the head could not mention while the preview
- * was throwing them away.
- */
-export function sceneSummary(source: string): string {
-  const scene = sceneFrom(source);
-  let shapes = 0;
-  walk(scene.nodes, () => {
-    shapes += 1;
-  });
-  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-  const edges = scene.edges.length;
-  return `diagram (${plural(shapes, "shape")}${
-    edges ? `, ${plural(edges, "connector")}` : ""
-  })`;
 }
 
 export function ScenePreview({ scene }: { scene: Scene }) {
