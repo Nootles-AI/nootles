@@ -24,11 +24,9 @@ jobs:
       - run: npm run lint
       - run: npm test # vitest run — unit tests and convex-test suites
 
-  # Correctness-only: zero scene notifications, identical DOM, layout
-  # agreement, xfail truthfulness, network guards. Timing is a local,
-  # per-machine gate (tests/canvas-camera.browser.mjs's own baseline file) —
-  # a shared CI runner's numbers are noise, not signal, so this job runs with
-  # the perf gate off and only uploads the artifact for trend-reading.
+  # Correctness-only: picking and layout agreement, xfail truthfulness,
+  # network guards, and the harnesses beside the canvas. The artifacts are
+  # uploaded for reading a failure.
   canvas-browser:
     runs-on: ubuntu-latest
     steps:
@@ -44,8 +42,6 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npx playwright install --with-deps chromium
       - run: npm run test:canvas:browser
-        env:
-          CANVAS_PERF_GATE: "off"
       # The editor's typing shortcuts and paste, on both undo pipelines.
       - run: npm run test:editor:typing
       - uses: actions/upload-artifact@v4

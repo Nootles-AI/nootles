@@ -7,7 +7,6 @@ import type {
   NodeId,
   PathNode,
   Point,
-  PolygonNode,
   RectNode,
   Scene,
   SceneNode,
@@ -18,8 +17,8 @@ import type {
 /**
  * Deterministic canvas fixtures and the picking probe table.
  *
- * Every downstream browser test (camera, picking, stage, and — in later
- * waves — select, colour-pick, tools and compile) mounts one of these
+ * Every downstream browser test (picking, select, colour-pick, tools and
+ * compile) mounts one of these
  * through `tests/canvas-harness.browser.tsx` rather than typing scene HTML
  * inline. Keeping the geometry here, once, is what lets a probe's `where`
  * and a fixture's box agree by construction instead of by two people
@@ -98,10 +97,6 @@ function ellipse(
   };
 }
 
-function polygon(id: NodeId, x: number, y: number, w: number, h: number, sides: number, style: StyleMap = {}, extra: NodeExtra = {}): PolygonNode {
-  return { ...baseOf(id, x, y, w, h, style, extra), kind: "polygon", sides };
-}
-
 function text(id: NodeId, x: number, y: number, w: number, h: number, style: StyleMap = {}, extra: NodeExtra = {}): TextNode {
   return { ...baseOf(id, x, y, w, h, style, extra), kind: "text" };
 }
@@ -151,8 +146,6 @@ function scene(h: number, nodes: SceneNode[], opts: { id?: string; edges?: Scene
 // ---------------------------------------------------------------------------
 
 export type FixtureName =
-  | "small-diagram"
-  | "flat-board"
   | "nested-flex"
   | "pick-hollow-rect"
   | "pick-ring-hole"
@@ -182,35 +175,11 @@ function fixtureFrom(name: FixtureName, built: Scene): Fixture {
  *  `HIT_SLOP_PX / zoom` a second, driftable way. */
 export { HIT_SLOP_PX, slopFor } from "@/app/components/editor/canvas/scene/picking";
 
-export const PICK_ZOOMS = [0.1, 1, 8] as const;
-
-// ---------------------------------------------------------------------------
-// small-diagram — the STAGE skeleton's fixture
-// ---------------------------------------------------------------------------
-
-function smallDiagram(): Fixture {
-  const g1 = group(
-    "g1",
-    500,
-    140,
-    300,
-    250,
-    [
-      rect("gr1", 20, 20, 120, 60, { background: "#a5b4fc" }, { label: "One" }),
-      rect("gr2", 160, 20, 120, 60, { background: "#fca5a5" }, { label: "Two" }),
-      text("gt1", 20, 100, 260, 24, { "font-size": "14px" }, { label: "Group label" }),
-    ],
-    { background: "#f5f5f4", border: "1px solid #ccc" },
-  );
-  const s1 = rect("s1", 60, 60, 160, 72, { background: "#6366f1" }, { label: "Start" });
-  return fixtureFrom(
-    "small-diagram",
-    scene(540, [s1, g1], {
-      id: "small",
-      edges: [{ id: "e1", from: "s1", to: "g1", label: "", style: {}, attrs: {} }],
-    }),
-  );
-}
+/**
+ * The document scales a probe runs at: a phone's band, 1, and the most a page
+ * zooms in. A diagram has no zoom of its own — `look()` scales the page.
+ */
+export const PICK_ZOOMS = [0.5, 1, 2] as const;
 
 // ---------------------------------------------------------------------------
 // nested-flex — the layout-agreement fixture (§3.2.3)
@@ -289,82 +258,14 @@ function nestedFlex(): Fixture {
 }
 
 // ---------------------------------------------------------------------------
-// flat-board — the camera gate's fixture (§3.1.1)
-// ---------------------------------------------------------------------------
-
-const FLAT_COLS = 40;
-const FLAT_ROWS = 25;
-const FLAT_PITCH = { x: 100, y: 70 };
-const FLAT_SIZE = { w: 80, h: 50 };
-const FLAT_ORIGIN = { x: 20, y: 20 };
-
-/** A 12-colour deterministic palette — the exact hues don't matter, only that
- *  two calls with the same seed reproduce the same board byte for byte. */
-const FLAT_PALETTE = [
-  "#ef4444",
-  "#f97316",
-  "#f59e0b",
-  "#eab308",
-  "#84cc16",
-  "#22c55e",
-  "#10b981",
-  "#14b8a6",
-  "#06b6d4",
-  "#3b82f6",
-  "#6366f1",
-  "#a855f7",
-] as const;
-
-/**
- * 1,000 shapes by default; `seed` drives a 32-bit LCG so two calls are
- * byte-identical. The grid is always 40×25 (the camera gate's fixed
- * viewport-vs-content ratio); `count` only trims how many of its cells are
- * filled, for a caller that wants a smaller board at the same scale.
- */
-export function flatBoard(count = FLAT_COLS * FLAT_ROWS, seed = 1): Fixture {
-  let state = seed >>> 0;
-  // Numerical Recipes' constants — any full-period 32-bit LCG would do; this
-  // one is standard and needs no citation to justify its choice.
-  const next = () => {
-    state = (Math.imul(1664525, state) + 1013904223) >>> 0;
-    return state;
-  };
-
-  const n = Math.max(0, Math.min(count, FLAT_COLS * FLAT_ROWS));
-  const nodes: SceneNode[] = [];
-  for (let i = 0; i < n; i++) {
-    const col = i % FLAT_COLS;
-    const row = Math.floor(i / FLAT_COLS);
-    const x = FLAT_ORIGIN.x + col * FLAT_PITCH.x;
-    const y = FLAT_ORIGIN.y + row * FLAT_PITCH.y;
-    const id = `b${String(i + 1).padStart(4, "0")}`;
-    const color = FLAT_PALETTE[i % FLAT_PALETTE.length];
-    const style: StyleMap = { background: color };
-    const label = i % 4 === 0 ? "Node" : "";
-    const kindRoll = next() % 10;
-    if (kindRoll <= 5) {
-      nodes.push(rect(id, x, y, FLAT_SIZE.w, FLAT_SIZE.h, { ...style, "border-radius": "6px" }, { label }));
-    } else if (kindRoll <= 7) {
-      nodes.push(ellipse(id, x, y, FLAT_SIZE.w, FLAT_SIZE.h, style, { label }));
-    } else if (kindRoll === 8) {
-      nodes.push(polygon(id, x, y, FLAT_SIZE.w, FLAT_SIZE.h, 4, style, { label }));
-    } else {
-      // Fixed w/h — never `width:max-content` — so no node's box depends on a
-      // measured DOM size, which would be a scene change the camera gate must
-      // never see.
-      nodes.push(text(id, x, y, FLAT_SIZE.w, FLAT_SIZE.h, style, { label }));
-    }
-  }
-
-  const h = FLAT_ORIGIN.y + (FLAT_ROWS - 1) * FLAT_PITCH.y + FLAT_SIZE.h + BAND;
-  return fixtureFrom("flat-board", scene(h, nodes, { id: "board" }));
-}
-
-// ---------------------------------------------------------------------------
 // The nine picking regions (§3.2.1) — each a factory, so pick-all and the
 // standalone pick-* fixtures build fresh, independent node trees rather than
-// sharing object identity across two different scenes.
+// sharing object identity across two different scenes. Stacked down one
+// column band (x in [0, 720]), as a diagram on the page is laid out.
 // ---------------------------------------------------------------------------
+
+/** The lowest region's bottom (the dupe pair's, 3004) and a band below it. */
+const PICK_H = 3004 + BAND;
 
 function hollowRectRegion(): SceneNode[] {
   return [
@@ -375,8 +276,8 @@ function hollowRectRegion(): SceneNode[] {
 
 function ringHoleRegion(): SceneNode[] {
   return [
-    rect("under", 700, 200, 200, 200, { background: "#fbbf24" }),
-    ellipse("ring", 600, 100, 400, 400, { background: "#6366f1" }, { inner: 0.5 }),
+    rect("under", 160, 540, 200, 200, { background: "#fbbf24" }),
+    ellipse("ring", 60, 440, 400, 400, { background: "#6366f1" }, { inner: 0.5 }),
   ];
 }
 
@@ -385,7 +286,7 @@ function clippedChildRegion(): SceneNode[] {
     group(
       "clip",
       100,
-      500,
+      920,
       300,
       200,
       [rect("esc", 250, 50, 200, 100, { background: "#f87171" })],
@@ -398,8 +299,8 @@ function rotatedGroupRegion(): SceneNode[] {
   return [
     group(
       "rg",
-      700,
-      600,
+      90,
+      1262,
       300,
       200,
       [
@@ -414,7 +315,7 @@ function rotatedGroupRegion(): SceneNode[] {
 
 function strokePathRegion(): SceneNode[] {
   return [
-    pathNode("pth", 1100, 600, 300, 200, "M 0 0 C 100 200 200 0 300 200", {
+    pathNode("pth", 60, 1604, 300, 200, "M 0 0 C 100 200 200 0 300 200", {
       fill: "none",
       stroke: "#111",
       "stroke-width": "6",
@@ -429,7 +330,7 @@ function paintedPaddingRegion(): SceneNode[] {
     group(
       "card",
       100,
-      800,
+      1884,
       400,
       160,
       [
@@ -444,32 +345,32 @@ function paintedPaddingRegion(): SceneNode[] {
 
 function threeLayersRegion(): SceneNode[] {
   return [
-    rect("L1", 900, 850, 300, 200, { background: "#e5e7eb" }, { name: "Back" }),
-    rect("L2", 1000, 900, 300, 200, { background: "#9ca3af" }, { name: "Middle" }),
-    rect("L3", 1100, 950, 300, 200, { background: "#4b5563" }, { name: "Front" }),
+    rect("L1", 60, 2124, 300, 200, { background: "#e5e7eb" }, { name: "Back" }),
+    rect("L2", 160, 2174, 300, 200, { background: "#9ca3af" }, { name: "Middle" }),
+    rect("L3", 260, 2224, 300, 200, { background: "#4b5563" }, { name: "Front" }),
   ];
 }
 
 function layersLockedRegion(): SceneNode[] {
   return [
-    rect("hbase", 1250, 0, 250, 150, { background: "#a3e635" }),
-    rect("hlock", 1250, 0, 250, 150, { background: "#facc15" }, { locked: true }),
-    rect("hhide", 1350, 120, 150, 140, { background: "#f472b6" }, { hidden: true }),
+    rect("hbase", 470, 2504, 250, 150, { background: "#a3e635" }),
+    rect("hlock", 470, 2504, 250, 150, { background: "#facc15" }, { locked: true }),
+    rect("hhide", 570, 2624, 150, 140, { background: "#f472b6" }, { hidden: true }),
   ];
 }
 
 function layersDupeNameRegion(): SceneNode[] {
   return [
-    rect("d1", 1080, 240, 260, 200, { background: "#fda4af" }, { name: "Rectangle" }),
-    rect("d2", 1180, 300, 260, 200, { background: "#fdba74" }, { name: "Rectangle" }),
+    rect("d1", 300, 2744, 260, 200, { background: "#fda4af" }, { name: "Rectangle" }),
+    rect("d2", 400, 2804, 260, 200, { background: "#fdba74" }, { name: "Rectangle" }),
   ];
 }
 
-/** Every standalone `pick-*` region fixture shares `pick-all`'s 1200-tall
- *  scene so its absolute coordinates need no re-basing — "own scene" just
+/** Every standalone `pick-*` region fixture shares `pick-all`'s band height
+ *   so its absolute coordinates need no re-basing — "own scene" just
  *  means a distinct `Scene` object holding only that region's nodes. */
 function regionFixture(name: FixtureName, nodes: SceneNode[]): Fixture {
-  return fixtureFrom(name, scene(1200, nodes, { id: name }));
+  return fixtureFrom(name, scene(PICK_H, nodes, { id: name }));
 }
 
 function pickAll(): Fixture {
@@ -484,7 +385,7 @@ function pickAll(): Fixture {
     ...layersLockedRegion(),
     ...layersDupeNameRegion(),
   ];
-  return fixtureFrom("pick-all", scene(1200, nodes, { id: "pick" }));
+  return fixtureFrom("pick-all", scene(PICK_H, nodes, { id: "pick" }));
 }
 
 // ---------------------------------------------------------------------------
@@ -492,8 +393,6 @@ function pickAll(): Fixture {
 // ---------------------------------------------------------------------------
 
 export const FIXTURES: Readonly<Record<FixtureName, Fixture>> = {
-  "small-diagram": smallDiagram(),
-  "flat-board": flatBoard(1000, 1),
   "nested-flex": nestedFlex(),
   "pick-hollow-rect": regionFixture("pick-hollow-rect", hollowRectRegion()),
   "pick-ring-hole": regionFixture("pick-ring-hole", ringHoleRegion()),
@@ -617,7 +516,7 @@ export const PICKING_PROBES: readonly Probe[] = [
     action: "click",
     expect: ["hollow"],
     today: ["hollow"],
-    note: "on the 4px border (y 60–64); at zoom 0.1 the probe rounds to the border within T",
+    note: "on the 4px border (y 60–64)",
   },
   {
     id: "hollow.empty.click",
@@ -642,7 +541,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "ring.hole.click",
     fixture: "pick-all",
-    where: { x: 800, y: 300 },
+    where: { x: 260, y: 640 },
     action: "click",
     expect: ["under"],
     today: ["under"],
@@ -651,7 +550,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "ring.hole.candidates",
     fixture: "pick-all",
-    where: { x: 800, y: 300 },
+    where: { x: 260, y: 640 },
     action: "candidates",
     expect: ["under"],
     today: ["under"],
@@ -660,7 +559,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "ring.band.click",
     fixture: "pick-all",
-    where: { x: 800, y: 120 },
+    where: { x: 260, y: 460 },
     action: "click",
     expect: ["ring"],
     today: ["ring"],
@@ -669,18 +568,18 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "ring.band.candidates",
     fixture: "pick-all",
-    where: { x: 800, y: 120 },
+    where: { x: 260, y: 460 },
     action: "candidates",
     expect: ["ring"],
     today: ["ring"],
-    note: "(800,120) is outside under (700–900 × 200–400), so only the band answers",
+    note: "(260,460) is outside under (160–360 × 540–740), so only the band answers",
   },
 
   // -- clipped-child --------------------------------------------------------
   {
     id: "clip.outside.click",
     fixture: "pick-all",
-    where: { x: 500, y: 600 },
+    where: { x: 500, y: 1020 },
     action: "click",
     expect: [],
     today: [],
@@ -689,7 +588,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "clip.outside.cmd",
     fixture: "pick-all",
-    where: { x: 500, y: 600 },
+    where: { x: 500, y: 1020 },
     action: "cmdClick",
     expect: [],
     today: [],
@@ -698,7 +597,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "clip.inside.click",
     fixture: "pick-all",
-    where: { x: 400, y: 600 },
+    where: { x: 400, y: 1020 },
     action: "click",
     expect: ["clip"],
     today: ["clip"],
@@ -707,7 +606,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "clip.inside.cmd",
     fixture: "pick-all",
-    where: { x: 400, y: 600 },
+    where: { x: 400, y: 1020 },
     action: "cmdClick",
     expect: ["esc"],
     today: ["esc"],
@@ -740,7 +639,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "rot.gap.click",
     fixture: "pick-all",
-    where: { x: 850, y: 700 },
+    where: { x: 240, y: 1362 },
     action: "click",
     expect: [],
     today: [],
@@ -749,7 +648,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "rot.aabb.click",
     fixture: "pick-all",
-    where: { x: 670, y: 690 },
+    where: { x: 60, y: 1352 },
     action: "click",
     expect: [],
     today: [],
@@ -760,7 +659,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "path.curve.click",
     fixture: "pick-all",
-    where: { x: 1250, y: 700 },
+    where: { x: 210, y: 1704 },
     action: "click",
     expect: ["pth"],
     today: ["pth"],
@@ -769,7 +668,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "path.off.click",
     fixture: "pick-all",
-    where: { x: 1105, y: 795 },
+    where: { x: 65, y: 1799 },
     action: "click",
     expect: [],
     today: [],
@@ -778,7 +677,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "path.off.candidates",
     fixture: "pick-all",
-    where: { x: 1105, y: 795 },
+    where: { x: 65, y: 1799 },
     action: "candidates",
     expect: [],
     today: [],
@@ -789,7 +688,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "card.padding.click",
     fixture: "pick-all",
-    where: { x: 110, y: 810 },
+    where: { x: 110, y: 1894 },
     action: "click",
     expect: ["card"],
     today: ["card"],
@@ -798,7 +697,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "card.padding.cmd",
     fixture: "pick-all",
-    where: { x: 110, y: 810 },
+    where: { x: 110, y: 1894 },
     action: "cmdClick",
     expect: [],
     today: [],
@@ -838,7 +737,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "layers.all.click",
     fixture: "pick-all",
-    where: { x: 1150, y: 1000 },
+    where: { x: 310, y: 2274 },
     action: "click",
     expect: ["L3"],
     today: ["L3"],
@@ -846,36 +745,16 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "layers.all.shift",
     fixture: "pick-all",
-    where: [{ x: 1150, y: 1000 }, { x: 950, y: 880 }],
+    where: [{ x: 310, y: 2274 }, { x: 110, y: 2154 }],
     action: "shiftClick",
     expect: ["L1", "L3"],
     today: ["L1", "L3"],
-    // zooms excludes 8 for the geometric reason below, AND excludes 0.1 for a
-    // second, unrelated one found by actually driving this probe in a real
-    // browser (tests/canvas-picking.browser.mjs): once the first click
-    // selects L3, its selection overlay (svg.nt-ov) — sized and positioned
-    // in scene space, so its on-screen footprint grows with `1 / zoom` — is
-    // large enough at zoom 0.1 to sit in front of `elementFromPoint` at the
-    // SECOND point too, even though that point is 150+ scene px outside L3's
-    // own box on every axis; the shift-click's pointerdown lands on the
-    // overlay instead of `L1` and never reaches `onPointerDown` at all
-    // (confirmed: the store's `click`/`probe` are never called for it).
-    // This is a real, pre-existing overlay hit-testing gap, orthogonal to
-    // both PICK's paint policy and SELECT's modifier wiring — nothing in
-    // this initiative's file-ownership matrix touches the overlay, so it is
-    // out of scope to fix here. Flagged for whichever slice next touches
-    // `render/CanvasSurface.tsx`'s overlay wiring; this probe stays
-    // verifiable at zoom 1, where the two points are far enough apart on
-    // screen that the overlay never reaches the second one.
-    zooms: [1],
-    note:
-      "document order; zooms excludes 8 (the pair's 200×120px bounding box exceeds zoom 8's 150×100px " +
-      "viewport) and 0.1 (a real, pre-existing overlay hit-testing gap — see the comment above)",
+    note: "document order",
   },
   {
     id: "layers.all.candidates",
     fixture: "pick-all",
-    where: { x: 1150, y: 1000 },
+    where: { x: 310, y: 2274 },
     action: "candidates",
     expect: ["L3", "L2", "L1"],
     today: ["L3", "L2", "L1"],
@@ -884,7 +763,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "layers.all.menu",
     fixture: "pick-all",
-    where: { x: 1150, y: 1000 },
+    where: { x: 310, y: 2274 },
     action: "layerMenu",
     expect: ["L3", "L2", "L1"],
     today: ["L3", "L2", "L1"],
@@ -893,9 +772,13 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "layers.back.pick",
     fixture: "pick-all",
-    where: { x: 1150, y: 1000 },
+    where: { x: 310, y: 2274 },
     action: "layerMenuPick",
     pick: 2,
+    // The menu is fixed-position inside the zoomed column, so at 2 it opens
+    // twice as far from the pointer and off the page, until it is portalled
+    // out of the column with document zoom.
+    zooms: [0.5, 1],
     expect: ["L1"],
     today: ["L1"],
     note: "select-behind, via ⌘+right-click",
@@ -903,7 +786,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "layers.only1.click",
     fixture: "pick-all",
-    where: { x: 950, y: 880 },
+    where: { x: 110, y: 2154 },
     action: "click",
     expect: ["L1"],
     today: ["L1"],
@@ -913,7 +796,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "layers.locked.click",
     fixture: "pick-all",
-    where: { x: 1320, y: 75 },
+    where: { x: 540, y: 2579 },
     action: "click",
     expect: ["hbase"],
     // Already true on main, no xfail: `hitChain` (scene/geometry.ts) skips
@@ -930,7 +813,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "layers.locked.candidates",
     fixture: "pick-all",
-    where: { x: 1320, y: 75 },
+    where: { x: 540, y: 2579 },
     action: "candidates",
     expect: ["hbase"],
     today: ["hbase"],
@@ -939,7 +822,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "layers.hidden.candidates",
     fixture: "pick-all",
-    where: { x: 1400, y: 195 },
+    where: { x: 620, y: 2699 },
     action: "candidates",
     expect: [],
     today: [],
@@ -948,7 +831,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "layers.hidden.hover",
     fixture: "pick-all",
-    where: { x: 1400, y: 195 },
+    where: { x: 620, y: 2699 },
     action: "hover",
     expect: [],
     // Already true on main, no xfail needed even before PICK landed — same
@@ -961,7 +844,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "layers.locked.menu",
     fixture: "pick-all",
-    where: { x: 1320, y: 75 },
+    where: { x: 540, y: 2579 },
     action: "layerMenu",
     expect: ["hbase", "hlock"],
     today: "n/a",
@@ -975,7 +858,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "layers.dupe.menu",
     fixture: "pick-all",
-    where: { x: 1240, y: 370 },
+    where: { x: 460, y: 2874 },
     action: "layerMenu",
     expect: ["d2", "d1"],
     today: ["d2", "d1"],
@@ -998,7 +881,7 @@ export const PICKING_PROBES: readonly Probe[] = [
   {
     id: "layers.readOnly.contextMenu",
     fixture: "pick-all",
-    where: { x: 1150, y: 1000 },
+    where: { x: 310, y: 2274 },
     action: "layerMenu",
     menuOpen: false,
     expect: [],

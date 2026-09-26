@@ -32,9 +32,9 @@
  *
  * ## Two things this deliberately does not own
  *
- *  - **Space-to-pan** belongs to `useViewport`, which already tracks the key,
- *    owns the cursor and reports `panState()`. It is listed here so it appears
- *    in the cheat sheet, and its handler does nothing.
+ *  - **Space and the zoom keys** move the page, not a diagram — a diagram has
+ *    no view of its own to move. They are listed here so they appear in the
+ *    cheat sheet, and their handlers decline.
  *  - **⌘C/⌘X/⌘V go through the browser's own clipboard events**, not through
  *    keydown, so `clipboardData` is available synchronously and no clipboard
  *    permission prompt is ever raised. The keydown rows exist to be displayed.
@@ -74,7 +74,6 @@ import {
   type Alignment,
   type NodeId,
   type Point,
-  type Rect,
   type Scene,
   type SceneEdge,
   type SceneNode,
@@ -83,10 +82,8 @@ import {
   isBoolean,
   type BooleanOp,
 } from "../scene/types";
-import type { ScreenControl } from "./screen";
 import type { SceneStore } from "./useScene";
 import type { SelectionStore } from "./useSelection";
-import { ZOOM_STEP } from "./useViewport";
 import type { ViewportController } from "./useViewport";
 
 // ---------------------------------------------------------------------------
@@ -113,8 +110,7 @@ export type CanvasTool =
   | "diamond"
   | "text"
   | "pen"
-  | "connector"
-  | "zoom";
+  | "connector";
 
 /** The slice of tool state the keymap needs. */
 export interface ToolController {
@@ -168,7 +164,6 @@ export type ShortcutId =
   | "tool.pen"
   | "tool.connector"
   | "tool.hand"
-  | "tool.zoom"
   | "edit.undo"
   | "edit.redo"
   | "edit.duplicate"
@@ -205,12 +200,7 @@ export type ShortcutId =
   | "view.zoomIn"
   | "view.zoomOut"
   | "view.zoomReset"
-  | "view.zoomFit"
-  | "view.zoomSelection"
   | "view.pan"
-  | "view.stage"
-  | "view.minimal"
-  | "view.fullscreen"
   | "toggle.hidden"
   | "toggle.locked"
   | "align.left"
@@ -239,8 +229,7 @@ export interface Shortcut {
   /**
    * Bindings on non-Apple platforms when they differ from `keys` — a `Ctrl`
    * token in `keys` is the spare modifier on Apple (⌃) and has no off-Apple
-   * meaning, so a row that needs one supplies the real off-Apple key here
-   * (`view.fullscreen`'s `f11`).
+   * meaning, so a row that needs one supplies the real off-Apple key here.
    */
   other?: readonly string[];
 }
@@ -277,7 +266,6 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: "tool.pen", label: "Pen", group: "Tools", keys: tool("p") },
   { id: "tool.connector", label: "Connector", group: "Tools", keys: tool("c") },
   { id: "tool.hand", label: "Hand", group: "Tools", keys: tool("h") },
-  { id: "tool.zoom", label: "Zoom", group: "Tools", keys: tool("z") },
 
   { id: "edit.undo", label: "Undo", group: "Edit", keys: ["Mod+z"] },
   {
@@ -420,39 +408,9 @@ export const SHORTCUTS: readonly Shortcut[] = [
     keys: ["Mod+=", "Mod+Shift+="],
   },
   { id: "view.zoomOut", label: "Zoom out", group: "View", keys: ["Mod+-"] },
-  {
-    id: "view.zoomReset",
-    label: "Zoom to 100%",
-    group: "View",
-    keys: ["Mod+0", "Shift+0"],
-  },
-  {
-    id: "view.zoomFit",
-    label: "Zoom to fit",
-    group: "View",
-    keys: ["Mod+1", "Shift+1"],
-  },
-  {
-    id: "view.zoomSelection",
-    label: "Zoom to selection",
-    group: "View",
-    keys: ["Mod+2", "Shift+2"],
-  },
+  // Not `Shift+0` as well: on the page that types a ")".
+  { id: "view.zoomReset", label: "Zoom to 100%", group: "View", keys: ["Mod+0"] },
   { id: "view.pan", label: "Pan", group: "View", keys: ["space"], display: "Space (hold)" },
-  { id: "view.stage", label: "Expanded stage", group: "View", keys: ["Mod+Shift+f"] },
-  {
-    id: "view.minimal",
-    label: "Hide UI",
-    group: "View",
-    keys: ["Mod+.", "Mod+\\"],
-  },
-  {
-    id: "view.fullscreen",
-    label: "Browser fullscreen",
-    group: "View",
-    keys: ["Mod+Ctrl+f"],
-    other: ["f11"],
-  },
 
   {
     id: "toggle.hidden",
@@ -769,15 +727,6 @@ function autoLayoutDecls(scene: Scene, ids: readonly NodeId[]): StylePatch {
   return decls;
 }
 
-/** The union of every top-level node's box, in scene space. Falls back to the surface. */
-function contentBounds(scene: Scene): Rect {
-  if (scene.nodes.length === 0) return { x: 0, y: 0, w: scene.w, h: scene.h };
-  return absoluteSelectionBounds(
-    scene,
-    scene.nodes.map((node) => node.id),
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Clipboard
 // ---------------------------------------------------------------------------
@@ -876,8 +825,6 @@ export interface CanvasShortcutOptions {
   pathEdit?: PathEditController;
   /** Opens a shape's label for editing — Enter on a text-bearing node. Omitted where labels cannot be edited. */
   labelEdit?: { open(id: NodeId): void };
-  /** Omitted where the surface has no screen modes (a storyboard shot). */
-  screen?: ScreenControl;
   /** Off for a read-only block. Default true. */
   enabled?: boolean;
 }
@@ -939,15 +886,6 @@ export function useCanvasShortcuts({
       return null;
     };
 
-    const viewportCentre = (): Point | null => {
-      const box = el.getBoundingClientRect();
-      if (box.width === 0 || box.height === 0) return null;
-      return latest.current.viewport.clientToScene({
-        x: box.left + box.width / 2,
-        y: box.top + box.height / 2,
-      });
-    };
-
     // -- Writing ------------------------------------------------------------
 
     const dispatch = (ops: SceneOp | SceneOp[]) =>
@@ -966,21 +904,11 @@ export function useCanvasShortcuts({
         ? absoluteRect(current, parentId)
         : { x: 0, y: 0, w: 0, h: 0 };
 
-      let dx = -origin.x;
-      let dy = -origin.y;
-      if (!inPlace) {
-        // Centre the paste on what the user is looking at, as Figma does when
-        // the copy did not come from the visible area.
-        const box = unionBounds(nodes);
-        const view = viewportCentre();
-        if (view) {
-          dx += view.x - (box.x + box.w / 2);
-          dy += view.y - (box.y + box.h / 2);
-        } else {
-          dx += DUPLICATE_OFFSET;
-          dy += DUPLICATE_OFFSET;
-        }
-      }
+      // Where it was copied from, beside its original unless in place — and
+      // never above the band's top, where nothing is in sight.
+      const offset = inPlace ? 0 : DUPLICATE_OFFSET;
+      const dx = offset - origin.x;
+      const dy = Math.max(offset, -unionBounds(nodes).y) - origin.y;
       // Every node lands under a fresh id, so the connectors that came with it
       // have to be rewritten onto those before they mean anything.
       const remap = new Map<NodeId, NodeId>();
@@ -1008,21 +936,6 @@ export function useCanvasShortcuts({
           : { type: "insert", nodes: copies, parentId },
       );
       latest.current.selection.select(copies.map((node) => node.id));
-
-      // A paste too big for the view — a whole Figma frame — is framed, so
-      // what arrived is what is seen rather than one corner of it.
-      const landed = unionBounds(copies);
-      const box = el.getBoundingClientRect();
-      const zoom = latest.current.viewport.get().zoom;
-      if (landed.w * zoom > box.width || landed.h * zoom > box.height) {
-        zoomTo({ ...landed, x: landed.x + origin.x, y: landed.y + origin.y });
-      }
-    };
-
-    const zoomTo = (bounds: Rect) => {
-      if (bounds.w > 0 && bounds.h > 0) {
-        latest.current.viewport.zoomToFit(bounds);
-      }
     };
 
     // -- Commands -----------------------------------------------------------
@@ -1127,7 +1040,6 @@ export function useCanvasShortcuts({
       "tool.pen": () => setTool("pen"),
       "tool.connector": () => setTool("connector"),
       "tool.hand": () => setTool("hand"),
-      "tool.zoom": () => setTool("zoom"),
 
       "edit.undo": () => {
         latest.current.scene.undo();
@@ -1342,17 +1254,9 @@ export function useCanvasShortcuts({
         }
         const before = latest.current.selection.getSnapshot();
         latest.current.selection.escape();
-        if (before.ids.length > 0 || before.enteredPath.length > 0) return true;
-        // Nothing left to step out of or deselect: the stage is the next rung
-        // down, taking fullscreen with it (the reducer clears it). Below this,
-        // Escape belongs to whoever is around us — how the user gets out of
-        // the canvas and back to the document.
-        const screen = latest.current.screen;
-        if (screen?.get().stage) {
-          screen.set({ stage: false });
-          return true;
-        }
-        return false;
+        // Nothing left to step out of or deselect: below this, Escape belongs
+        // to whoever is around us — how the user gets back to the document.
+        return before.ids.length > 0 || before.enteredPath.length > 0;
       },
 
       "arrange.forward": () => reorder("forward"),
@@ -1363,52 +1267,11 @@ export function useCanvasShortcuts({
       "move.nudge": (e) => nudge(e, 1),
       "move.nudgeFar": (e) => nudge(e, 10),
 
-      "view.zoomIn": () => {
-        latest.current.viewport.zoomBy(ZOOM_STEP);
-        return true;
-      },
-      "view.zoomOut": () => {
-        latest.current.viewport.zoomBy(1 / ZOOM_STEP);
-        return true;
-      },
-      "view.zoomReset": () => {
-        latest.current.viewport.resetZoom();
-        return true;
-      },
-      "view.zoomFit": () => {
-        zoomTo(contentBounds(scene()));
-        return true;
-      },
-      "view.zoomSelection": () => {
-        const ids = targetIds();
-        const current = scene();
-        zoomTo(
-          ids.length
-            ? absoluteSelectionBounds(current, ids)
-            : contentBounds(current),
-        );
-        return true;
-      },
-      // Space-to-pan is the viewport's: it tracks the key, owns the cursor and
-      // reports `panState()`. Listed only so it appears in the cheat sheet.
+      // The page's, not the diagram's — see the module header.
+      "view.zoomIn": () => false,
+      "view.zoomOut": () => false,
+      "view.zoomReset": () => false,
       "view.pan": () => false,
-
-      "view.stage": () => {
-        latest.current.screen?.toggle("stage");
-        return !!latest.current.screen;
-      },
-      "view.minimal": () => {
-        latest.current.screen?.toggle("minimal");
-        return !!latest.current.screen;
-      },
-      "view.fullscreen": () => {
-        const screen = latest.current.screen;
-        // Unsupported (or no screen at all): decline so the browser's own
-        // F11/⌃⌘F still runs rather than us eating the key for nothing.
-        if (!screen?.canFullscreen()) return false;
-        screen.toggle("fullscreen");
-        return true;
-      },
 
       "toggle.hidden": () => toggleFlag("hidden"),
       "toggle.locked": () => toggleFlag("locked"),
@@ -1446,6 +1309,9 @@ export function useCanvasShortcuts({
         endNudgeRun();
       }
     });
+    // Undo settles an idle-held run before it walks, so ⌘Z mid-run takes the
+    // whole run back rather than being refused.
+    const unsubscribeStep = latest.current.scene.onBeforeStep(endNudgeRun);
 
     /**
      * Clipboard events are listened for on the document in the capture phase,
@@ -1501,6 +1367,7 @@ export function useCanvasShortcuts({
       // while one is, and a remote scene waits for it.
       endNudgeRun();
       unsubscribeSelection();
+      unsubscribeStep();
       el.removeEventListener("keydown", onKeyDown);
       el.removeEventListener("keyup", onKeyUp);
       document.removeEventListener("copy", onCopy, true);

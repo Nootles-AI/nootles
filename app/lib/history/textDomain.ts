@@ -186,7 +186,7 @@ export function useTextUndoDomain(
      * was usually the end of the page. An entry that remembers no selection (a
      * kept AI change) gets the caret where the page first differs.
      */
-    const settle = (item: StackItem | null, direction: "undo" | "redo", prior: PMNode | undefined) => {
+    const land = (item: StackItem | null, direction: "undo" | "redo", prior: PMNode | undefined) => {
       const view = editor.prosemirrorView;
       if (!view || view.isDestroyed) return;
       const tr = view.state.tr.setMeta("addToHistory", false);
@@ -213,7 +213,7 @@ export function useTextUndoDomain(
       if (forked()) return "blocked";
       const prior = editor.prosemirrorView?.state.doc;
       const { item, consumed, redoable } = capture.step(direction);
-      settle(item, direction, prior);
+      land(item, direction, prior);
       return { consumed, redoable };
     };
 

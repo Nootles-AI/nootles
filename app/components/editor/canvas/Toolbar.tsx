@@ -9,10 +9,8 @@
  * bars asking for the same corner is one bar too many, and the unanswered
  * question outranks the tool palette.
  *
- * It takes the stores rather than values, and the readouts subscribe to the
- * scalars they show rather than to whole viewport or history objects. A pan
- * allocates a fresh `Viewport` every frame but leaves `zoom` alone, so it
- * re-renders nothing here; only an actual zoom change redraws the pill.
+ * It takes the stores rather than values, and subscribes to the scalars it
+ * shows rather than to whole history objects.
  */
 
 import {
@@ -44,11 +42,8 @@ import {
   type CanvasTool,
   type ShortcutId,
 } from "./engine/shortcuts";
-import type { ScreenControl } from "./engine/screen";
 import type { BoardApi, ToolControl } from "./render/CanvasSurface";
 import { BoardControls } from "../storyboard/BoardControls";
-import { useViewportZoom, ZOOM_STEP, type ViewportController } from "./engine/useViewport";
-import { absoluteSelectionBounds } from "./scene/geometry";
 import "./canvas.css";
 
 const svg = {
@@ -92,16 +87,6 @@ export const TOOLS: readonly { tool: CanvasTool; id: ShortcutId; icon: ReactNode
     icon: (
       <svg {...svg}>
         <path d="M9 13V5.5a1.5 1.5 0 0 1 3 0V11m0-.5V4.5a1.5 1.5 0 0 1 3 0V11m0-.5V6.5a1.5 1.5 0 0 1 3 0V14a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-2.7l-2-3a1.6 1.6 0 0 1 2.6-1.8L9 15" />
-      </svg>
-    ),
-  },
-  {
-    tool: "zoom",
-    id: "tool.zoom",
-    icon: (
-      <svg {...svg}>
-        <circle cx="11" cy="11" r="6.5" />
-        <path d="m20 20-4.2-4.2M8.5 11h5M11 8.5v5" />
       </svg>
     ),
   },
@@ -176,10 +161,10 @@ export const SHAPES: ReadonlySet<CanvasTool> = new Set(["rect", "ellipse", "poly
 const SHAPE_TOOLS = TOOLS.filter((t) => SHAPES.has(t.tool));
 const LEAD_TOOLS = TOOLS.slice(0, TOOLS.findIndex((t) => SHAPES.has(t.tool)));
 const TAIL_TOOLS = TOOLS.filter((t) => !SHAPES.has(t.tool) && !LEAD_TOOLS.includes(t));
-/** A storyboard shot's: no hand or zoom, since a shot is a fixed frame with
- *  nothing to pan or zoom into, and no connector — a board's relations are its
- *  shot order, not arrows between drawings. */
-const SHOT_LEAD = LEAD_TOOLS.filter((t) => t.tool !== "hand" && t.tool !== "zoom");
+/** A storyboard shot's: no hand, since a shot is a fixed frame with nothing to
+ *  pan to, and no connector — a board's relations are its shot order, not
+ *  arrows between drawings. */
+const SHOT_LEAD = LEAD_TOOLS.filter((t) => t.tool !== "hand");
 const SHOT_TAIL = TAIL_TOOLS.filter((t) => t.tool !== "connector");
 
 /** The slot's disclosure: a small chevron, as Figma draws it. */
@@ -288,13 +273,16 @@ export function PaletteButton({ apple, onOpen }: { apple: boolean; onOpen: () =>
 
 export interface ToolbarProps {
   store: SceneStore;
-  viewport: ViewportController;
   /** Subscribed to rather than passed as a value: see {@link ToolControl}. */
   tools: ToolControl;
-  screen: ScreenControl;
+  /**
+   * Hands the keyboard back to the canvas after a shape is picked from the
+   * list, so the next key is a shortcut and the next press draws.
+   */
+  refocus?: () => void;
   /** Set for the moment it is on its way out, after the diagram was let go. */
   leaving?: boolean;
-  /** The storyboard the canvas is a shot of, whose verbs stand in for zoom. */
+  /** The storyboard the canvas is a shot of, whose verbs get the bar's end. */
   board?: BoardApi;
   /** Opens the workspace's palette; absent where there is none to open. */
   onPalette?: () => void;
@@ -302,17 +290,13 @@ export interface ToolbarProps {
 
 export function Toolbar({
   store,
-  viewport,
   tools,
-  screen,
+  refocus,
   leaving,
   board,
   onPalette,
 }: ToolbarProps) {
   const tool = useSyncExternalStore(tools.subscribe, tools.get, tools.get);
-  // The scalar, not the whole viewport: `commit()` allocates a fresh object on
-  // every pan frame, and this pill only shows the zoom.
-  const zoom = useViewportZoom(viewport);
   // One timeline: with the workspace spine present the buttons walk it (the
   // diagram's entries included, in order); without it — the share route, the
   // legacy pipeline — they walk the store's own history as they always did.
@@ -334,28 +318,12 @@ export function Toolbar({
   const snap = useSyncExternalStore(subscribeSnap, isSnapEnabled, () => true);
   const grid = useSyncExternalStore(subscribeGrid, isGridShown, () => true);
 
-  // Same reasoning as `tools`/`snap` above: the menu's checkboxes have to
-  // redraw when the mode changes, whether that came from this menu, the
-  // keyboard, or the browser leaving fullscreen on its own.
-  const screenState = useSyncExternalStore(screen.subscribe, screen.get, screen.get);
-
   const dock = useRef<HTMLDivElement>(null);
   useColumnEdges(dock);
 
   // The diagram has the keyboard while this bar is up, so its tools show the
   // bare letter they answer to there.
   const hint = (id: ShortcutId) => shortcutHint(id, apple, id.startsWith("tool.") ? 1 : 0);
-
-  const fit = () => {
-    const scene = store.getScene();
-    const bounds = scene.nodes.length
-      ? absoluteSelectionBounds(
-          scene,
-          scene.nodes.map((node) => node.id),
-        )
-      : { x: 0, y: 0, w: scene.w, h: scene.h };
-    if (bounds.w > 0 && bounds.h > 0) viewport.zoomToFit(bounds);
-  };
 
   return (
     // Docked to the foot of the page column, centred on it: the dock follows
@@ -369,9 +337,7 @@ export function Toolbar({
           tail={board ? SHOT_TAIL : TAIL_TOOLS}
           hint={hint}
           onTool={(next) => tools.set(next)}
-          // Back to the canvas rather than to the caret, so the next key is a
-          // shortcut and the next press draws.
-          onPicked={() => viewport.containerRef.current?.focus({ preventScroll: true })}
+          onPicked={refocus}
         />
 
         <span className="nt-toolbar-sep" aria-hidden />
@@ -393,90 +359,11 @@ export function Toolbar({
           {REDO}
         </Button>
 
-        <span className="nt-toolbar-sep" aria-hidden />
-
-        {board ? (
-          <BoardControls board={board} />
-        ) : (
-          <Menu
-            label="Zoom"
-            side="top"
-            align="end"
-            trigger={(props) => (
-              <Tooltip label="Zoom">
-                <button
-                  type="button"
-                  {...props}
-                  className="nt-toolbar-zoom"
-                  onPointerDown={(e) => e.preventDefault()}
-                >
-                  {Math.round(zoom * 100)}%
-                </button>
-              </Tooltip>
-            )}
-          >
-            {(close) => {
-              const item = (id: ShortcutId, fn: () => void) => (
-                <MenuItem
-                  onClick={() => {
-                    fn();
-                    close();
-                  }}
-                >
-                  {SHORTCUTS_BY_ID[id].label}
-                  <span className="ml-auto pl-4 font-mono text-[11px] text-[var(--muted)]">
-                    {hint(id)}
-                  </span>
-                </MenuItem>
-              );
-              // Unlike `item` above, always closes — stage/minimal/fullscreen
-              // each move or hide the trigger this menu is anchored to (a
-              // resized stage, an unmounted toolbar), so there is no position
-              // left to leave the menu open over. `restoreFocus: false`: the
-              // screen host is what lands focus here (the viewport, on stage
-              // entry), and the menu's own default restore-to-trigger would
-              // fight that the moment the trigger itself moved or vanished.
-              const toggle = (id: ShortcutId, checked: boolean, fn: () => void) => (
-                <MenuItem
-                  onClick={() => {
-                    fn();
-                    close({ restoreFocus: false });
-                  }}
-                >
-                  <span
-                    aria-hidden
-                    className={`flex size-3.5 shrink-0 items-center justify-center rounded-[var(--radius-sm)] border transition-colors ${
-                      checked
-                        ? "border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)]"
-                        : "border-[var(--border-strong)]"
-                    }`}
-                  >
-                    {checked && <Check width={10} height={10} />}
-                  </span>
-                  {SHORTCUTS_BY_ID[id].label}
-                  <span className="sr-only">{checked ? "On" : "Off"}</span>
-                  <span className="ml-auto pl-4 font-mono text-[11px] text-[var(--muted)]">
-                    {hint(id)}
-                  </span>
-                </MenuItem>
-              );
-              return (
-                <>
-                  {item("view.zoomIn", () => viewport.zoomBy(ZOOM_STEP))}
-                  {item("view.zoomOut", () => viewport.zoomBy(1 / ZOOM_STEP))}
-                  {item("view.zoomReset", viewport.resetZoom)}
-                  {item("view.zoomFit", fit)}
-                  <div className="nt-menu-sep" aria-hidden />
-                  {toggle("view.stage", screenState.stage, () => screen.toggle("stage"))}
-                  {toggle("view.minimal", screenState.minimal, () => screen.toggle("minimal"))}
-                  {screen.canFullscreen() &&
-                    toggle("view.fullscreen", screenState.fullscreen, () =>
-                      screen.toggle("fullscreen"),
-                    )}
-                </>
-              );
-            }}
-          </Menu>
+        {board && (
+          <>
+            <span className="nt-toolbar-sep" aria-hidden />
+            <BoardControls board={board} />
+          </>
         )}
 
         <span className="nt-toolbar-sep" aria-hidden />

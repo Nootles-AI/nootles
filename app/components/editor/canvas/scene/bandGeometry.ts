@@ -1,8 +1,9 @@
-import { COLUMN_WIDTH } from "@/app/lib/column";
 import { laidOutScene } from "./autoLayout";
 import { edgePoints } from "./edgePath";
 import { nodeBounds } from "./geometry";
 import type { Scene } from "./types";
+
+export { bandLeft, bandWidth, WIDE_MARGIN, WIDE_W } from "./bandSpan";
 
 /**
  * The band's measurements, apart from `./band` because they need no op: the
@@ -13,24 +14,11 @@ import type { Scene } from "./types";
 
 /** Room above the first shape and below the lowest, in px. */
 export const BAND = 24;
-/** A wide band's width, centred on the column. */
-export const WIDE_W = 1200;
-/** How far a wide band reaches past the column on each side. */
-export const WIDE_MARGIN = (WIDE_W - COLUMN_WIDTH) / 2;
 /** An empty band: one line of body text and a band either side of it. */
 export const EMPTY_BAND_H = 26 + 2 * BAND;
 
 /** Below this, two coordinates are the same place — fitting must not chase float error. */
 export const EPS = 1e-6;
-
-/** The band's left edge in scene px: the column's, or the wide margin past it. */
-export function bandLeft(scene: { wide?: boolean }): number {
-  return scene.wide ? -WIDE_MARGIN : 0;
-}
-
-export function bandWidth(scene: { wide?: boolean }): number {
-  return scene.wide ? WIDE_W : COLUMN_WIDTH;
-}
 
 const FLOORS = new WeakMap<Scene, number>();
 

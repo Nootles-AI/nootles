@@ -1,6 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type RefObject,
+} from "react";
 import { createReactBlockSpec } from "@blocknote/react";
 import { useConvex } from "convex/react";
 import { ySyncPluginKey } from "y-prosemirror";
@@ -10,7 +19,6 @@ import { useHints } from "@/app/components/hints/useHints";
 import { useReadOnly } from "../readOnly";
 import { putDataUri } from "../album/upload";
 import { canonicalPathOps } from "../canvas/scene/canonicalPaths";
-import { shapeIdsIn } from "../canvas/scene/reveal";
 import { hoistOps, inlinePictures } from "../canvas/scene/inlineImages";
 import { CanvasAiContext } from "../canvas/canvasAi";
 import { CANVAS_MIRROR_META, CanvasCollab, onDiagramSettle } from "../canvas/collab/binding";
@@ -28,6 +36,7 @@ import { useCanvasUndoDomain } from "@/app/lib/history/canvasDomain";
 import { registerSurface } from "@/app/lib/history/surfaceRegistry";
 import { useWorkspaceHistory } from "@/app/lib/history/useWorkspaceHistory";
 import { useCurrentPage } from "@/app/components/OpenPageContext";
+import { effectiveScale } from "@/app/lib/columnScale";
 import { peekSceneStore, sceneStoreKey } from "../canvas/engine/useScene";
 import { serializeScene } from "../canvas/scene/serialize";
 import type { Scene } from "../canvas/scene/types";
@@ -60,6 +69,37 @@ type ForkStore = {
   state?: { isForked?: boolean };
   subscribe?: (cb: () => void) => () => void;
 };
+
+const NEVER_CHANGES = () => () => {};
+
+/**
+ * Keeps a band on the text column however deep its block is nested: BlockNote
+ * indents a child block's content, and a band's origin is the text's edge,
+ * not the indent's. Written to the element — the indent is layout, not state —
+ * and read again whenever the block content or the editor changes width,
+ * which is what an indent or an outdent does.
+ */
+function useColumnAnchor(): RefObject<HTMLDivElement | null> {
+  const host = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = host.current;
+    const content = el?.closest<HTMLElement>(".bn-block-content");
+    const root = el?.closest<HTMLElement>(".bn-editor");
+    if (!el || !content || !root) return;
+    const anchor = () => {
+      const visual = content.getBoundingClientRect().left - root.getBoundingClientRect().left;
+      const indent = Math.round(visual / effectiveScale(el));
+      el.style.marginLeft = indent ? `${-indent}px` : "";
+      el.style.width = indent ? `calc(100% + ${indent}px)` : "";
+    };
+    anchor();
+    const observer = new ResizeObserver(anchor);
+    observer.observe(content);
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
+  return host;
+}
 
 const forkStore = (editor: HostEditor) =>
   (editor.getExtension("yForkDoc") as { store?: ForkStore } | undefined)?.store;
@@ -103,6 +143,18 @@ function CanvasBlockView({
   const mine = shell.active?.blockId === blockId;
   const api = useRef<CanvasApi | null>(null);
   const [liveApi, setLiveApi] = useState<CanvasApi | null>(null);
+  const host = useColumnAnchor();
+  // The diagram holds a selection of its own: the moment its first-touch
+  // lesson is an answer rather than a caption.
+  const selection = liveApi?.selection;
+  const engaged = useSyncExternalStore(
+    selection?.subscribe ?? NEVER_CHANGES,
+    () => {
+      const snapshot = selection?.getSnapshot();
+      return !!snapshot && (snapshot.ids.length > 0 || snapshot.edgeIds.length > 0);
+    },
+    () => false,
+  );
 
   // ---- CRDT binding (Yjs pipeline only) ----------------------------------
   // The maps are the truth and the block prop is a mirror; see
@@ -197,19 +249,8 @@ function CanvasBlockView({
     return () => collab.detach();
   }, [collab, yDoc, forked, dropMirror]);
 
-  // What arrived from outside this canvas was not placed by the user, so the
-  // user is not looking at it: the shapes an outside edit added are brought
-  // into view. Diffed on the strings rather than the scenes because the
-  // legacy pipeline adopts the prop in the surface before this block sees it.
+  /** The last prop from outside this canvas that this block has taken in. */
   const outsideSeen = useRef(source);
-  const revealAdded = useCallback(
-    (before: string, after: string) => {
-      const had = shapeIdsIn(before);
-      const added = [...shapeIdsIn(after)].filter((id) => !had.has(id));
-      if (added.length) api.current?.reveal(added);
-    },
-    [],
-  );
 
   /**
    * A prop this block has not reconciled yet. Unless it is our own mirror, it
@@ -224,12 +265,10 @@ function CanvasBlockView({
       written.current = null;
       if (ours) return;
       dropMirror();
-      const before = outsideSeen.current;
       outsideSeen.current = next;
       collab.adoptExternal(next, authored);
-      revealAdded(before, next);
     },
-    [collab, dropMirror, revealAdded],
+    [collab, dropMirror],
   );
 
   useEffect(() => {
@@ -265,10 +304,8 @@ function CanvasBlockView({
   useEffect(() => {
     if (yDoc) return;
     if (source === ownWrite.current || source === outsideSeen.current) return;
-    const before = outsideSeen.current;
     outsideSeen.current = source;
-    revealAdded(before, source);
-  }, [yDoc, source, revealAdded]);
+  }, [yDoc, source]);
 
   /** The prop mirror, written once the diagram has been quiet for MIRROR_MS. */
   const scheduleMirror = useCallback(
@@ -298,13 +335,6 @@ function CanvasBlockView({
   useEffect(() => {
     if (!mine) writeMirror();
   }, [mine, writeMirror]);
-  // One stage per screen falls out of "one claimed canvas": claiming another
-  // block unclaims this one, and losing the shell resets its screen modes —
-  // pure view state, no scene write, so this costs nothing when `mine` never
-  // goes false for the life of the page.
-  useEffect(() => {
-    if (!mine) api.current?.screen.reset();
-  }, [mine]);
   useEffect(() => {
     const onHide = () => {
       if (document.visibilityState === "hidden") writeMirror();
@@ -385,12 +415,13 @@ function CanvasBlockView({
   /**
    * The first-touch lesson: this is an editor, not a picture. Shown only over
    * a diagram with something on it — an empty canvas already explains itself —
-   * and retired the first time a shape actually moves.
+   * once one of its shapes is in hand, and retired the first time a shape
+   * actually moves.
    */
   const hints = useHints();
   const hinted = hints.alive("canvas") && Boolean(source.trim());
   useEffect(() => {
-    if (!hinted || !mine || !liveApi) return;
+    if (!hinted || !engaged || !liveApi) return;
     const store = liveApi.store;
     const entered = store.getScene();
     const opened = performance.now();
@@ -402,7 +433,7 @@ function CanvasBlockView({
         hints.die("canvas");
       }
     });
-  }, [hinted, mine, liveApi, hints]);
+  }, [hinted, engaged, liveApi, hints]);
 
   // Keep the context value referentially stable. The block spec passes a fresh
   // closure on every render, and a changing context value would re-render every
@@ -442,7 +473,7 @@ function CanvasBlockView({
     // shell, which is never claimed. The api is still captured so remote edits
     // keep flowing into the store.
     return (
-      <div className="relative w-full">
+      <div ref={host} className="nt-canvas-block relative w-full">
         <CanvasAiContext value={ai}>
           <CanvasSurface
             source={surfaceSource}
@@ -464,9 +495,13 @@ function CanvasBlockView({
   return (
     // `w-full` is load-bearing: BlockNote lays a block's content out with flex,
     // so this wrapper is a flex item and would otherwise shrink to nothing —
-    // the canvas sizes itself against it, and everything inside the canvas is
-    // absolutely positioned, so there is no content to hold it open.
-    <div className="relative w-full" onPointerDownCapture={claim} onFocus={claim}>
+    // the hint places itself against it, and a wide band is centred on it.
+    <div
+      ref={host}
+      className="nt-canvas-block relative w-full"
+      onPointerDownCapture={claim}
+      onFocus={claim}
+    >
       <CanvasAiContext value={ai}>
         <CanvasSurface
           source={surfaceSource}
@@ -484,9 +519,9 @@ function CanvasBlockView({
           }}
         />
       </CanvasAiContext>
-      {hinted && (
+      {hinted && engaged && (
         <p className="nt-canvas-hint is-low" aria-hidden>
-          A real canvas, not a picture — click in and drag a shape
+          A real canvas, not a picture — drag a shape
         </p>
       )}
     </div>

@@ -122,9 +122,8 @@ export function FullscreenShot({
       {api && !readOnly && (
         <Toolbar
           store={api.store}
-          viewport={api.viewport}
           tools={api.tools}
-          screen={api.screen}
+          refocus={api.focus}
           board={board}
         />
       )}

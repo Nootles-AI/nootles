@@ -1,5 +1,5 @@
 /* ===== Canvas block ======================================================
-   The block wrapper, the clipping viewport, and the screen toolbar. Anything
+   The band, its viewport, and the screen toolbar. Anything
    a shape can say for itself is inline CSS from the grammar; anything the
    selection says lives in render/overlay.css. Nothing else belongs here. */
 
@@ -11,35 +11,44 @@
   --nt-select: #0d99ff;
 }
 
-/* The ground both the wrapper and the fixed stage viewport paint — one token
-   so the two never drift apart when the stage swaps which element is showing
-   it (§3.1 of STAGE: the viewport's own background still wins for an authored
-   diagram background, this is only the surface underneath it). */
-:root {
-  --nt-canvas-ground: oklch(0.974 0.002 90);
-}
-
+/* A band of the page: the column's width, or the wide band's, set inline by
+   the surface, as tall as what it holds. No paper and no corner of its own —
+   the page is the paper and its band spacing is the margin — unless the
+   diagram paints a ground, which gets the block's corner back. */
 .nt-canvas {
   position: relative;
-  width: 100%;
-  margin: 8px 0;
+  margin: 0;
+}
+.nt-canvas:not(.nt-canvas-shot) {
+  flex: none;
+}
+.nt-canvas[data-ground] {
   border-radius: var(--radius-lg);
-  /* A shade above `--sunken`: that tone is tuned for a small well, and over a
-     field this large it reads as grey paper rather than as an empty surface. */
-  background: var(--nt-canvas-ground);
-}
-.nt-editor .ProseMirror-selectednode .nt-canvas,
-.nt-canvas[data-live] {
-  box-shadow: inset 0 0 0 1px var(--border-strong);
-}
-.nt-canvas {
-  transition: box-shadow var(--dur-slow) var(--ease);
 }
 
-/* The ground's dots, while the diagram is the one being edited: a surface you
-   are working on rather than a picture on the page. Spacing and offset are
-   written by `useViewport` so the dots travel with a pan and a zoom; the ink
-   is the graphite at a whisper, never the accent. */
+/* A wide band is centred on its block, reaching past the column on both
+   sides; the scene's origin stays on the text's edge through the viewport. */
+.nt-canvas-block:has(> .nt-canvas[data-wide]) {
+  display: flex;
+  justify-content: center;
+}
+
+/* The band's edge, while it is pointed at, holds a selection, or is the
+   selected block — a hairline, never the accent. On the viewport, so a
+   diagram's own ground lies under it and its shapes over it. */
+.nt-canvas:not(.nt-canvas-shot) > .nt-canvas-viewport {
+  transition: box-shadow var(--dur-slow) var(--ease);
+}
+.nt-editor .ProseMirror-selectednode .nt-canvas:not(.nt-canvas-shot) > .nt-canvas-viewport,
+.nt-canvas:not(.nt-canvas-shot):hover > .nt-canvas-viewport,
+.nt-canvas:not(.nt-canvas-shot)[data-holding] > .nt-canvas-viewport {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+/* The dots, while the diagram holds a selection: a surface you are working on
+   rather than a picture on the page. Spacing and offset are written by
+   `useViewport`, so scene (0, 0) sits on a dot at the text's edge; the ink is
+   the graphite at a whisper, never the accent. */
 .nt-canvas-grid {
   position: absolute;
   inset: 0;
@@ -53,7 +62,7 @@
   pointer-events: none;
   transition: opacity var(--dur-slow) var(--ease);
 }
-.nt-canvas[data-live] .nt-canvas-grid {
+.nt-canvas[data-holding] .nt-canvas-grid {
   opacity: 1;
 }
 /* Turned off in the toolbar's settings (engine/dotGrid.ts). */
@@ -61,7 +70,7 @@
   display: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .nt-canvas,
+  .nt-canvas-viewport,
   .nt-canvas-grid {
     transition: none;
   }
@@ -95,6 +104,21 @@
       1 1,
     crosshair;
 }
+/* A band draws past its own edges: a shape on the column's edge keeps its
+   handles, its rotation zones and its readout, and a connector may loop below
+   the lowest shape. A frame — and every other host of a viewport — clips.
+
+   And the page scrolls by touch over a band: the drag is the diagram's only
+   once it lands on a shape or a handle, or a tool is armed. */
+.nt-canvas:not(.nt-canvas-shot) > .nt-canvas-viewport {
+  overflow: visible;
+  touch-action: pan-y;
+}
+.nt-canvas:not(.nt-canvas-shot) > .nt-canvas-viewport:is([data-mode], :not([data-tool="move"], [data-tool="scale"])),
+.nt-canvas-scene [data-id],
+.nt-ov {
+  touch-action: none;
+}
 .nt-canvas-viewport[data-tool="hand"] {
   cursor: grab;
 }
@@ -110,56 +134,10 @@
 .nt-canvas-viewport[data-tool="diamond"] {
   cursor: crosshair;
 }
-/* Set imperatively for the duration of a hand-tool pan, so it costs no render.
-   `useViewport` owns the same property for space-pan and leaves it empty. */
+/* Set imperatively for the duration of a hand-tool pan, so it costs no render. */
 .nt-canvas-viewport.is-grabbing {
   cursor: grabbing;
 }
-/* The zoom tool (STAGE): native cursors, so it reads correctly at any DPR with
-   no asset of its own. Alt held toggles in on `data-zoom-out`, set imperatively
-   for the life of the tool — see `CanvasSurface`'s own effect. */
-.nt-canvas-viewport[data-tool="zoom"] {
-  cursor: zoom-in;
-}
-.nt-canvas-viewport[data-tool="zoom"][data-zoom-out] {
-  cursor: zoom-out;
-}
-
-/* ===== Screen modes (STAGE) ===============================================
-   The expanded stage: `.nt-canvas-viewport` — never the `.nt-canvas` wrapper,
-   which stays in flow as the block's own room in the document — becomes
-   fixed, filling the document column between the rails: while staged it
-   follows the column's edges (`app/lib/columnEdges.ts`) as `--nt-stage-l/r`.
-   Minimal UI widens the same box to the full window because the rails are
-   gone and the edges are 0. Neither introduces a new accent: `--nt-select`
-   stays the canvas's only one. */
-.nt-canvas[data-stage] > .nt-canvas-viewport {
-  position: fixed;
-  inset: 0 var(--nt-stage-r, 0px) 0 var(--nt-stage-l, 0px);
-  z-index: var(--z-overlay);
-  border-radius: 0;
-  /* The diagram's own inline background (`surface`/`toCss`) still wins —
-     this only shows through where the scene has none. */
-  background: var(--nt-canvas-ground);
-}
-/* Inside the shell the stage is the sheet it grew out of, not a flat box laid
-   over it: the sheet's margin from the window's top and bottom, its corner and
-   its edge. With the interface hidden there is no sheet, and the stage is the
-   whole window as before. */
-.nt-shell:not([data-bare]) .nt-canvas[data-stage] > .nt-canvas-viewport {
-  inset-block: var(--inset);
-  border-radius: 14px;
-  box-shadow:
-    0 0 0 1px oklch(0.25 0.005 90 / 0.07),
-    0 12px 32px -16px oklch(0.25 0.005 90 / 0.12);
-}
-.nt-canvas[data-stage] > .nt-canvas-grip {
-  display: none;
-}
-.nt-canvas[data-stage] .nt-canvas-hint {
-  display: none;
-}
-
 /* ===== Colour pick (COLOR) ================================================
    The eyedropper's own cursor and hover pill. Neutral chrome throughout —
    `--nt-select` stays the canvas's one sanctioned accent and is never used
@@ -240,7 +218,7 @@
     opacity var(--dur) var(--ease),
     transform var(--dur-slow) var(--spring);
 }
-.nt-canvas:hover > .nt-canvas-hint.is-low {
+.nt-canvas-block:hover > .nt-canvas-hint.is-low {
   opacity: 1;
   transform: translate(-50%, 0);
 }
@@ -248,92 +226,6 @@
   .nt-canvas-hint.is-low {
     transition: opacity var(--dur-fast) var(--ease);
   }
-}
-
-/* The way back, bottom-right, only while the diagram is off screen. Clear of
-   the grip, so the edge stays draggable. */
-.nt-canvas-refit {
-  position: absolute;
-  right: 14px;
-  bottom: 14px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding-inline: 10px;
-  border-radius: 8px;
-  background: var(--elevated);
-  font-size: var(--text-meta-lg);
-  color: var(--muted);
-  box-shadow:
-    0 0 0 1px oklch(0.25 0.005 90 / 0.07),
-    0 1px 2px oklch(0.25 0.005 90 / 0.06),
-    0 6px 16px -6px oklch(0.25 0.005 90 / 0.14);
-  animation: nt-menu-in var(--dur-slow) var(--spring);
-  transition:
-    background var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease);
-}
-.nt-canvas-refit:hover {
-  background: var(--surface);
-  color: var(--foreground);
-}
-
-/* Expand/collapse to the stage — the storyboard's own per-shot chrome
-   (`.nt-sb-chrome`), reused here: top right, hidden until the pointer is
-   over the canvas, a small pill so it never competes with the drawing. */
-.nt-canvas-expand {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 1;
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  /* The toolbar's corner: it is the same family of control, one edge up. */
-  border-radius: 8px;
-  background: var(--elevated);
-  color: var(--muted);
-  opacity: 0;
-  transform: scale(0.85);
-  box-shadow:
-    0 0 0 1px oklch(0.25 0.005 90 / 0.07),
-    0 1px 2px oklch(0.25 0.005 90 / 0.06),
-    0 6px 16px -6px oklch(0.25 0.005 90 / 0.14);
-  transition:
-    opacity var(--dur-fast) var(--ease),
-    transform var(--dur-slow) var(--spring),
-    background var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease);
-}
-.nt-canvas-viewport:hover .nt-canvas-expand,
-.nt-canvas-expand:focus-visible,
-.nt-canvas-expand[aria-pressed="true"] {
-  opacity: 1;
-  transform: none;
-}
-.nt-canvas-expand:hover {
-  background: var(--surface);
-  color: var(--foreground);
-}
-.nt-canvas-expand:active {
-  transform: scale(0.92);
-}
-@media (prefers-reduced-motion: reduce) {
-  .nt-canvas-expand {
-    transform: none;
-    transition:
-      opacity var(--dur-fast) var(--ease),
-      background var(--dur-fast) var(--ease),
-      color var(--dur-fast) var(--ease);
-  }
-}
-/* Staged, the button rides the fixed viewport at its own new edge rather
-   than the block's — same reason `.nt-canvas-refit` and the grips do. */
-.nt-canvas[data-stage] .nt-canvas-expand {
-  top: 14px;
-  right: 14px;
 }
 
 /* Bottom edge: drag to set an explicit height, double-click to fit again. */
@@ -344,6 +236,7 @@
   left: 0;
   height: 10px;
   cursor: ns-resize;
+  touch-action: none;
 }
 .nt-canvas-grip::after {
   content: "";
@@ -358,7 +251,8 @@
   opacity: 0;
   transition: opacity var(--dur) var(--ease);
 }
-.nt-canvas:hover .nt-canvas-grip::after {
+.nt-canvas:hover .nt-canvas-grip::after,
+.nt-canvas[data-holding] .nt-canvas-grip::after {
   opacity: 0.7;
 }
 

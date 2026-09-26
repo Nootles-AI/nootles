@@ -26,9 +26,11 @@
  * A token is usually one part; {@link WorkspaceHistory.batch} makes one of
  * several, so a click that clears one diagram and selects in another, or a
  * delete across three diagrams, is one step. Undo takes its parts back
- * newest-first and redo replays them oldest-first, and before any part of a
- * step of several moves, every domain in it that can say so up front is asked
- * whether it is blocked. The ledger stays per domain: losing or consuming
+ * newest-first and redo replays them oldest-first. Before any part moves,
+ * every domain in the step settles what it holds open on a timer — an entry
+ * that settling records is newer than the step, so the press takes it
+ * instead — and then every domain that can say so up front is asked whether
+ * it is blocked. The ledger stays per domain: losing or consuming
  * entries strips that domain's parts from the tokens it shares, and a token
  * dies only when its last part goes.
  *
@@ -69,9 +71,16 @@ export interface UndoDomain {
   /** Redo this domain's most recently undone entry. */
   redo(): DomainStep | Promise<DomainStep>;
   /**
-   * Whether a step would refuse right now. A step of several parts asks each
-   * of its domains before any moves; one without this can only refuse by
-   * trying, which may stop such a step part-way.
+   * Close now whatever is held open only by an idle timer (a panel's typing
+   * run, a nudge run), recording it as its timer would have. Asked of every
+   * domain in a step before the step is weighed, so a held run is never
+   * mistaken for a live gesture, and one that recorded is stepped first.
+   */
+  settle?(): void;
+  /**
+   * Whether a step would refuse right now, asked of each of a step's domains
+   * once they have settled and before any moves. One without this can only
+   * refuse by trying, which may stop a step of several part-way.
    */
   blocked?(): boolean;
   /**
@@ -285,8 +294,8 @@ export class WorkspaceHistory {
   private async walk(direction: "undo" | "redo"): Promise<void> {
     if (this.stepping) return;
     this.stepping = true;
-    // Read at every use, never held: a step that settles an idle-held bracket
-    // first records an edit, and that replaces the redo side mid-walk.
+    // Read at every use, never held: settling an idle-held bracket records an
+    // edit, and that replaces the redo side mid-walk.
     const from = () => (direction === "undo" ? this.past : this.future);
     const to = () => (direction === "undo" ? this.future : this.past);
     try {
@@ -298,13 +307,11 @@ export class WorkspaceHistory {
         if (!token) return;
 
         const domains = await this.gather(token);
-        // A lone part just tries: its step may settle an idle-held bracket
-        // first (SceneStore's onBeforeStep), which asking up front would
-        // refuse. Settled amid several parts, that run would land inside
-        // this step, so a step of several asks.
-        if (token.parts.length > 1 && [...domains.values()].some((domain) => domain.blocked?.())) {
-          return;
-        }
+        for (const domain of domains.values()) domain.settle?.();
+        // A run that settling recorded is newer than this step, so the press
+        // is its to take — and on the redo side, that edit ended the redo.
+        if (from().at(-1) !== token) continue;
+        if ([...domains.values()].some((domain) => domain.blocked?.())) return;
 
         const stepped: Part[] = [];
         let refused = false;

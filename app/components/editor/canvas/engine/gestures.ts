@@ -25,6 +25,16 @@
  * frame computes each node's box in both scene and parent space (see
  * {@link Frame}); the conversion is a rotation by the node's *ancestors'*
  * rotation, which is fixed for the duration of the gesture and captured once.
+ * Client → scene is asked afresh every frame: the page can scroll the band
+ * under a held pointer, and the band is wherever it is now.
+ *
+ * ## A band holds what is in it
+ *
+ * A diagram on the page is its band's width and grows downward, so a gesture
+ * keeps the selection inside the band's x-range and below its top — or, for
+ * content that already reached past them, no further out than it began. A
+ * move is clamped exactly, a scale's factor is capped, and a resize that would
+ * leave is clamped where the maths is linear and refused where it is not.
  *
  * ## Modifiers, as Figma has trained everyone to expect
  *
@@ -51,6 +61,7 @@ import {
   angleOf,
   HANDLE_EDGES,
   HANDLES,
+  nodeBounds,
   normalizeAngle,
   resizeRect,
   rotateAround,
@@ -58,7 +69,6 @@ import {
   snapAngle,
   toLocal,
   unionBounds,
-  viewportToScene,
   type Handle,
   type RotatedRect,
 } from "../scene/geometry";
@@ -77,7 +87,6 @@ import {
   type Scene,
   type SceneNode,
   type SceneOp,
-  type Viewport,
 } from "../scene/types";
 import {
   boxTargets,
@@ -144,14 +153,22 @@ const READOUT: Record<GestureMode, ReadoutMode | null> = {
   reorder: null,
 };
 
+/** A band's x-range in scene px; its top is always 0. */
+export interface BandRange {
+  minX: number;
+  maxX: number;
+}
+
 export interface TransformGestureOptions {
   store: TransformStore;
-  /** Live viewport. Read every frame, so zooming mid-drag stays correct. */
-  getViewport(): Viewport;
+  /** Event coordinates → scene px. Asked every frame. */
+  clientToScene(point: Point): Point;
+  /** Screen px per scene px, so snapping reads the same on screen at any scale. */
+  screenScale(): number;
+  /** The band the selection is held in, or `null` for a frame, which has none. */
+  band?(): BandRange | null;
   /** Selection ids. Ids nested inside another selected node are ignored. */
   getSelection(): readonly NodeId[];
-  /** The element the viewport transform is applied to — the coordinate origin. */
-  getContainer(): HTMLElement | null;
   /** A node's rendered element. The surface finds and caches it; we only read. */
   getElement(id: NodeId): HTMLElement | null;
   overlay?: { current: OverlayHandle | null };
@@ -160,13 +177,20 @@ export interface TransformGestureOptions {
   /** Raised when a gesture starts moving and when it ends. */
   onActiveChange?(active: boolean): void;
   /**
-   * After each frame's DOM writes, with every moving node's box this frame.
-   * For anything drawn *from* the shapes rather than by them — the connectors,
-   * whose route is a function of two boxes that this gesture is in the middle
-   * of moving, and a boolean group, whose one drawing is cut from operands
-   * that have no element of their own to read.
+   * After each frame's DOM writes, with every moving node's box this frame and
+   * the lowest scene y any of them reaches, rotation included (`-Infinity`
+   * when the frame placed none — a reorder). For anything drawn *from* the
+   * shapes rather than by them — the connectors, whose route is a function of
+   * two boxes that this gesture is in the middle of moving, a boolean group,
+   * whose one drawing is cut from operands that have no element of their own
+   * to read — and for the band, which grows to hold them.
    */
-  onFrame?(frames: readonly LiveFrame[]): void;
+  onFrame?(frames: readonly LiveFrame[], bottom: number): void;
+  /**
+   * Inside the bracket the gesture lands in, after its ops: anything the
+   * landing implies, in the same undo entry.
+   */
+  onLand?(): void;
   /** Grid pitch in scene px. `0`/omitted disables grid snapping. */
   grid?: number;
   /** Snap distance in SCREEN px, so it is constant at every zoom. */
@@ -271,6 +295,30 @@ interface Mods {
   free: boolean;
 }
 
+/**
+ * The edges a selection is held inside: the band's, or — for content that
+ * already reached past one — wherever it began, so nothing is yanked back into
+ * the band on the first frame and nothing goes further out. Downward is open:
+ * the band grows.
+ */
+interface Fence {
+  left: number;
+  right: number;
+  top: number;
+}
+
+function fenceFor(band: BandRange | null, box: Rect): Fence | null {
+  if (!band) return null;
+  return {
+    left: Math.min(band.minX, box.x),
+    right: Math.max(band.maxX, box.x + box.w),
+    top: Math.min(0, box.y),
+  };
+}
+
+/** Below this, two coordinates are the same place. */
+const FENCE_EPS = 1e-6;
+
 /** A node as it was when the gesture began, plus the styles to restore. */
 interface NodeStart {
   id: NodeId;
@@ -343,13 +391,17 @@ interface Session {
   origin: Point;
   startClient: Point;
   client: Point;
-  containerLeft: number;
-  containerTop: number;
   mods: Mods;
   starts: NodeStart[];
   frames: Frame[];
   scratch: RotatedRect[];
   bounds: Rect;
+  /** How far the selection may go this gesture, or `null` outside a band. */
+  fence: Fence | null;
+  /** The selection's box at the start, rotation included — what the fence holds. */
+  reach: Rect;
+  /** Resize only: the last drag that stayed inside the fence. */
+  accepted: Point;
   centre: Point;
   startAngle: number;
   /** Accumulated rotation, unwrapped so a full turn keeps counting. */
@@ -637,15 +689,10 @@ function startRadiusDrag(
   corner: Handle,
 ) {
   const index = RADIUS_CORNERS.indexOf(corner);
-  const container = o.getContainer();
   const target = soleTarget(o);
-  if (index < 0 || !container || !target) return;
+  if (index < 0 || !target) return;
   const { scene, node, el } = target;
 
-  const viewport = o.getViewport();
-  const cbox = container.getBoundingClientRect();
-  const toScene = (point: Point) =>
-    viewportToScene({ x: point.x - cbox.left, y: point.y - cbox.top }, viewport);
   const box: RotatedRect = {
     ...absoluteRect(scene, node.id),
     rot: absoluteRotation(scene, node.id),
@@ -665,7 +712,7 @@ function startRadiusDrag(
 
   const paint = () => {
     raf = 0;
-    const local = toLocal(toScene(client), box);
+    const local = toLocal(o.clientToScene(client), box);
     const dx = index === 1 || index === 2 ? box.w - local.x : local.x;
     const dy = index >= 2 ? box.h - local.y : local.y;
     const next = Math.round(Math.min(Math.max((dx + dy) / 2, 0), limit));
@@ -754,8 +801,6 @@ function createSession(
   mode: GestureMode,
   handle: Handle | null,
 ): Session | null {
-  const container = o.getContainer();
-  if (!container) return null;
   // Laid out, so a child of an auto-layout group starts the gesture from where
   // it is on screen rather than from an `x`/`y` nothing has honoured since it
   // was put in the group.
@@ -763,13 +808,7 @@ function createSession(
   const ids = topMostIds(scene, o.getSelection());
   if (!ids.length) return null;
 
-  // One layout read for the whole gesture; never inside a move handler.
-  const box = container.getBoundingClientRect();
-  const viewport = o.getViewport();
-  const origin = viewportToScene(
-    { x: event.clientX - box.left, y: event.clientY - box.top },
-    viewport,
-  );
+  const origin = o.clientToScene({ x: event.clientX, y: event.clientY });
 
   const starts: NodeStart[] = [];
   const nodes: SceneNode[] = [];
@@ -799,6 +838,7 @@ function createSession(
 
   const scratch: RotatedRect[] = starts.map((s) => ({ ...s.scene, rot: s.sceneRot }));
   const bounds = selectionBounds(scratch);
+  const reach = unionBounds(scratch);
   const targets = boxTargets(bounds);
 
   const session: Session = {
@@ -809,8 +849,6 @@ function createSession(
     origin,
     startClient: { x: event.clientX, y: event.clientY },
     client: { x: event.clientX, y: event.clientY },
-    containerLeft: box.left,
-    containerTop: box.top,
     mods: {
       shift: event.shiftKey,
       alt: event.altKey,
@@ -832,6 +870,9 @@ function createSession(
     })),
     scratch,
     bounds,
+    fence: fenceFor(o.band?.() ?? null, reach),
+    reach,
+    accepted: { x: 0, y: 0 },
     centre: { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 },
     startAngle: angleOf(
       { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 },
@@ -962,28 +1003,22 @@ function runFrame(session: Session, o: TransformGestureOptions) {
     o.onActiveChange?.(true);
   }
 
-  const viewport = o.getViewport();
-  const point = viewportToScene(
-    {
-      x: session.client.x - session.containerLeft,
-      y: session.client.y - session.containerTop,
-    },
-    viewport,
-  );
+  const point = o.clientToScene(session.client);
 
   if (session.mode === "reorder") {
     applyReorder(session, point);
     writeOverlay(session, o, NO_GUIDES);
-    o.onFrame?.(NO_FRAMES);
+    o.onFrame?.(NO_FRAMES, -Infinity);
     return;
   }
 
   const min = o.minSize ?? 1;
+  const scale = o.screenScale();
   const guides =
     session.mode === "move"
-      ? applyMove(session, point, viewport.zoom)
+      ? applyMove(session, point, scale)
       : session.mode === "resize"
-        ? applyResize(session, point, viewport.zoom, min)
+        ? applyResize(session, point, scale, min)
         : session.mode === "scale"
           ? applyScale(session, point, min)
           : applyRotate(session, point);
@@ -998,15 +1033,47 @@ function runFrame(session: Session, o: TransformGestureOptions) {
   writeOverlay(session, o, guides);
   // After the writes: whatever reads the shapes' live boxes must read them as
   // they are this frame, not as they were last one.
-  o.onFrame?.(session.frames);
+  o.onFrame?.(session.frames, lowest(session.frames));
 }
 
 const NO_FRAMES: readonly LiveFrame[] = [];
 
+/** A frame's scene box as drawn, turned by its rotation. */
+function drawnBounds(f: Frame): Rect {
+  return nodeBounds({ x: f.sx, y: f.sy, w: f.sw, h: f.sh, rot: f.srot });
+}
+
+/** The lowest scene y the frames reach, each turned by its rotation. */
+function lowest(frames: readonly Frame[]): number {
+  let bottom = -Infinity;
+  for (const f of frames) {
+    const b = drawnBounds(f);
+    bottom = Math.max(bottom, b.y + b.h);
+  }
+  return bottom;
+}
+
+/** Whether this frame's boxes have gone past the fence. */
+function escapes(session: Session): boolean {
+  const fence = session.fence;
+  if (!fence) return false;
+  for (const f of session.frames) {
+    const b = drawnBounds(f);
+    if (
+      b.x < fence.left - FENCE_EPS ||
+      b.x + b.w > fence.right + FENCE_EPS ||
+      b.y < fence.top - FENCE_EPS
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function applyMove(
   session: Session,
   point: Point,
-  zoom: number,
+  scale: number,
 ): readonly SnapGuide[] {
   let dx = point.x - session.origin.x;
   let dy = point.y - session.origin.y;
@@ -1026,7 +1093,7 @@ function applyMove(
   const snapped = session.snapper.snap(
     targets,
     { x: dx, y: dy },
-    zoom,
+    scale,
     !session.mods.free,
     // The one gesture that carries a rigid box, so the one that can be offered
     // an equal gap on either side of it.
@@ -1034,6 +1101,13 @@ function applyMove(
   );
   dx = snapped.dx;
   dy = snapped.dy;
+
+  const fence = session.fence;
+  if (fence) {
+    const b = session.reach;
+    dx = Math.min(fence.right - (b.x + b.w), Math.max(fence.left - b.x, dx));
+    dy = Math.max(fence.top - b.y, dy);
+  }
 
   for (let i = 0; i < session.starts.length; i++) {
     const start = session.starts[i];
@@ -1050,7 +1124,7 @@ function applyMove(
 function applyResize(
   session: Session,
   point: Point,
-  zoom: number,
+  scale: number,
   minSize: number,
 ): readonly SnapGuide[] {
   const handle = session.handle;
@@ -1070,7 +1144,7 @@ function applyResize(
     const snapped = session.snapper.snap(
       resizeTargets(session.bounds, handle, fromCentre),
       delta,
-      zoom,
+      scale,
       true,
       // An edge handle drives one axis. Saying so keeps its guide as long as
       // what actually moved, rather than as long as the pointer wandered.
@@ -1082,7 +1156,57 @@ function applyResize(
     session.snapper.reset();
   }
 
-  if (single) {
+  if (session.fence) delta = fenceResize(session, handle, delta, aspect, fromCentre);
+  placeResize(session, handle, delta, aspect, fromCentre, minSize);
+  if (escapes(session)) {
+    placeResize(session, handle, session.accepted, aspect, fromCentre, minSize);
+    return NO_GUIDES;
+  }
+  session.accepted = delta;
+  return guides;
+}
+
+/**
+ * The drag with the edges it moves stopped at the fence. Exact wherever an
+ * edge follows the pointer one for one — an unrotated box, no aspect lock
+ * tying one axis to the other; anything else is left to the refusal in
+ * {@link applyResize}. The bottom is never stopped: the band grows.
+ */
+function fenceResize(
+  session: Session,
+  handle: Handle,
+  delta: Point,
+  aspect: boolean,
+  fromCentre: boolean,
+): Point {
+  const fence = session.fence;
+  const single = session.starts.length === 1;
+  if (!fence || aspect || (single && session.starts[0].sceneRot !== 0)) return delta;
+  const b = single ? session.starts[0].scene : session.bounds;
+  const { hx, hy } = HANDLE_EDGES[handle];
+  let { x, y } = delta;
+  if (hx < 0) {
+    x = Math.max(x, fence.left - b.x);
+    if (fromCentre) x = Math.max(x, b.x + b.w - fence.right);
+  } else if (hx > 0) {
+    x = Math.min(x, fence.right - (b.x + b.w));
+    if (fromCentre) x = Math.min(x, b.x - fence.left);
+  }
+  if (hy < 0) y = Math.max(y, fence.top - b.y);
+  else if (hy > 0 && fromCentre) y = Math.min(y, b.y - fence.top);
+  return { x, y };
+}
+
+/** Every frame of a resize, from the drag in scene px. */
+function placeResize(
+  session: Session,
+  handle: Handle,
+  delta: Point,
+  aspect: boolean,
+  fromCentre: boolean,
+  minSize: number,
+): void {
+  if (session.starts.length === 1) {
     const start = session.starts[0];
     const box = resizeRect(
       start.local,
@@ -1093,7 +1217,7 @@ function applyResize(
     box.w = Math.max(minSize, box.w);
     box.h = Math.max(minSize, box.h);
     setFromLocal(session.frames[0], start, box, start.rot);
-    return guides;
+    return;
   }
 
   const next = resizeRect(session.bounds, handle, delta, {
@@ -1116,7 +1240,6 @@ function applyResize(
       start.sceneRot,
     );
   }
-  return guides;
 }
 
 /**
@@ -1155,7 +1278,8 @@ function applyScale(
   // Never through the anchor and out the other side: a mirrored scale would
   // need a negative stroke width to mean anything.
   const floor = minSize / Math.max(b.w, b.h, minSize);
-  const k = span === 0 ? 1 : Math.max(floor, 1 + (dx * arm.x + dy * arm.y) / span);
+  let k = span === 0 ? 1 : Math.max(floor, 1 + (dx * arm.x + dy * arm.y) / span);
+  if (session.fence) k = Math.min(k, scaleCap(session.reach, anchor, session.fence));
   session.k = k;
   session.anchor = anchor;
 
@@ -1173,6 +1297,21 @@ function applyScale(
     );
   }
   return NO_GUIDES;
+}
+
+/**
+ * The largest factor about `anchor` that keeps `box` inside the fence. A
+ * uniform scale takes a rotated box's bounds with it, so the selection's own
+ * bounds are all there is to check; at 1 it is inside by construction.
+ */
+function scaleCap(box: Rect, anchor: Point, fence: Fence): number {
+  let cap = Infinity;
+  if (box.x < anchor.x) cap = Math.min(cap, (anchor.x - fence.left) / (anchor.x - box.x));
+  if (box.x + box.w > anchor.x) {
+    cap = Math.min(cap, (fence.right - anchor.x) / (box.x + box.w - anchor.x));
+  }
+  if (box.y < anchor.y) cap = Math.min(cap, (anchor.y - fence.top) / (anchor.y - box.y));
+  return cap;
 }
 
 /**
@@ -1587,6 +1726,7 @@ function finish(
   if (ops.length) {
     o.store.begin();
     o.store.dispatch(ops);
+    o.onLand?.();
     o.store.commit();
     if (select?.length) o.onSelect?.(select);
   }

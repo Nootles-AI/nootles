@@ -10,7 +10,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type ComponentProps,
   type CSSProperties,
 } from "react";
@@ -95,9 +94,6 @@ function writeRailWidth(slot: HTMLElement | null, px: number) {
   if (!slot) return;
   for (const el of [slot, ...slot.children] as HTMLElement[]) el.style.setProperty(RAIL_W, `${px}px`);
 }
-/** A canvas with no `screen` (none claimed) never changes, so this subscribe
- *  is a stable identity `useSyncExternalStore` can hold onto across renders. */
-const NEVER_CHANGES = () => () => {};
 /* What a rail holds fills its face; the face carries the width. */
 const FILL = "100%";
 const DRAWER_W = "288px";
@@ -112,10 +108,10 @@ const TOOLS_MS = 170;
    is portalled to the body but belongs to a label edit inside the canvas; the
    storyboard's fullscreen shot is a whole canvas view portalled the same way.
 
-   So is every menu (`.nt-menu`): the inspector's selects, the toolbar's zoom
-   and settings, the canvas's own context menu are all portalled to the body.
+   So is every menu (`.nt-menu`): the inspector's selects, the toolbar's
+   settings, the canvas's own context menu are all portalled to the body.
    Leaving them out made choosing from one a press "outside" — it let the
-   diagram go and the stage fall shut mid-choice. Counting any open menu is
+   diagram go mid-choice. Counting any open menu is
    safe: a menu is only open because its trigger was pressed, and a trigger
    outside the canvas has already let the diagram go before its menu exists.
 
@@ -131,23 +127,6 @@ const CANVAS_SHELL =
    menu one of them opened — is still about that card, and anywhere else is
    done with it. */
 const LOCATION_SHELL = ".nt-loc, .nt-style-panel, .nt-menu";
-
-/* Room left above a diagram too tall to centre. */
-const REVEAL_TOP = 24;
-/* Under this, the scroll is not worth the motion. */
-const REVEAL_SLOP = 8;
-
-/* The nearest ancestor that actually scrolls. The page column is the usual
-   answer, but the editor nests a scroller of its own, so the question is asked
-   of the tree rather than assumed. */
-function scrollParent(el: HTMLElement): HTMLElement | null {
-  for (let p = el.parentElement; p; p = p.parentElement) {
-    const overflow = getComputedStyle(p).overflowY;
-    const scrolls = overflow === "auto" || overflow === "scroll";
-    if (scrolls && p.scrollHeight > p.clientHeight) return p;
-  }
-  return null;
-}
 
 /**
  * Where the shell has the pointer's attention — a claimed diagram, a chosen
@@ -336,20 +315,6 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   // diagram: editing one is a whole mode, choosing what a card shows is not.
   const placePanel = compact || canvas ? null : place;
 
-  // Minimal UI (STAGE): both rails and the toolbar/review slot unmount while
-  // a claimed canvas has asked for it — a pure view-state read, no scene
-  // store involved. `chrome` is false only for a minimal, claimed canvas;
-  // every other combination (no canvas, or a canvas not in minimal) keeps
-  // its chrome exactly as before.
-  const screen = canvas?.api.screen;
-  const minimal = useSyncExternalStore(
-    screen?.subscribe ?? NEVER_CHANGES,
-    () => screen?.get().minimal ?? false,
-    () => false,
-  );
-  const chrome = !(canvas && minimal);
-
-
   // Restore persisted layout on the client. Defaults render first (so SSR and
   // the first client render match — no hydration mismatch), then we sync from
   // localStorage on mount; set-state-in-effect is the correct pattern here.
@@ -402,86 +367,6 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [openDrawer]);
-
-  /* Whether a pointer is down anywhere. Read by the centring below, which must
-     not move the page while one is. */
-  const pressed = useRef(false);
-  useEffect(() => {
-    const down = () => (pressed.current = true);
-    const up = () => (pressed.current = false);
-    window.addEventListener("pointerdown", down, true);
-    window.addEventListener("pointerup", up, true);
-    window.addEventListener("pointercancel", up, true);
-    return () => {
-      window.removeEventListener("pointerdown", down, true);
-      window.removeEventListener("pointerup", up, true);
-      window.removeEventListener("pointercancel", up, true);
-    };
-  }, []);
-
-  /**
-   * Entering a diagram brings it to the middle of the column.
-   *
-   * A canvas is usually half past the fold when you click into it, and
-   * everything around it reorients at that moment — both rails turn over to it
-   * and the toolbar comes to its edge. The diagram should be the thing you are
-   * looking at when they do.
-   *
-   * Keyed on the block, not on `canvas`: that object is rebuilt whenever the
-   * api changes, which includes picking a different tool, and re-centring the
-   * page under someone who just pressed R would be its own kind of rude.
-   */
-  const activeCanvasId = canvas?.blockId ?? null;
-  const activeCanvas = canvas?.api.viewport.containerRef;
-  useEffect(() => {
-    const el = activeCanvas?.current;
-    if (!activeCanvasId || !el) return;
-
-    const centre = () => {
-      const scroller = scrollParent(el);
-      if (!scroller) return;
-      const box = el.getBoundingClientRect();
-      const view = scroller.getBoundingClientRect();
-      // Centre what fits, and show the top of what does not: a diagram cropped
-      // at both ends is worse than one that starts where you can see it.
-      const offset = Math.max(REVEAL_TOP, (view.height - box.height) / 2);
-      const top = scroller.scrollTop + (box.top - view.top) - offset;
-      if (Math.abs(top - scroller.scrollTop) < REVEAL_SLOP) return;
-      scroller.scrollTo({
-        top,
-        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-          ? "auto"
-          : "smooth",
-      });
-    };
-
-    // A block claims the shell on pointer-DOWN, so the press that opened this
-    // canvas may still be the start of a drag on it — and the canvas measures
-    // some drags in scene coordinates, which move when the page does. Scrolling
-    // under a live drag would pull the shape out from under the cursor, so the
-    // centring waits for the release. Activation from focus or the keyboard has
-    // no press to wait for and lands at once.
-    if (!pressed.current) {
-      centre();
-      return;
-    }
-    // The first release only, whichever kind it is — this canvas stays active
-    // long after it, and every later click in the panels is a release too.
-    let done = false;
-    const onRelease = () => {
-      if (done) return;
-      done = true;
-      stop();
-      centre();
-    };
-    const stop = () => {
-      window.removeEventListener("pointerup", onRelease, true);
-      window.removeEventListener("pointercancel", onRelease, true);
-    };
-    window.addEventListener("pointerup", onRelease, true);
-    window.addEventListener("pointercancel", onRelease, true);
-    return stop;
-  }, [activeCanvasId, activeCanvas]);
 
   /* The live value goes to the DOM; only the release goes to React, which is
      what keeps a drag off the document and the transcript. */
@@ -611,7 +496,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   // the review it shares the corner with waits until it has.
   const [lastTools, setLastTools] = useState(canvas);
   if (canvas && canvas !== lastTools) setLastTools(canvas);
-  const toolsOn = chrome && !!canvas;
+  const toolsOn = !!canvas;
   const toolsHeld = useLinger(toolsOn, TOOLS_MS) && !!lastTools;
 
   // With no diagram in hand the bar stays, holding the page's own tools: a
@@ -619,7 +504,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   // armed while nothing is being edited, so a claim disarms it by itself.
   const registry = useEditorRegistry();
   const [heldPageTool, setPageTool] = useState<PageTool>("move");
-  const pageBarOn = chrome && !viewer && !compact && !toolsOn;
+  const pageBarOn = !viewer && !compact && !toolsOn;
   // Where the page bar is there to turn into, the diagram's bar morphs into it
   // on the way out rather than first sinking away.
   const canvasBarOn = toolsOn || (toolsHeld && !pageBarOn);
@@ -672,29 +557,16 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     return () => document.removeEventListener("keydown", onKey, true);
   }, [pageBarOn, heldPageTool]);
 
-  // The diagram being edited says so on its own element: its ground shows the
-  // dots and its edge (`.nt-canvas[data-live]`). Written from here because the
-  // shell is what knows which one it is, and as an attribute rather than state
-  // so no canvas re-renders for it.
-  useEffect(() => {
-    const el = canvas?.api.viewport.containerRef.current?.closest<HTMLElement>(".nt-canvas");
-    if (!el) return;
-    el.dataset.live = "";
-    return () => {
-      delete el.dataset.live;
-    };
-  }, [canvas]);
-
-  const pagesOn = chrome && showLeft && !canvasPanels;
-  const layersOn = chrome && !!canvasPanels;
+  const pagesOn = showLeft && !canvasPanels;
+  const layersOn = !!canvasPanels;
   const leftRail = pagesOn || layersOn;
   const pagesHeld = useLinger(pagesOn, RAIL_MS);
   const layersHeld = useLinger(layersOn, RAIL_MS) && !!lastCanvas;
 
   const rightClaimed = !!canvasPanels || !!placePanel;
-  const chatOn = chrome && !viewer && showRight && !rightClaimed;
-  const designOn = chrome && !!canvasPanels;
-  const placeOn = chrome && !!placePanel;
+  const chatOn = !viewer && showRight && !rightClaimed;
+  const designOn = !!canvasPanels;
+  const placeOn = !!placePanel;
   const rightRail = chatOn || designOn || placeOn;
   const chatHeld = useLinger(chatOn, RAIL_MS) && !compact;
   const designHeld = useLinger(designOn, RAIL_MS) && !!lastCanvas;
@@ -750,7 +622,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
      <PagesProvider pages={pageRefs}>
      <CompletionContextProvider projectId={projectId}>
      <PanelsProvider value={panels}>
-      <div className="nt-shell flex h-screen w-full overflow-hidden" data-bare={!chrome || undefined}>
+      <div className="nt-shell flex h-screen w-full overflow-hidden">
         {/* The left rail's place. It closes over what it holds when the rail is
             put away, and turns its face over when a diagram takes it. */}
         {!compact && (
@@ -801,7 +673,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
               bar's corner would be — over the focused document. */}
           {/* A rail that is put away leaves its way back in the sheet's corner,
               on the side it went to. */}
-          {chrome && !leftRail && (
+          {!leftRail && (
             <div className="nt-corner is-left">
               <button
                 onClick={() => (compact ? setDrawer("left") : setLeftOpen(true))}
@@ -824,7 +696,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
             {/* The main page's comments button lands here, so it sits by the
                 way back to the chat, or in the corner once the chat is out. */}
             <span ref={setCornerSlot} className="contents" />
-            {chrome && !viewer && !rightRail && (
+            {!viewer && !rightRail && (
               <button
                 onClick={() => (compact ? setDrawer("right") : setRightOpen(true))}
                 aria-label="Open chat"
@@ -919,13 +791,12 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
             the slot and the review comes back the moment the diagram is let go.
             The page's bar and the diagram's turn into one another. */}
         <BarMorph mode={toolsOn ? "canvas" : "page"}>
-          {!chrome ? null : canvasBarOn && lastTools ? (
+          {canvasBarOn && lastTools ? (
             <Toolbar
               key={lastTools.blockId}
               store={lastTools.api.store}
-              viewport={lastTools.api.viewport}
               tools={lastTools.api.tools}
-              screen={lastTools.api.screen}
+              refocus={lastTools.api.focus}
               board={lastTools.api.board}
               onPalette={find}
               leaving={!toolsOn}

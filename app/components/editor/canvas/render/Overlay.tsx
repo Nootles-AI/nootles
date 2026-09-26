@@ -37,7 +37,7 @@ import {
   type ReadoutMode,
 } from "../engine/gestures";
 import type { SnapGuide } from "../engine/snapping";
-import { useViewportZoom, type ViewportController } from "../engine/useViewport";
+import { useScreenScale, type ViewportController } from "../engine/useViewport";
 import {
   nodeBounds,
   normalizeAngle,
@@ -216,7 +216,7 @@ export function Overlay({
   readOnly = false,
   ref,
 }: OverlayProps) {
-  const zoom = useViewportZoom(viewport);
+  const zoom = useScreenScale(viewport);
 
   const root = useRef<SVGSVGElement>(null);
   const frame = useRef<SVGGElement>(null);

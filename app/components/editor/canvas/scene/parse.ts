@@ -536,10 +536,10 @@ export type Fragment = {
    *  (already excluded, as from `scene.attrs`) and minus {@link STUB_ATTRS}. Empty for bare
    *  shapes, where there is no wrapper (`root === doc.body`). */
   rootAttrs: Record<string, string>;
-  /** True when the wrapper stated BOTH a width and a height — `parseScene`
-   *  itself returns 0 for either one left off, so this is the only way to
-   *  tell "sized 0×0 on purpose" from "no size given at all". */
-  rootSized: boolean;
+  /** True when the wrapper stated a height — `parseScene` itself returns 0
+   *  for one left off, so this is the only way to tell "no room asked for"
+   *  from "no height given at all". A band's width is never the writer's. */
+  rootH: boolean;
 };
 
 /**
@@ -582,10 +582,7 @@ export function parseFragment(
     // elements carried, before any minting.
     authored: taken,
     rootAttrs: wrapped ? omit(attrs, STUB_ATTRS) : {},
-    rootSized:
-      wrapped &&
-      (root.hasAttribute("w") || root.hasAttribute("width")) &&
-      (root.hasAttribute("h") || root.hasAttribute("height")),
+    rootH: wrapped && (root.hasAttribute("h") || root.hasAttribute("height")),
   };
 }
 

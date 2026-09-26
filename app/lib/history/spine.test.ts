@@ -288,14 +288,23 @@ class GestureDomain extends FakeDomain {
 }
 
 /**
- * A domain holding an entry open on an idle timer — the canvas's typing run —
- * which reads as blocked up front but which its own step settles first.
+ * A domain holding a run open on an idle timer — the canvas's typing run. As
+ * with the store's open bracket, it reads as blocked until settled, and its
+ * own step settles it too.
  */
 class HeldDomain extends FakeDomain {
-  held: number | null = null;
+  /** The open run's edits, closing into one entry; `[]` has changed nothing. */
+  held: number[] | null = null;
 
   blocked(): boolean {
     return this.held !== null;
+  }
+
+  settle(): void {
+    const run = this.held;
+    if (run === null) return;
+    this.held = null;
+    if (run.length > 0) this.edit(run[run.length - 1]);
   }
 
   undo(): DomainStep {
@@ -306,13 +315,6 @@ class HeldDomain extends FakeDomain {
   redo(): DomainStep {
     this.settle();
     return super.redo();
-  }
-
-  private settle(): void {
-    if (this.held === null) return;
-    const n = this.held;
-    this.held = null;
-    this.edit(n);
   }
 }
 
@@ -406,7 +408,7 @@ describe("compound steps", () => {
   it("lets a lone part settle a held run and step it, keeping the way back", async () => {
     const { spine, trail, a } = heldWorkspace();
     a.edit(1);
-    a.held = 2; // a typing run the idle timer has not closed yet
+    a.held = [2]; // a typing run the idle timer has not closed yet
     await spine.undo();
     expect(trail).toEqual(["a:undo:2"]);
     await spine.undo();
@@ -421,7 +423,7 @@ describe("compound steps", () => {
     b.edit(2);
     await spine.undo();
     await spine.undo();
-    a.held = 3;
+    a.held = [3];
     await spine.redo(); // settling the run clears the redo side mid-walk
     expect(trail).toEqual(["b:undo:2", "a:undo:1"]);
     expect(spine.canRedo()).toBe(false);
@@ -429,24 +431,53 @@ describe("compound steps", () => {
     expect(trail).toEqual(["b:undo:2", "a:undo:1", "a:undo:3"]);
   });
 
-  it("asks up front when one domain holds several parts of the step", async () => {
-    const { spine, trail, a } = heldWorkspace();
+  it("settles an idle run before asking, so a step of several goes in one press", async () => {
+    const { spine, trail, a, b } = heldWorkspace();
     spine.batch(() => {
       a.edit(1);
-      a.edit(2);
+      b.edit(2);
     });
-    a.held = 3;
-    await spine.undo(); // settling would land the run inside this step
-    expect(trail).toEqual([]);
-    expect(a.past).toEqual([1, 2]);
-
-    a.held = null;
-    a.edit(3); // the idle timer closed the run: a step of its own
+    a.held = []; // a panel's typing run, open on its timer, nothing typed yet
     await spine.undo();
-    expect(trail).toEqual(["a:undo:3"]);
-    await spine.undo();
-    expect(trail).toEqual(["a:undo:3", "a:undo:2", "a:undo:1"]);
+    expect(a.held).toBeNull();
+    expect(trail).toEqual(["b:undo:2", "a:undo:1"]);
     expect(spine.canUndo()).toBe(false);
+  });
+
+  it("re-reads the top when settling records: the run first, then the step of several", async () => {
+    const { spine, trail, a, b } = heldWorkspace();
+    spine.batch(() => {
+      a.edit(1);
+      b.edit(2);
+    });
+    a.held = [3];
+    await spine.undo(); // the run closes as a step of its own, newer than the batch
+    expect(trail).toEqual(["a:undo:3"]);
+    expect(b.past).toEqual([2]);
+    await spine.undo();
+    expect(trail).toEqual(["a:undo:3", "b:undo:2", "a:undo:1"]);
+    expect(spine.canUndo()).toBe(false);
+    await spine.redo();
+    expect(trail).toEqual(["a:undo:3", "b:undo:2", "a:undo:1", "a:redo:1", "b:redo:2"]);
+  });
+
+  it("still refuses a step of several while a live gesture holds a bracket", async () => {
+    const spine = new WorkspaceHistory();
+    const trail: string[] = [];
+    const a = new HeldDomain(spine, "a", trail);
+    const b = new GestureDomain(spine, "b", trail);
+    spine.register("a", a);
+    spine.register("b", b);
+    spine.batch(() => {
+      a.edit(1);
+      b.edit(2);
+    });
+    a.held = [];
+    b.blockedNow = true; // a drag in hand: settling leaves it open
+    await spine.undo();
+    expect(a.held).toBeNull();
+    expect(trail).toEqual([]);
+    expect([a.past, b.past]).toEqual([[1], [2]]);
   });
 
   it("keeps what stepped when a domain can only refuse by trying", async () => {

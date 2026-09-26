@@ -9,6 +9,7 @@ import {
   migrateLegacyCanvas,
   readCanvasSource,
 } from "../scene/migrate";
+import { bandFloor } from "../scene/band";
 import { applyOps } from "../scene/ops";
 import { serializeScene } from "../scene/serialize";
 import {
@@ -151,10 +152,14 @@ export class SceneStore {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
 
-  /** `read` is a diagram block's by default; a frame passes {@link frameReader}. */
+  /**
+   * `read` is a diagram block's by default; a frame passes {@link frameReader}.
+   * `band` is a band's store: see {@link dispatch}. Never a frame's.
+   */
   constructor(
     source: string,
     private readonly read: SceneReader = migrateLegacyCanvas,
+    private readonly band = false,
   ) {
     this.scene = read(source);
     this.lastSource = source;
@@ -217,14 +222,24 @@ export class SceneStore {
 
   private beforeStep = new Set<() => void>();
   /**
-   * Runs at the top of {@link undo} and {@link redo}, before the depth check —
-   * the chance for an idle-held bracket (a panel's typing run) to settle so
-   * the step is not refused for a gesture that already ended. A live pointer
-   * gesture deliberately does not settle: undo mid-drag stays refused.
+   * A hook {@link settle} runs (and so {@link undo} and {@link redo}, before
+   * the depth check): close here a bracket held open only by an idle timer;
+   * leave a live pointer gesture's open.
    */
   onBeforeStep = (fn: () => void): (() => void) => {
     this.beforeStep.add(fn);
     return () => this.beforeStep.delete(fn);
+  };
+
+  /**
+   * Close every bracket held open only by an idle timer (a panel's typing run),
+   * without stepping, so a step is never refused for a gesture that already
+   * ended. What stays open afterwards is a live pointer gesture — undo
+   * mid-drag stays refused — so {@link gesturing} then answers exactly "an
+   * undo now would cut into something in hand".
+   */
+  settle = (): void => {
+    for (const fn of this.beforeStep) fn();
   };
 
   /**
@@ -267,13 +282,27 @@ export class SceneStore {
 
   // -- Writing --------------------------------------------------------------
 
-  /** Apply one op, or a group of ops that must land together. */
+  /**
+   * Apply one op, or a group of ops that must land together.
+   *
+   * On a band, an edit that leaves content below the stored height raises it
+   * in the same entry: a band never crops what is drawn in it, never shrinks
+   * on its own, and undoing the edit takes the height back with it.
+   */
   dispatch = (op: SceneOp | readonly SceneOp[]): void => {
-    const ops: readonly SceneOp[] = Array.isArray(op) ? op : [op];
+    let ops: readonly SceneOp[] = Array.isArray(op) ? op : [op];
     if (ops.length === 0) return;
     const before = this.scene;
-    const next = applyOps(before, ops);
+    let next = applyOps(before, ops);
     if (next === before) return;
+    if (this.band) {
+      const floor = bandFloor(next);
+      if (floor > next.h) {
+        const raise: SceneOp = { type: "setDiagram", h: floor };
+        next = applyOps(next, [raise]);
+        ops = [...ops, raise];
+      }
+    }
     if (this.depth === 0) this.record(before, this.captureSelection());
     this.recordOps(ops);
     this.future = [];
@@ -407,13 +436,13 @@ export class SceneStore {
 
   /** False when refused (mid-gesture) or when there was nothing to step. */
   undo = (): boolean => {
-    for (const fn of this.beforeStep) fn();
+    this.settle();
     if (this.depth > 0) return false;
     return this.step(this.past, this.future);
   };
 
   redo = (): boolean => {
-    for (const fn of this.beforeStep) fn();
+    this.settle();
     if (this.depth > 0) return false;
     return this.step(this.future, this.past);
   };
@@ -617,6 +646,11 @@ export interface UseSceneOptions {
   cacheKey?: string;
   /** A storyboard frame's size: the store reads as {@link frameReader}. Read once. */
   frame?: { w: number; h: number };
+  /**
+   * A diagram band's store, whose edits raise the stored height to hold what
+   * they leave below it — see {@link SceneStore.dispatch}. Read once.
+   */
+  band?: boolean;
 }
 
 /**
@@ -648,7 +682,7 @@ export function peekSceneStore(cacheKey: string): SceneStore | null {
  * The store for one canvas block. Parsed once, from whichever format the block
  * was written in; written back on a 500ms debounce.
  */
-export function useScene({ source, onChange, cacheKey, frame }: UseSceneOptions): SceneStore {
+export function useScene({ source, onChange, cacheKey, frame, band }: UseSceneOptions): SceneStore {
   const [store] = useState(() => {
     const held = cacheKey ? warm.get(cacheKey) : null;
     if (held) {
@@ -657,7 +691,7 @@ export function useScene({ source, onChange, cacheKey, frame }: UseSceneOptions)
       warm.set(cacheKey!, held);
       return held;
     }
-    const made = new SceneStore(source, frame && frameReader(frame));
+    const made = new SceneStore(source, frame && frameReader(frame), band && !frame);
     if (cacheKey) {
       warm.set(cacheKey, made);
       for (const [oldest, old] of warm) {

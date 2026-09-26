@@ -70,6 +70,7 @@ type Api = {
     sceneRef: { current: HTMLDivElement | null };
     clientToScene(point: Point): Point;
     get(): Viewport;
+    screenScale(): number;
     subscribe(cb: () => void): () => void;
   };
   live: {
@@ -444,8 +445,7 @@ export function paintCanvasPresence(
   // One property on the mount; the geometry itself is scene px and needs
   // nothing on a zoom.
   const syncScale = () => {
-    const zoom = api.viewport.get().zoom || 1;
-    ghosts?.style.setProperty("--k", String(1 / zoom));
+    ghosts?.style.setProperty("--k", String(1 / api.viewport.screenScale()));
   };
 
   /**

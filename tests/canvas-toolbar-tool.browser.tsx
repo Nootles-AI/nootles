@@ -33,7 +33,7 @@ function Shell() {
         />
       </main>
       {live && (
-        <Toolbar store={live.store} viewport={live.viewport} tools={live.tools} screen={live.screen} />
+        <Toolbar store={live.store} tools={live.tools} refocus={live.focus} />
       )}
     </>
   );

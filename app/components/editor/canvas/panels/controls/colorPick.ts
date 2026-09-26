@@ -178,7 +178,7 @@ function buildCanvasMode(dest: PickDestination, host: PickHost, callbacks: Canva
     opts: { text?: boolean; wholePaint?: boolean },
   ): PaintSample | null => {
     const point = ctx.scenePoint({ clientX, clientY });
-    const tolerance = slopFor(host.viewport.get().zoom);
+    const tolerance = slopFor(host.viewport.screenScale());
     return paintAt(ctx.laid(), point, { tolerance, ...opts });
   };
 
@@ -277,7 +277,7 @@ function buildCanvasMode(dest: PickDestination, host: PickHost, callbacks: Canva
           const chip = sample && sample.kind !== "none" ? (sample.paint ?? sample.css) : null;
           paintPill(pill, container, move.clientX, move.clientY, text, chip);
         }
-        const tolerance = slopFor(host.viewport.get().zoom);
+        const tolerance = slopFor(host.viewport.screenScale());
         host.selection.hover(ctx.scenePoint(move), { deep: true, tolerance });
         dest.preview?.(sample && sample.kind !== "none" ? sample.css : null);
       });

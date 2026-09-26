@@ -277,7 +277,7 @@ export function PenTool({
       drawingRef.current &&
       !closedRef.current &&
       anchorsRef.current.length > 2 &&
-      nearestAnchor(anchorsRef.current, p, GRAB / viewport.get().zoom) === 0,
+      nearestAnchor(anchorsRef.current, p, GRAB / viewport.screenScale()) === 0,
     [viewport],
   );
 
@@ -534,11 +534,10 @@ export function PenTool({
 
   const onPointerDown = useCallback(
     (e: ReactPointerEvent<SVGSVGElement>) => {
-      // Space-drag belongs to the viewport, whatever tool is active.
-      if (e.button !== 0 || viewport.panState() !== "idle") return;
+      if (e.button !== 0) return;
       e.preventDefault();
       const p = viewport.clientToScene({ x: e.clientX, y: e.clientY });
-      const tol = GRAB / viewport.get().zoom;
+      const tol = GRAB / viewport.screenScale();
       const anchors = anchorsRef.current;
       const closed = closedRef.current;
 
@@ -677,7 +676,7 @@ export function PenTool({
           // Click-and-drag pulls both handles out symmetrically — the gesture
           // the whole tool is judged on, and the same one that curves the
           // closing segment when the press landed on the first anchor.
-          const pulled = Math.hypot(v.x, v.y) * viewport.get().zoom > PULL;
+          const pulled = Math.hypot(v.x, v.y) * viewport.screenScale() > PULL;
           const next = anchors.slice();
           next[drag.index] = pulled
             ? {
@@ -728,7 +727,7 @@ export function PenTool({
     (e: ReactMouseEvent<SVGSVGElement>) => {
       const p = viewport.clientToScene({ x: e.clientX, y: e.clientY });
       const anchors = anchorsRef.current;
-      const index = nearestAnchor(anchors, p, GRAB / viewport.get().zoom);
+      const index = nearestAnchor(anchors, p, GRAB / viewport.screenScale());
       if (index < 0) return;
       e.preventDefault();
       anchorsRef.current = setAnchorKind(

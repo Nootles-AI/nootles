@@ -1,7 +1,6 @@
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
 import { familyName } from "@/app/components/editor/canvas/render/fonts";
-import { isAutoSize } from "@/app/components/editor/canvas/render/ShapeView";
 import { laidOutScene } from "@/app/components/editor/canvas/scene/autoLayout";
 import { normalizeDiagram } from "@/app/components/editor/canvas/scene/band";
 import { absoluteBounds, toLocal } from "@/app/components/editor/canvas/scene/geometry";
@@ -23,7 +22,6 @@ import {
 import {
   FIXTURES,
   PICKING_PROBES,
-  flatBoard,
   type FixtureName,
   type Probe,
   type ProbeAction,
@@ -56,10 +54,6 @@ describe("fixtures.roundTrip", () => {
       expect(serializeScene(parse(html))).toBe(html);
     });
   }
-  it("flatBoard(1000, 1)", () => {
-    const { html } = flatBoard(1000, 1);
-    expect(serializeScene(parse(html))).toBe(html);
-  });
 });
 
 describe("fixtures.parseEquals", () => {
@@ -85,14 +79,6 @@ describe("fixtures.bandRoots", () => {
   }
 });
 
-describe("fixtures.deterministic", () => {
-  it("flatBoard is a pure function of its seed", () => {
-    expect(flatBoard(1000, 1).html).toBe(flatBoard(1000, 1).html);
-    expect(flatBoard(1000, 1).html).not.toBe(flatBoard(1000, 2).html);
-    expect(flatBoard(1000, 1).scene.nodes.length).toBe(1000);
-  });
-});
-
 describe("fixtures.idsUnique", () => {
   for (const name of FIXTURE_NAMES) {
     it(name, () => {
@@ -115,15 +101,6 @@ describe("fixtures.noRemoteFonts", () => {
       });
     });
   }
-});
-
-describe("fixtures.flatBoard.noAutoSize", () => {
-  it("never asks the browser to auto-size a board shape", () => {
-    walk(FIXTURES["flat-board"].scene.nodes, (node) => {
-      expect(isAutoSize(node.style.width)).toBe(false);
-      expect(isAutoSize(node.style.height)).toBe(false);
-    });
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -209,7 +186,7 @@ describe("fixtures.pickAll.margins", () => {
   // of every PRE-EXISTING region's box by >=60 scene px "on the axis that
   // separates them" — not necessarily every axis, since two boxes can overlap
   // on one axis and still be unambiguous because they're far apart on the
-  // other (`ring-hole`'s box overlaps `layers-locked`'s on x but not y, for
+  // other (`three-layers`' box overlaps `layers-locked`'s on x but not y, for
   // instance). The two new regions were never verified against EACH OTHER
   // (only against the seven originals — §3.2.1's own worked examples are both
   // against `ring-hole`/`stroke-path`), and in fact aren't: `hhide`'s corner

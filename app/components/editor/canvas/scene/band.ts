@@ -1,5 +1,5 @@
 import { COLUMN_WIDTH } from "@/app/lib/column";
-import { bandFloor, bandLeft, bandWidth, EPS, WIDE_W } from "./bandGeometry";
+import { bandFloor, bandHeight, bandLeft, bandWidth, EPS, WIDE_W } from "./bandGeometry";
 import { unionBounds } from "./geometry";
 import { applyOps, reflowHugs } from "./ops";
 import type { Rect, Scene, SceneOp } from "./types";
@@ -160,4 +160,13 @@ export function fitOps(scene: Scene): SceneOp[] {
 /** {@link fitOps}, applied. The same object when there is nothing to fit. */
 export function fitToBand(scene: Scene): Scene {
   return applyOps(scene, fitOps(scene));
+}
+
+/**
+ * A band's height drawn in a box `boxW` wide: shrunk with its width when the
+ * box is narrower, as a preview draws a wide band in the column. The column
+ * is the default box, since that is where a suggestion sits.
+ */
+export function bandHeightIn(scene: Scene, boxW: number = COLUMN_WIDTH): number {
+  return Math.ceil(bandHeight(scene) * Math.min(1, boxW / bandWidth(scene)));
 }

@@ -382,31 +382,6 @@ async function modeGateBeforeReadOnly(): Promise<{ modeRan: boolean; selectionCh
   return { modeRan, selectionChanged: JSON.stringify(before) !== JSON.stringify(after) };
 }
 
-/** Wave-5 close-out (build-plan Conflict 6 / OQ-6, confirmed): with the zoom
- *  tool (STAGE) selected AND a mode active (COLOR), a press must run the
- *  mode's own handler and never the zoom tool's click-to-zoom — the mode is
- *  checked first in `CanvasSurface.tsx`'s `onPointerDown`, unconditionally,
- *  before the `tool === "zoom"` branch is ever reached. Proven here by the
- *  viewport's zoom staying exactly what it was, not merely by a comment. */
-async function modeGateBeforeZoomTool(): Promise<{ modeRan: boolean; zoomChanged: boolean }> {
-  let modeRan = false;
-  const before = api!.viewport.get().zoom;
-  api!.setTool("zoom");
-  const release = api!.modes.enter({
-    id: "test-probe",
-    onPointerDown: () => {
-      modeRan = true;
-    },
-  });
-  await nextFrame();
-  pointerAt(50, 50, "pointerdown");
-  await nextFrame();
-  release();
-  api!.setTool("move");
-  const after = api!.viewport.get().zoom;
-  return { modeRan, zoomChanged: after !== before };
-}
-
 // ---------------------------------------------------------------------------
 // window.pick
 // ---------------------------------------------------------------------------
@@ -441,7 +416,6 @@ const harness = {
   chooseFillType,
   selectionColourRows,
   modeGateBeforeReadOnly,
-  modeGateBeforeZoomTool,
   computedNoAccent: () =>
     [...appEl().querySelectorAll<HTMLElement>(".nt-pick-pill, .nt-icon-btn, .nt-ctl-tag")].map(
       (el) => `${getComputedStyle(el).color} ${getComputedStyle(el).borderColor}`,

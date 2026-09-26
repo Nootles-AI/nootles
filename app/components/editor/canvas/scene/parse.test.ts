@@ -23,9 +23,9 @@ describe("parseFragment", () => {
     expect(frag.authored.has(frag.scene.nodes[1].id)).toBe(false);
   });
 
-  it("bare shapes report rootSized:false and empty rootAttrs", () => {
+  it("bare shapes report rootH:false and empty rootAttrs", () => {
     const frag = parseFragment('<nt-rect id="s1" x="0" y="0" w="10" h="10"></nt-rect>', parseHtml);
-    expect(frag.rootSized).toBe(false);
+    expect(frag.rootH).toBe(false);
     expect(frag.rootAttrs).toEqual({});
   });
 
@@ -43,11 +43,13 @@ describe("parseFragment", () => {
     expect(frag.rootAttrs).toEqual({ "data-foo": "bar" });
   });
 
-  it("a wrapper that states both w and h is rootSized", () => {
+  it("a wrapper that states h is rootH, with or without a width", () => {
     const frag = parseFragment('<nt-diagram w="600" h="400"></nt-diagram>', parseHtml);
-    expect(frag.rootSized).toBe(true);
+    expect(frag.rootH).toBe(true);
     expect(frag.scene.w).toBe(600);
     expect(frag.scene.h).toBe(400);
+    expect(parseFragment('<nt-diagram h="96"></nt-diagram>', parseHtml).rootH).toBe(true);
+    expect(parseFragment('<nt-diagram w="720"></nt-diagram>', parseHtml).rootH).toBe(false);
   });
 
   it("parseScene(html) deep-equals parseFragment(html).scene", () => {

@@ -4,7 +4,8 @@ import { parseStoryboard } from "../../storyboard/parse";
 import { serializeStoryboard } from "../../storyboard/serialize";
 import { emptyStoryboard } from "../../storyboard/types";
 import { readCanvasSource } from "../scene/migrate";
-import { frameReader, SceneStore } from "./useScene";
+import type { SceneOp } from "../scene/types";
+import { frameReader, SceneStore, type SceneHistoryEvent } from "./useScene";
 
 // The store parses diagram HTML, and this environment has no DOM.
 (globalThis as { DOMParser?: unknown }).DOMParser = DOMParser;
@@ -42,6 +43,61 @@ describe("SceneStore.arriving", () => {
 
     // The nested edit's notification first, then the arrival's own.
     expect(heard).toEqual([false, true]);
+  });
+});
+
+describe("SceneStore.settle", () => {
+  const nudge: SceneOp = { type: "move", ids: ["a"], dx: 10, dy: 0 };
+
+  /** A run held open on an idle timer, closing on the store's before-step hook. */
+  function idleRun(store: SceneStore) {
+    let open = false;
+    store.onBeforeStep(() => {
+      if (!open) return;
+      open = false;
+      store.commit();
+    });
+    return () => {
+      if (!open) store.begin();
+      open = true;
+      store.dispatch(nudge);
+    };
+  }
+
+  it("closes an idle-held bracket into one entry, without stepping", () => {
+    const store = new SceneStore(diagram(40));
+    const events: SceneHistoryEvent[] = [];
+    store.onHistory((event) => void events.push(event));
+    const run = idleRun(store);
+    run();
+    run();
+    expect(store.gesturing()).toBe(true);
+
+    store.settle();
+    expect(store.gesturing()).toBe(false);
+    expect(events).toEqual([{ type: "push", selectionOnly: false }]);
+    expect(store.getNode("a")?.x).toBe(60);
+    expect(store.undo()).toBe(true);
+    expect(store.getNode("a")?.x).toBe(40);
+  });
+
+  it("is a no-op with nothing held, and leaves a live gesture open", () => {
+    const store = new SceneStore(diagram(40));
+    const events: SceneHistoryEvent[] = [];
+    store.onHistory((event) => void events.push(event));
+    idleRun(store);
+    const scene = store.getScene();
+
+    store.settle();
+    expect(store.getScene()).toBe(scene);
+    expect(store.canUndo()).toBe(false);
+
+    store.begin(); // a drag in hand: no hook closes it
+    store.dispatch(nudge);
+    store.settle();
+    expect(store.gesturing()).toBe(true);
+    expect(store.undo()).toBe(false);
+    expect(events).toEqual([]);
   });
 });
 

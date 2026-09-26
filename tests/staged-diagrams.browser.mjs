@@ -103,15 +103,13 @@ async function main() {
 
   const report = [];
   for (const { id, title, html } of found) {
-    // The frame the markup declares, so the shot is the diagram's own size
-    // rather than a viewport crop that might hide what runs off the edge.
-    const w = Number(/<nt-diagram[^>]*\bw="(\d+(?:\.\d+)?)"/.exec(html)?.[1] ?? 1200);
-    const h = Number(/<nt-diagram[^>]*\bh="(\d+(?:\.\d+)?)"/.exec(html)?.[1] ?? 800);
+    // The band's height as the markup declares it; the band lays itself out
+    // in the harness's column, as on a page.
+    const h = Number(/<nt-diagram[^>]*\bh="(\d+(?:\.\d+)?)"/.exec(html)?.[1] ?? 0);
 
     await page.evaluate(
-      ([source, width, height]) =>
-        window.canvasHarness.mount({ html: source }, { readOnly: true, width, height }),
-      [html, Math.ceil(w), Math.ceil(h)],
+      (source) => window.canvasHarness.mount({ html: source }, { readOnly: true }),
+      html,
     );
     await page.evaluate(() => window.canvasHarness.nextFrame());
     await page.evaluate(() => window.canvasHarness.nextFrame());
@@ -137,10 +135,10 @@ async function main() {
     const el = await page.$("#app");
     await (el ?? page).screenshot({ path: file });
 
-    report.push({ id, title, w, h, ...seen });
+    report.push({ id, title, h, ...seen });
     console.log(
       `${id.padEnd(6)} ${String(seen?.nodes ?? 0).padStart(3)} nodes  ` +
-        `${String(seen?.edges ?? 0).padStart(2)} edges  ${w}×${h}  → ${path.relative(repo, file)}`,
+        `${String(seen?.edges ?? 0).padStart(2)} edges  h ${h}  → ${path.relative(repo, file)}`,
     );
   }
 
