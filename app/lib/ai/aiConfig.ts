@@ -324,6 +324,14 @@ export const AI = {
      * genuinely cannot answer — and four is past any of them.
      */
     lookAtMost: 4,
+    /**
+     * Long edge, in pixels, a `look_at` picture is sent at. Past it the bytes
+     * buy nothing: every vision model shrinks what it is given to about this
+     * (Anthropic to 1568, OpenAI to 768 on the short side) before looking, and
+     * an album picture is stored at 2560 — four of them, inlined, came to
+     * megabytes of request for pixels no model read (NT-91).
+     */
+    lookAtEdge: 1568,
   },
 
   /**

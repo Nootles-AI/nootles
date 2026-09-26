@@ -14,6 +14,7 @@ import { reason } from "@/app/lib/github";
 import { findSongs } from "@/app/lib/songs";
 import { configured as placesConfigured, search as findPlaces } from "@/app/lib/places";
 import { searchModel, writerModel } from "./provider";
+import { lookAtOutput } from "./lookAt";
 import { WRITER } from "./prompt";
 import { CANVAS_TOOLS, noSuchPage, TOOLS, type CanvasToolName } from "./tools";
 import { cleanSection, outlineOf, splitSection } from "./writer";
@@ -177,37 +178,18 @@ export function chatTools(
       ...TOOLS.look_at,
       /**
        * The one tool whose result is pictures rather than words. The browser
-       * fetches the pictures (a storage URL is a bearer this server has no
-       * session to derive) and hands back inline data; this turns them into the
-       * media parts a provider takes.
+       * fetches the pictures and hands back inline data; this turns them into
+       * the media parts a provider takes. It runs where the transcript becomes
+       * model messages, so the route must hand these tools to
+       * `convertToModelMessages` — without them the data went to the model as
+       * a JSON string of base64 and no picture was ever seen (NT-91).
        *
        * Every other tool's output is a string, and a string is what a provider
        * will always accept — so if a model here ever refuses media parts, the
        * fix is to describe the pictures instead, not to change what the browser
        * sends.
        */
-      toModelOutput: ({ output }: { output: unknown }) => {
-        const { images } = (output ?? {}) as {
-          images?: { handle: string; dataUri: string; mediaType: string }[];
-        };
-        if (!images?.length) {
-          return { type: "text", value: String((output as { error?: string })?.error ?? "") };
-        }
-        return {
-          type: "content",
-          value: images.flatMap((image) => [
-            { type: "text" as const, text: `${image.handle}:` },
-            {
-              type: "image-data" as const,
-              // Base64 only. The browser hands back a whole data URI because
-              // that is what a FileReader gives it; the prefix is the wrapper,
-              // not the picture.
-              data: image.dataUri.slice(image.dataUri.indexOf(",") + 1),
-              mediaType: image.mediaType,
-            },
-          ]),
-        };
-      },
+      toModelOutput: ({ output }: { output: unknown }) => lookAtOutput(output),
     }),
 
     find_images: tool({

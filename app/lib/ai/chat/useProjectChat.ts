@@ -38,6 +38,7 @@ import type { MentionData } from "./parts";
 import { isClientTool } from "./tools";
 import type { AbMessage, ChatDraft, QueuedDraft } from "./types";
 import { forStorage } from "./storedParts";
+import { shortenStaleParts } from "./transcript";
 
 const EMPTY = {
   messages: [] as AbMessage[],
@@ -202,7 +203,9 @@ export function useProjectChat({
           const digest = chatDigest(page ? (registry?.current(page) ?? null) : null, named);
           return {
             body: {
-              messages,
+              // Earlier turns as the model will read them, not as the panel
+              // shows them: the whole thread goes with every request.
+              messages: shortenStaleParts(messages),
               projectId: latest.current.projectId,
               pageId: page,
               // What the conversation is charged against. Bound like `persist`'s

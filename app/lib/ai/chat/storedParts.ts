@@ -1,4 +1,5 @@
-import { isToolUIPart } from "ai";
+import { getToolName, isToolUIPart } from "ai";
+import type { LookAtResult } from "./lookAt";
 import type { AbMessage } from "./types";
 
 /**
@@ -15,6 +16,7 @@ import type { AbMessage } from "./types";
  * signature, and a replayed block that lost it is dropped.
  */
 export function forStorage(parts: AbMessage["parts"]): AbMessage["parts"] {
+  parts = parts.map(withoutPictureData);
   let out = parts;
   for (const cap of CAPS) {
     out = parts.map((part) =>
@@ -25,6 +27,28 @@ export function forStorage(parts: AbMessage["parts"]): AbMessage["parts"] {
     if (JSON.stringify(out).length <= BUDGET) return out;
   }
   return out;
+}
+
+/**
+ * A `look_at` result with its pictures' bytes taken out, handles kept.
+ *
+ * The bytes were for the turn that looked (see `lookAt.ts`), and kept they are
+ * most of a message: four photographs are megabytes of base64, and cut to fit
+ * below they became broken data URIs that a reloaded turn sent as pictures.
+ */
+function withoutPictureData(part: AbMessage["parts"][number]): AbMessage["parts"][number] {
+  if (!isToolUIPart(part) || getToolName(part) !== "look_at" || part.state !== "output-available") {
+    return part;
+  }
+  const { images } = (part.output ?? {}) as Partial<LookAtResult>;
+  if (!Array.isArray(images)) return part;
+  return {
+    ...part,
+    output: {
+      ...(part.output as LookAtResult),
+      images: images.map(({ handle, mediaType }) => ({ handle, mediaType })),
+    },
+  } as typeof part;
 }
 
 /** Tightened in turn until the message fits. */
