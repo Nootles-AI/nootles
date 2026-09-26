@@ -100,7 +100,7 @@ export function FullscreenShot({
     <div
       ref={full}
       className="nt-sb-full"
-      data-live={(api && !readOnly) || undefined}
+      data-editable={(api && !readOnly) || undefined}
       onPointerDown={onBackdrop}
     >
       <button

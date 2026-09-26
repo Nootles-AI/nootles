@@ -2,6 +2,7 @@ import { useLayoutEffect, type RefObject } from "react";
 import { COLUMN_WIDTH } from "./column";
 // The light half of `band`: this loads with every page, ahead of the renderer.
 import { WIDE_W } from "@/app/components/editor/canvas/scene/bandSpan";
+import { ZOOM_EVENT } from "./docZoom";
 
 /** The page's side padding: wide enough for the block handle's whole cluster, or not. */
 export const PAGE_GUTTER = 24;
@@ -74,10 +75,42 @@ function sheetOf(sheet: Element): Sheet {
   return known;
 }
 
-function write(el: HTMLElement, kind: FitKind, sheet: Sheet) {
+/** True when the element's zoom changed. */
+function write(el: HTMLElement, kind: FitKind, sheet: Sheet): boolean {
   const scale = kind === "wide" ? sheet.wideFit : sheet.fit;
   const zoom = scale === 1 ? "" : String(scale);
-  if (el.style.zoom !== zoom) el.style.zoom = zoom;
+  if (el.style.zoom === zoom) return false;
+  el.style.zoom = zoom;
+  return true;
+}
+
+/** Fired, bubbling, on a sheet whose bands were rescaled to a new fit, or on a band that joined one rescaled. */
+export const FIT_EVENT = "nt-fit";
+
+/** What a band of `kind` at `el` is scaled by to fit its page: 1 outside a sheet. */
+export function fitOf(el: Element, kind: FitKind): number {
+  const host = el.closest(SHEET);
+  const sheet = host ? sheets.get(host) : undefined;
+  if (!sheet) return 1;
+  return kind === "wide" ? sheet.wideFit : sheet.fit;
+}
+
+/**
+ * Runs `fn` whenever what magnifies `el` may have changed without a resize
+ * telling it: the zoom of its pane, or the fit of its page. `el` is read at
+ * event time, so an element that mounts late still hears.
+ */
+export function onScaleWithin(el: () => Element | null | undefined, fn: () => void): () => void {
+  const listener = (event: Event) => {
+    const target = el();
+    if (target && event.target instanceof Node && event.target.contains(target)) fn();
+  };
+  window.addEventListener(ZOOM_EVENT, listener);
+  window.addEventListener(FIT_EVENT, listener);
+  return () => {
+    window.removeEventListener(ZOOM_EVENT, listener);
+    window.removeEventListener(FIT_EVENT, listener);
+  };
 }
 
 /**
@@ -93,7 +126,8 @@ export function followFit(el: HTMLElement, kind: FitKind): () => void {
   }
   const sheet = sheetOf(host);
   sheet.followers.set(el, kind);
-  write(el, kind, sheet);
+  // Whatever inside measured the band before it was scaled hears that it was.
+  if (write(el, kind, sheet)) el.dispatchEvent(new Event(FIT_EVENT, { bubbles: true }));
   return () => {
     if (sheet.followers.get(el) !== kind) return;
     sheet.followers.delete(el);
@@ -141,6 +175,7 @@ export function usePageFit(
       sheet.fit = next.fit;
       sheet.wideFit = next.wideFit;
       for (const [el, kind] of sheet.followers) write(el, kind, sheet);
+      host.dispatchEvent(new Event(FIT_EVENT, { bubbles: true }));
     };
     const measure = () => {
       const style = getComputedStyle(pane);

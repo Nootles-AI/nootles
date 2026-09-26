@@ -8,6 +8,7 @@ import {
   type ZoomAnchor,
   type ZoomPane,
 } from "@/app/lib/docZoom";
+import { isModKey } from "@/app/lib/platform";
 
 /** WebKit's trackpad pinch, which the DOM lib does not type. */
 type GestureEvent = UIEvent & { scale: number; clientX: number; clientY: number };
@@ -95,13 +96,6 @@ export function useDocumentZoom(
   }, [pane, paneRef, sheetRef]);
 }
 
-let applePlatform: boolean | null = null;
-/** ⌘ on Apple, Ctrl elsewhere — the command modifier the browser's own zoom keys use. */
-function isMod(e: KeyboardEvent): boolean {
-  applePlatform ??= /mac|iphone|ipad|ipod/i.test(navigator.userAgent);
-  return applePlatform ? e.metaKey : e.ctrlKey;
-}
-
 /** In, out, or back to 100% — null for any key that is not a zoom key. */
 export function zoomKey(e: Pick<KeyboardEvent, "key" | "code">): 1 | -1 | 0 | null {
   if (e.key === "=" || e.key === "+" || e.code === "NumpadAdd") return 1;
@@ -128,7 +122,7 @@ export function useZoomKeys(getPane: () => ZoomPane | null) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!isMod(e) || e.altKey || e.isComposing) return;
+      if (!isModKey(e) || e.altKey || e.isComposing) return;
       const dir = zoomKey(e);
       if (dir === null) return;
       e.preventDefault();

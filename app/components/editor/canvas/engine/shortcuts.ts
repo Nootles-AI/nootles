@@ -50,6 +50,9 @@
  */
 
 import { useEffect, useRef } from "react";
+import { isApplePlatform, isModKey } from "@/app/lib/platform";
+
+export { isApplePlatform, isModKey };
 import {
   absoluteRect,
   absoluteRotation,
@@ -529,18 +532,6 @@ function eventKey(e: KeyboardEvent): string {
   return e.key === " " ? "space" : e.key.toLowerCase();
 }
 
-let applePlatform: boolean | null = null;
-
-/**
- * Whether `Mod` means ⌘. Resolved once, lazily — reading `navigator` at module
- * scope would run on the server.
- */
-export function isApplePlatform(): boolean {
-  applePlatform ??=
-    typeof navigator !== "undefined" &&
-    /mac|iphone|ipad|ipod/i.test(navigator.userAgent);
-  return applePlatform;
-}
 
 function matches(binding: Binding, e: KeyboardEvent, apple: boolean): boolean {
   const mod = apple ? e.metaKey : e.ctrlKey;
@@ -634,14 +625,6 @@ export function shortcutHint(id: ShortcutId, apple = isApplePlatform(), nth = 0)
   return spec ? formatShortcut(spec, apple) : "";
 }
 
-/**
- * Whether this pointer or key event carries the platform's command modifier:
- * ⌘ on Apple, Ctrl elsewhere. On a Mac, Ctrl+click is the OS's right-click
- * and must never read as deep select.
- */
-export function isModKey(e: { metaKey: boolean; ctrlKey: boolean }): boolean {
-  return isApplePlatform() ? e.metaKey : e.ctrlKey;
-}
 
 // ---------------------------------------------------------------------------
 // Scene helpers

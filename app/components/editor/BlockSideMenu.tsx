@@ -173,10 +173,11 @@ const gutterFit: Middleware = {
           : box.top + span / 2;
     }
     const y = state.y + (centre - box.top) - state.rects.floating.height / 2;
+    const x = state.x + wideReach(anchor, box);
 
     const clipper = clipperOf(anchor);
     const overflow = clipper
-      ? await detectOverflow({ ...state, y }, { boundary: clipper, padding: EDGE_PAD })
+      ? await detectOverflow({ ...state, x, y }, { boundary: clipper, padding: EDGE_PAD })
       : null;
     const nudge = overflow ? Math.max(overflow.left, 0) : 0;
     flag(floating, "data-nt-tight", nudge > 0);
@@ -196,9 +197,16 @@ const gutterFit: Middleware = {
       !!anchor.closest?.(".nt-block-selected"),
     );
 
-    return { x: state.x + nudge, y };
+    return { x: x + nudge, y };
   },
 };
+
+/** How far past the block's left edge its own wide diagram reaches — where its handle belongs. */
+function wideReach(anchor: Element, box: DOMRect): number {
+  const content = anchor.matches(".bn-block-content") ? anchor : anchor.querySelector(".bn-block-content");
+  const band = content?.querySelector(".nt-canvas[data-wide]:not(.nt-canvas-shot)");
+  return band ? Math.min(0, band.getBoundingClientRect().left - box.left) : 0;
+}
 
 /** Position tracking without BlockNote's hide-on-scroll, which blinks. */
 const trackOnly = () => () => {};

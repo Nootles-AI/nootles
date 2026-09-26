@@ -50,7 +50,6 @@ export interface PageSelection {
   marqueeIn(blockId: string, rect: Rect, opts: { shift: boolean }): void;
   clearAll(except?: string): void;
   focus(blockId: string): void;
-  isSelected(blockId: string, id: NodeId): boolean;
   /** Selected shapes on the whole page. */
   count(): number;
   /**
@@ -165,6 +164,14 @@ export function createPageSelection(deps: PageSelectionDeps): PageSelection {
     }
   };
 
+  /*
+   * The store tells its listeners before it records the step, so a change that
+   * reaches it outside a batch would land as two steps: this page's reply —
+   * the others cleared, the focus moved — closing first, the selection itself
+   * after. Every way the facade changes a selection runs inside one.
+   */
+  const within = <T,>(fn: () => T): T => deps.batch(fn);
+
   const replacing = <T,>(blockId: string, fn: () => T): T =>
     deps.batch(() => {
       clearOthers(blockId);
@@ -245,6 +252,12 @@ export function createPageSelection(deps: PageSelectionDeps): PageSelection {
         // selection never reaches past it.
         selectEdges: (ids) => replacing(blockId, () => raw.selectEdges(ids)),
         toggleEdge: (id) => replacing(blockId, () => raw.toggleEdge(id)),
+        // What may leave the selection where it is, and so the others too.
+        selectAll: () => within(() => raw.selectAll()),
+        enter: (point, opts) => within(() => raw.enter(point, opts)),
+        enterSelected: () => within(() => raw.enterSelected()),
+        selectParent: () => within(() => raw.selectParent()),
+        selectSibling: (direction) => within(() => raw.selectSibling(direction)),
       };
       facades.set(blockId, { raw, store });
       return store;
@@ -265,7 +278,6 @@ export function createPageSelection(deps: PageSelectionDeps): PageSelection {
       if (order.includes(blockId)) order = [blockId, ...order.filter((id) => id !== blockId)];
       publish(blockId);
     },
-    isSelected: (blockId, id) => held.get(blockId)?.raw.isSelected(id) ?? false,
     count: () => order.reduce((total, id) => total + held.get(id)!.ids.length, 0),
     unionIn,
   };

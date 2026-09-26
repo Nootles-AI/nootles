@@ -24,6 +24,7 @@ import { Facepile } from "../presence/Facepile";
 import { GoogleButton } from "../signin/GoogleButton";
 import { PagePane } from "../PagePane";
 import { useZoomKeys } from "../useDocumentZoom";
+import { ZoomToolbar } from "../editor/canvas/Toolbar";
 import { GuestChatRail } from "./GuestChatRail";
 import { SharedEditor } from "./SharedEditor";
 import { SignInToEdit, type SignInIntent } from "./SignInToEdit";
@@ -504,6 +505,8 @@ export function SharedProject({ token }: { token: string }) {
           <GuestChatRail onIntercept={() => setAsking("edit")} />
         )}
       </div>
+
+      {current && <ZoomToolbar pane="main" />}
 
       {compact && drawer && (
         <LeftDrawer label="Close pages" onClose={() => setDrawer(false)}>

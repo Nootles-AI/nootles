@@ -72,7 +72,7 @@ import {
   useSyncExternalStore,
   type RefObject,
 } from "react";
-import { effectiveScale } from "@/app/lib/columnScale";
+import { effectiveScale, onScaleWithin } from "@/app/lib/columnScale";
 import { sceneToViewport, viewportToScene } from "../scene/geometry";
 import type { Point, Viewport } from "../scene/types";
 
@@ -115,8 +115,9 @@ export interface ViewportController {
   sceneToClient(point: Point): Point;
 
   /**
-   * Screen px per scene px — what a hairline, a grab slop and a snap distance
-   * are measured against, so they hold their size on screen at any scale.
+   * Screen px per scene px, the page's zoom and fit included — what a
+   * hairline, a grab slop and a snap distance are measured against, so they
+   * hold their size on screen at any scale. Subscribers hear when it changes.
    */
   screenScale(): number;
 
@@ -150,6 +151,24 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
 
   const subscribers = new Set<() => void>();
   let frame = 0;
+
+  /**
+   * What the page's zoom and fit magnify the container by, read off the layout
+   * once per change of either rather than per call: hairlines, slop and snap
+   * distances ask for it at pointer rate.
+   */
+  let ambient = 1;
+  let ambientStale = true;
+  const ambientScale = (): number => {
+    if (ambientStale) {
+      const el = containerRef.current;
+      if (el) {
+        ambient = effectiveScale(el);
+        ambientStale = false;
+      }
+    }
+    return ambient;
+  };
 
   /** Whether the scene layer currently carries the compositing hint. */
   let promoted = false;
@@ -211,6 +230,8 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
     const zoom = next.zoom > 0 ? next.zoom : vp.zoom;
     if (next.x === vp.x && next.y === vp.y && zoom === vp.zoom) return;
     vp = { x: next.x, y: next.y, zoom };
+    // A new placement can come with a new fit — a band turning wide.
+    ambientStale = true;
     if (frame === 0) frame = requestAnimationFrame(flush);
   }
 
@@ -234,7 +255,16 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
       scene.style.transformOrigin = "0 0";
       paint();
     }
+    ambientStale = true;
+    const offScale = onScaleWithin(
+      () => containerRef.current,
+      () => {
+        ambientStale = true;
+        for (const fn of subscribers) fn();
+      },
+    );
     return () => {
+      offScale();
       if (frame !== 0) {
         cancelAnimationFrame(frame);
         frame = 0;
@@ -262,9 +292,7 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
       const s = effectiveScale(el);
       return { x: r.left + (p.x + el.clientLeft) * s, y: r.top + (p.y + el.clientTop) * s };
     },
-    // Not yet composed with `effectiveScale`: until the document zooms, a
-    // band's chrome is sized in its own px like the text around it.
-    screenScale: () => vp.zoom,
+    screenScale: () => vp.zoom * ambientScale(),
     subscribe: (onChange) => {
       subscribers.add(onChange);
       return () => subscribers.delete(onChange);

@@ -49,6 +49,7 @@ export function PagePane({
       className={`nt-pane flex flex-1 flex-col ${busy ? "overflow-hidden" : "overflow-auto"}${idle ? " is-idle" : ""}`}
       aria-busy={busy || undefined}
       data-page-id={pageId}
+      data-pane={pane}
       onPointerDownCapture={onPointerDownCapture}
       onFocusCapture={onFocusCapture}
     >

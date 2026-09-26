@@ -3,6 +3,8 @@
 import { useEffect, useSyncExternalStore, type RefObject } from "react";
 import { track } from "@/app/lib/telemetry";
 import { COLUMN_WIDTH } from "@/app/lib/column";
+import { effectiveScale, fitOf } from "@/app/lib/columnScale";
+import type { Pane } from "./OpenPageContext";
 import type { LiveEditor, EditorRegistry } from "./editor/EditorRegistry";
 import type { CanvasTool, ShortcutId } from "./editor/canvas/engine/shortcuts";
 import type { DiagramEntry, PageCanvas, PageCanvasHub } from "./editor/canvas/page/PageCanvas";
@@ -108,11 +110,14 @@ function placeAt(editor: LiveEditor, y: number) {
     break;
   }
   const empty = ref.type === "paragraph" && Array.isArray(ref.content) && ref.content.length === 0;
-  const column = root
-    ?.querySelector<HTMLElement>(`[data-id="${ref.id}"] .bn-block-content`)
-    ?.getBoundingClientRect();
+  const content = root?.querySelector<HTMLElement>(`[data-id="${ref.id}"] .bn-block-content`);
+  const column = content?.getBoundingClientRect();
   return {
-    column: column ? { left: column.left } : null,
+    // A band is drawn at its own width and scaled to the page: the document's
+    // zoom, and the column's fit where the pane is narrow.
+    column: content && column
+      ? { left: column.left, scale: effectiveScale(content) * fitOf(content, "normal") }
+      : null,
     /** Puts the diagram there. Returns its block id. */
     insert(data: string): string {
       if (on && empty) {
@@ -132,13 +137,14 @@ function placeAt(editor: LiveEditor, y: number) {
  * Down, it sits a band below the top: the block goes between lines, so where
  * it lands vertically is the block's to decide anyway.
  */
-function sceneFor(kind: DrawKind, drawn: Box, column: { left: number } | null) {
+function sceneFor(kind: DrawKind, drawn: Box, column: { left: number; scale: number } | null) {
   const nodeId = mintId(emptyScene());
-  const w = Math.round(drawn.w);
-  const x = column ? Math.max(0, Math.round(drawn.x - column.left)) : 0;
+  const scale = column?.scale ?? 1;
+  const w = Math.round(drawn.w / scale);
+  const x = column ? Math.max(0, Math.round((drawn.x - column.left) / scale)) : 0;
   const drawnScene: Scene = {
     ...emptyScene(),
-    nodes: [newNode(kind, nodeId, { x, y: BAND, w, h: Math.round(drawn.h) })],
+    nodes: [newNode(kind, nodeId, { x, y: BAND, w, h: Math.round(drawn.h / scale) })],
     ...(x + w > COLUMN_WIDTH ? { wide: true as const } : {}),
   };
   return { scene: { ...drawnScene, h: bandFloor(drawnScene) }, nodeId };
@@ -234,7 +240,7 @@ export function usePageDraw({
     const onDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
       const target = e.target as Element;
-      const pane = target.closest<HTMLElement>(".nt-pane[data-page-id]");
+      const pane = target.closest<HTMLElement>(".nt-pane[data-page-id][data-pane]");
       // The page's own controls — the mode switch, the corner buttons — still work.
       if (!pane || target.closest("button, a, input, textarea, select, [role='menu']")) return;
       // A diagram — a canvas block or a storyboard's shot — draws for itself.
@@ -242,6 +248,7 @@ export function usePageDraw({
       e.preventDefault();
       e.stopPropagation();
       const pageId = pane.dataset.pageId!;
+      const paneName = pane.dataset.pane as Pane;
       const origin = { x: e.clientX, y: e.clientY };
       const ghost = makeGhost(kind);
       let box: Box = { ...origin, w: 0, h: 0 };
@@ -288,7 +295,7 @@ export function usePageDraw({
         const drawn: Box = box.w < DRAWN_MIN && box.h < DRAWN_MIN ? defaultBox(kind, origin) : box;
         ghost.el.dataset.settling = "";
         ghost.paint(drawn);
-        void land(pageId, drawn, ghost.el);
+        void land(paneName, pageId, drawn, ghost.el);
       };
 
       window.addEventListener("pointermove", onMove, true);
@@ -298,9 +305,10 @@ export function usePageDraw({
     };
 
     /** Make the diagram, then let what was drawn settle into it. */
-    const land = async (pageId: string, drawn: Box, ghost: HTMLElement) => {
+    const land = async (paneName: Pane, pageId: string, drawn: Box, ghost: HTMLElement) => {
       tools.settle();
-      const canvas = hub.forPage(pageId);
+      // The pane pressed in, not the first showing this page: both panes can.
+      const canvas = hub.pane(paneName);
       let blockId: string;
       let nodeId: string;
       try {

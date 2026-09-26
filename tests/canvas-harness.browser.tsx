@@ -303,7 +303,8 @@ function source(): string {
 }
 
 function contextMenu(): { open: boolean; rows: { label: string; disabled: boolean; layerId: string | null }[] } {
-  const menu = appEl().querySelector<HTMLElement>('[role="menu"]');
+  // Portalled to the body, like every fixed menu inside a page that can zoom.
+  const menu = document.querySelector<HTMLElement>('.nt-ctx[role="menu"]');
   if (!menu) return { open: false, rows: [] };
   const rows = [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].map((button) => {
     const label = [...button.childNodes].find((n) => n.nodeType === Node.TEXT_NODE)?.textContent?.trim() ?? "";

@@ -17,6 +17,7 @@ import {
   useState,
   useRef,
 } from "react";
+import { createPortal } from "react-dom";
 import { shortcutHint, type ShortcutId } from "./engine/shortcuts";
 import type { SceneStore } from "./engine/useScene";
 import type { SelectionStore } from "./engine/useSelection";
@@ -765,7 +766,9 @@ export function useContextMenu(store: SceneStore, selection: SelectionStore, pag
   }, [selection]);
   return {
     open,
-    menu: state && (
+    // On the body: the menu is fixed at the pointer, and inside a zoomed page
+    // a fixed box's offsets are zoomed with it.
+    menu: state && createPortal(
       <ContextMenu
         at={state.at}
         actions={buildActions(menuTargets(store, selection, page), page?.batch ?? identity, state.layers)}
@@ -777,7 +780,8 @@ export function useContextMenu(store: SceneStore, selection: SelectionStore, pag
           close();
         }}
         onClose={close}
-      />
+      />,
+      document.body,
     ),
   };
 }

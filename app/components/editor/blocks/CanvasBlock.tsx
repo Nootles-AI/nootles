@@ -361,14 +361,20 @@ function CanvasBlockView({
   }, [liveApi, yDoc, blockId]);
 
   // Only the person actually ON the diagram broadcasts — the leaf is
-  // attention, not an open tab. The awareness field names one diagram, so on
-  // a page that is the one holding the page's focus. A press that brings the
-  // selection here is under way before the selection is, and the broadcaster
-  // has to be up in the press's capture to stream the drag it starts.
-  const focused = useSyncExternalStore(
+  // attention, not an open tab — and a viewer, who is reading, never does.
+  // The awareness field names one diagram, so on a page that is the one
+  // holding the page's focus. A press that brings the selection here is under
+  // way before the selection is, and the broadcaster has to be up in the
+  // press's capture to stream the drag it starts; while another diagram holds
+  // the focus it is that one's field, and this press waits for the focus to
+  // arrive rather than writing over it.
+  const focus = useSyncExternalStore(
     page.selection.subscribe,
-    () => page.selection.getSnapshot().focused === blockId,
-    () => false,
+    () => {
+      const holder = page.selection.getSnapshot().focused;
+      return holder === blockId ? "here" : holder ? "elsewhere" : "none";
+    },
+    () => "none" as const,
   );
   const [pressing, setPressing] = useState(false);
   useEffect(() => {
@@ -381,13 +387,15 @@ function CanvasBlockView({
       window.removeEventListener("pointercancel", release, true);
     };
   }, [pressing]);
-  const broadcasting = pressing || (page.pane ? focused : engaged);
+  const broadcasting = page.pane
+    ? focus === "here" || (pressing && focus === "none")
+    : pressing || engaged;
   useEffect(() => {
-    if (!broadcasting || !liveApi || !yDoc) return;
+    if (readOnly || !broadcasting || !liveApi || !yDoc) return;
     const provider = providerForDoc(yDoc);
     if (!provider) return;
     return broadcastCanvasPresence(provider.awareness, blockId, liveApi);
-  }, [broadcasting, liveApi, yDoc, blockId]);
+  }, [readOnly, broadcasting, liveApi, yDoc, blockId]);
 
   const surfaceSource = yDoc ? seed : source;
   const surfaceChange = yDoc ? collabChange : legacyChange;
@@ -501,8 +509,7 @@ function CanvasBlockView({
             onChange={() => {}}
             storeKey={sceneStoreKey(blockId)}
             readOnly
-            // Captured so remote edits flow in and co-presence paints; a
-            // viewer never broadcasts.
+            // Captured so remote edits flow in and co-presence paints.
             onApi={(next) => {
               setLiveApi(next);
               collab.setStore(next?.store ?? null);

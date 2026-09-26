@@ -238,8 +238,8 @@ export function AlbumSurface({
   const [open, setOpen] = useState<number | null>(null);
   /**
    * Whether the album is the thing being worked on, which is what the bar
-   * follows. Claimed the way the canvas claims the screen's panels — on the
-   * way down, pointer or focus — and released when a press lands elsewhere.
+   * follows. Taken on the way down, pointer or focus, and let go when a press
+   * lands elsewhere.
    */
   const [active, setActive] = useState(false);
   useEffect(() => {

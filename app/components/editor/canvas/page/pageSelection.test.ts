@@ -1,5 +1,9 @@
+import { DOMParser as LinkedomParser } from "linkedom";
 import { describe, expect, it, vi } from "vitest";
-import type { SelectionStore } from "../engine/useSelection";
+import { WorkspaceHistory } from "@/app/lib/history/spine";
+import { SceneStore } from "../engine/useScene";
+import { createSelectionStore, type SelectionStore } from "../engine/useSelection";
+import { laidOutScene } from "../scene/autoLayout";
 import type { CanvasApi } from "../render/CanvasSurface";
 import { createPageSelection } from "./pageSelection";
 import { createPageCanvas, createPageCanvasHub, type DiagramEntry } from "./PageCanvas";
@@ -421,10 +425,10 @@ describe("page canvas hub", () => {
     expect(b.api.selection.getSnapshot().ids).toEqual([]);
   });
 
-  it("hands out the pane for a page", () => {
-    const { hub, aside } = setup();
-    expect(hub.forPage("p2")).toBe(aside);
-    expect(hub.forPage("nope")).toBeNull();
+  it("hands out each pane's controller", () => {
+    const { hub, main, aside } = setup();
+    expect(hub.pane("main")).toBe(main);
+    expect(hub.pane("aside")).toBe(aside);
   });
 });
 
@@ -460,5 +464,60 @@ describe("page canvas registry", () => {
     off();
     expect(page.get("a")).toBeUndefined();
     expect(page.selection.getSnapshot().focused).toBeNull();
+  });
+});
+
+describe("one selection change, one undo step", () => {
+  // The stores parse diagram HTML, and this environment has no DOM.
+  (globalThis as { DOMParser?: unknown }).DOMParser = LinkedomParser;
+
+  const band = (id: string) =>
+    `<nt-diagram h="120"><nt-rect id="${id}1" x="10" y="10" w="40" h="40"></nt-rect>` +
+    `<nt-rect id="${id}2" x="80" y="10" w="40" h="40"></nt-rect></nt-diagram>`;
+
+  /** Two real diagrams on one page, each its own domain on the spine, as the workspace wires them. */
+  function wired() {
+    const spine = new WorkspaceHistory();
+    const page = createPageSelection({ batch: spine.batch, quiet: spine.walking });
+    const diagram = (id: string) => {
+      const store = new SceneStore(band(id));
+      const raw = createSelectionStore(laidOutScene(store.getScene()));
+      raw.setHistory(store);
+      store.onHistory((event) => {
+        if (event.type === "push") spine.record(id, event.selectionOnly ? "focus" : "edit");
+      });
+      const step = (moved: boolean) => ({ consumed: moved ? 1 : 0, redoable: moved });
+      spine.register(id, { undo: () => step(store.undo()), redo: () => step(store.redo()) });
+      page.attach(id, raw);
+      return { store, raw, facade: page.facade(id, raw) };
+    };
+    return { spine, a: diagram("a"), b: diagram("b") };
+  }
+
+  /** A shape selected in `a` and then moved, so the next selection there is a step of its own. */
+  async function holding(a: ReturnType<typeof wired>["a"]) {
+    a.facade.select(["a1"]);
+    a.store.dispatch({ type: "move", ids: ["a1"], dx: 5, dy: 0 });
+    await Promise.resolve();
+  }
+
+  // The store tells the page before it records, so a change reaching it
+  // outside a batch left the page's reply — the others cleared — as a step of
+  // its own, and one ⌘Z brought back nothing that had been let go.
+  it("a select-all in one diagram and the selection it lets go elsewhere undo as one", async () => {
+    const { spine, a, b } = wired();
+    await holding(a);
+    b.facade.selectAll();
+    expect(a.raw.getSnapshot().ids).toEqual([]);
+    expect(b.raw.getSnapshot().ids.length).toBeGreaterThan(0);
+    await spine.undo();
+    expect([a.raw.getSnapshot().ids, b.raw.getSnapshot().ids]).toEqual([["a1"], []]);
+  });
+
+  it("a Tab with nothing to move from lets nothing go", async () => {
+    const { a, b } = wired();
+    await holding(a);
+    expect(b.facade.selectSibling("next")).toBe(false);
+    expect(a.raw.getSnapshot().ids).toEqual(["a1"]);
   });
 });

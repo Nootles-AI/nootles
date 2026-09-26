@@ -29,6 +29,9 @@ import {
   type PageCanvas,
 } from "../app/components/editor/canvas/page/PageCanvas";
 import { findNode, type SceneNode } from "../app/components/editor/canvas/scene/types";
+import { ZoomToolbar } from "../app/components/editor/canvas/Toolbar";
+import { PagePane } from "../app/components/PagePane";
+import { useZoomKeys } from "../app/components/useDocumentZoom";
 import "@blocknote/mantine/style.css";
 import "../app/components/editor/editor.css";
 import "../app/components/editor/canvas/canvas.css";
@@ -103,18 +106,24 @@ function Page() {
   );
 }
 
+// The page in the pane the workspace gives it — scroller, zoomed sheet,
+// column — with the zoom keys and the reader's zoom bar.
 function Pane() {
   const canvas = usePaneCanvas("main", PAGE);
   useEffect(() => {
     page = canvas;
   }, [canvas]);
+  useZoomKeys(() => "main");
   return (
     <PageCanvasContext value={canvas}>
-      <main className="nt-pane" style={{ height: "100vh", overflow: "auto" }}>
-        <div {...undoScope} style={{ width: 832, margin: "0 auto", padding: "48px 56px", boxSizing: "border-box" }}>
-          <BlockNoteView editor={editor} theme="light" className="nt-editor" sideMenu={false} slashMenu={false} formattingToolbar={false} />
-        </div>
-      </main>
+      <div id="stage" style={{ height: "100vh", display: "flex" }}>
+        <PagePane pane="main" pageId={PAGE}>
+          <div {...undoScope}>
+            <BlockNoteView editor={editor} theme="light" className="nt-editor" sideMenu={false} slashMenu={false} formattingToolbar={false} />
+          </div>
+        </PagePane>
+      </div>
+      <ZoomToolbar pane="main" />
     </PageCanvasContext>
   );
 }
@@ -183,6 +192,28 @@ const harness = {
     return !!outline && group?.style.display !== "none" && outline.getBoundingClientRect().width > 0;
   },
   members: (blockId: string) => bandOf(blockId)?.querySelectorAll(".nt-ov-members > rect").length ?? 0,
+  /** What the zoom bar reads. */
+  zoomReadout: () => document.querySelector('[aria-label="Document zoom"] .nt-toolbar-zoom')?.textContent ?? null,
+  /** Client px per band px: the page's zoom, as the band is drawn. */
+  bandScale: (blockId: string) => {
+    const band = bandOf(blockId);
+    return band ? band.getBoundingClientRect().width / band.offsetWidth : null;
+  },
+  /** Brings a shape to the middle of the pane, which a zoom may have moved it out of. */
+  reveal: (blockId: string, id: string) =>
+    bandOf(blockId)
+      ?.querySelector(`.nt-canvas-scene [data-id="${CSS.escape(id)}"]`)
+      ?.scrollIntoView({ block: "center", inline: "center" }),
+  /** A corner grip's width on screen — chrome holds its size at any zoom. */
+  grip: (blockId: string) => {
+    const grip = bandOf(blockId)?.querySelector(".nt-ov-corners > *");
+    return grip ? Math.round(grip.getBoundingClientRect().width * 10) / 10 : null;
+  },
+  /** Narrows the pane, as a rail opening beside it would; null gives it the window back. */
+  paneWidth: (px: number | null) => {
+    document.getElementById("stage")!.style.width = px === null ? "" : `${px}px`;
+  },
+  apple: () => /mac|iphone|ipad|ipod/i.test(navigator.userAgent),
   undo: () => spine?.undo(),
   clear: () => page?.selection.clearAll(),
 };

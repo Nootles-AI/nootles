@@ -2,7 +2,8 @@
  * Two diagrams on one page (`canvas-page.browser.tsx`), driven with a real
  * pointer: a Shift-click selects across them, one drag moves both, the band
  * grows under it and the top holds it, one undo takes the whole move back,
- * and a marquee from one band reaches into the next.
+ * and a marquee from one band reaches into the next. At 150% document zoom
+ * a click and a drag still land in the diagram's own px.
  *
  *   node tests/canvas-page.browser.mjs
  */
@@ -181,6 +182,58 @@ try {
   await page.mouse.up();
   check("a marquee across two bands selects in both", await at("selection"), { top: ["a1"], bottom: ["b1"] });
   check("focus is where it started", await at("focused"), "top");
+
+  // The document's zoom: ⌘= steps the page, the bar reads it, and a diagram
+  // at 150% still takes a click and a drag in its own px.
+  await page.mouse.click(...Object.values(centre(await at("shape", "top", "a2"))));
+  const grip = await at("grip", "top");
+  check("a selected shape shows its grips", grip > 0, true);
+  await at("clear");
+  const mod = (await at("apple")) ? "Meta" : "Control";
+  check("the page opens at 100%", await at("zoomReadout"), "100%");
+  await page.keyboard.press(`${mod}+Equal`);
+  await frame();
+  check("⌘= zooms the page a step", await at("zoomReadout"), "125%");
+  await page.keyboard.press(`${mod}+Equal`);
+  await frame();
+  check("and another", await at("zoomReadout"), "150%");
+  check("the band is drawn at the page's zoom", Math.round((await at("bandScale", "top")) * 100) / 100, 1.5);
+  await at("reveal", "top", "a2");
+  await frame();
+  await page.mouse.click(...Object.values(centre(await at("shape", "top", "a2"))));
+  check("at 150%, a click selects the shape under it", await at("selection"), { top: ["a2"] });
+  check("its grips keep their size on screen", await at("grip", "top"), grip);
+  await drag(centre(await at("shape", "top", "a2")), 90, 30);
+  check("a drag moves it by the pointer's distance in the diagram's px", await at("model", "top", "a2"), {
+    x: 480,
+    y: 60,
+  });
+  await at("undo");
+  await frame();
+  await page.keyboard.press(`${mod}+Digit0`);
+  await frame();
+  check("⌘0 puts the page back at 100%", await at("zoomReadout"), "100%");
+  check("and the band at its own size", await at("bandScale", "top"), 1);
+
+  // A pane narrowed under a held pointer — a rail opening on the selection
+  // the press made — leaves the band's scale alone until the pointer lets go.
+  const held = centre(await at("shape", "top", "a2"));
+  await page.mouse.move(held.x, held.y);
+  await page.mouse.down();
+  await at("paneWidth", 700);
+  await frame();
+  await frame();
+  check("a band under a held pointer keeps its scale", await at("bandScale", "top"), 1);
+  await page.mouse.up();
+  await frame();
+  await frame();
+  check("and takes the narrower pane's once it is let go", (await at("bandScale", "top")) < 1, true);
+  check("its selection's grips still keep their size on screen", await at("grip", "top"), grip);
+  await at("paneWidth", null);
+  await frame();
+  await frame();
+  check("a pane given its width back gives the band its size", await at("bandScale", "top"), 1);
+  await at("clear");
 
   check("no page errors", guards.errors(), []);
   check("no requests off the fixture", guards.requests(), []);

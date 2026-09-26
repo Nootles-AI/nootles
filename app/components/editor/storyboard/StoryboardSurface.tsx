@@ -11,6 +11,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { X } from "@/app/components/Icons";
+import { effectiveScale } from "@/app/lib/columnScale";
 import { CanvasSurface, type CanvasApi } from "../canvas/render/CanvasSurface";
 import { useFrameClaim } from "../canvas/page/frameClaim";
 import { useDebouncedPersist } from "../useDebouncedPersist";
@@ -508,14 +509,17 @@ export function StoryboardSurface({
     event.preventDefault();
     const startX = event.clientX;
     const startW = el.offsetWidth;
-    const room = el.closest("main")?.clientWidth ?? window.innerWidth;
+    // The pointer moves in client px and the width is the board's own, which
+    // the page's zoom magnifies.
+    const scale = effectiveScale(el);
+    const room = (el.closest("main")?.clientWidth ?? window.innerWidth) / scale;
     const limit = Math.max(MIN_BOARD_W, room - 32);
     let next = startW;
     let moved = false;
     const move = (e: PointerEvent) => {
       if (!moved) setFitting(true);
       moved = true;
-      next = Math.round(Math.min(limit, Math.max(MIN_BOARD_W, startW + e.clientX - startX)));
+      next = Math.round(Math.min(limit, Math.max(MIN_BOARD_W, startW + (e.clientX - startX) / scale)));
       el.style.width = `${next}px`;
     };
     const up = () => {

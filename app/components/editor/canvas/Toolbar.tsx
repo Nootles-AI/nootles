@@ -21,6 +21,7 @@ import { Check, FountainPen } from "@/app/components/Icons";
 import { Menu, MenuItem } from "@/app/components/Menu";
 import { Tooltip } from "@/app/components/Tooltip";
 import { useColumnEdges } from "@/app/lib/columnEdges";
+import { stepZoom, zoomFor, ZOOM_MAX, ZOOM_MIN, ZOOM_STEPS, type ZoomPane } from "@/app/lib/docZoom";
 import { useAutocomplete } from "../ai/useAutocomplete";
 import { ReachPopover, SPARK_PATH as SPARK } from "../ai/ReachSlider";
 import {
@@ -433,6 +434,93 @@ function Settings({ targets = false }: { targets?: boolean }) {
   );
 }
 
+const unzoomed = () => 1;
+const percent = (z: number) => `${Math.round(z * 100)}%`;
+
+/**
+ * The focused page's zoom: its readout, and a menu of the steps. The zoom is
+ * the page's, not the diagrams' — a diagram is magnified with the words
+ * around it.
+ */
+function ZoomMenu({ pane, hint }: { pane: ZoomPane; hint: (id: ShortcutId) => string }) {
+  const store = zoomFor(pane);
+  const zoom = useSyncExternalStore(store.subscribe, store.get, unzoomed);
+  return (
+    <Menu
+      label="Zoom"
+      side="top"
+      align="end"
+      trigger={(props) => (
+        <Tooltip label="Zoom">
+          <button
+            type="button"
+            {...props}
+            className="nt-toolbar-zoom"
+            aria-label={`Zoom ${percent(zoom)}`}
+            onPointerDown={(e) => e.preventDefault()}
+          >
+            {percent(zoom)}
+          </button>
+        </Tooltip>
+      )}
+    >
+      {(close) => {
+        const run = (fn: () => void) => () => {
+          fn();
+          close();
+        };
+        const row = (id: ShortcutId, label: string, disabled: boolean, fn: () => void) => (
+          <MenuItem onClick={run(fn)} disabled={disabled}>
+            {label}
+            <kbd className="nt-menu-kbd">{hint(id)}</kbd>
+          </MenuItem>
+        );
+        return (
+          <>
+            {row("view.zoomIn", SHORTCUTS_BY_ID["view.zoomIn"].label, zoom >= ZOOM_MAX, () =>
+              store.set(stepZoom(zoom, 1)),
+            )}
+            {row("view.zoomOut", SHORTCUTS_BY_ID["view.zoomOut"].label, zoom <= ZOOM_MIN, () =>
+              store.set(stepZoom(zoom, -1)),
+            )}
+            <div className="nt-menu-sep" aria-hidden />
+            {ZOOM_STEPS.map((step) => (
+              <MenuItem key={step} onClick={run(() => store.set(step))}>
+                {percent(step)}
+                <Check
+                  width={14}
+                  height={14}
+                  aria-hidden
+                  className={`nt-menu-check${Math.abs(step - zoom) < 0.005 ? " is-on" : ""}`}
+                />
+              </MenuItem>
+            ))}
+            <div className="nt-menu-sep" aria-hidden />
+            {row("view.zoomReset", "Reset zoom", zoom === ZOOM_MIN, store.reset)}
+          </>
+        );
+      }}
+    </Menu>
+  );
+}
+
+/**
+ * A reader's bar: nothing to draw with, but the page still zooms — the
+ * workspace's viewers and the share route.
+ */
+export function ZoomToolbar({ pane }: { pane: ZoomPane }) {
+  const apple = useApple();
+  const dock = useRef<HTMLDivElement>(null);
+  useColumnEdges(dock);
+  return (
+    <div ref={dock} className="nt-toolbar-dock is-page">
+      <div className="nt-toolbar" role="toolbar" aria-label="Document zoom">
+        <ZoomMenu pane={pane} hint={(id) => shortcutHint(id, apple)} />
+      </div>
+    </div>
+  );
+}
+
 /**
  * The page's bar. Its tools are every diagram's: a shape picked here draws on
  * the page, or in whichever diagram the press lands on. Text needs a diagram
@@ -441,12 +529,15 @@ function Settings({ targets = false }: { targets?: boolean }) {
 export function PageToolbar({
   tools,
   focused,
+  pane,
   refocus,
   onPalette,
 }: {
   tools: PageToolControl;
   /** Whether a diagram holds the selection — it has the keyboard, so its keys are bare. */
   focused: boolean;
+  /** The pane with the keyboard, whose zoom the bar reads. */
+  pane: ZoomPane;
   /** Hands the keyboard back to the focused diagram after a pick from a list. */
   refocus?: () => void;
   onPalette?: () => void;
@@ -475,6 +566,8 @@ export function PageToolbar({
           onPicked={refocus}
         />
         <History hint={hint} />
+        <span className="nt-toolbar-sep" aria-hidden />
+        <ZoomMenu pane={pane} hint={hint} />
         <span className="nt-toolbar-sep" aria-hidden />
         <Settings targets />
         <AutocompleteButton />

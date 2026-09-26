@@ -91,6 +91,7 @@ import {
 import { useViewport, type ViewportController } from "../engine/useViewport";
 import type { DiagramPatch } from "../panels/StylePanel";
 import { undoScope } from "@/app/lib/history/useWorkspaceHistory";
+import { effectiveScale, followFit } from "@/app/lib/columnScale";
 import {
   normalizeRect,
   toLocal,
@@ -457,9 +458,17 @@ export function CanvasSurface({
   // run through `clientToScene` — stays correct, for free. A layout effect, so
   // a wide toggle never paints a frame with the drawing still at the old origin.
   const viewport = useViewport({ initial: { x: wide ? WIDE_MARGIN : 0, y: 0, zoom: scale } });
+  const wrap = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     viewport.set({ x: wide ? WIDE_MARGIN : 0, y: 0, zoom: scale });
   }, [viewport, scale, wide]);
+  // A band keeps its logical width and is scaled, text and all, to the column
+  // it stands in; a shot is sized by its board.
+  useLayoutEffect(() => {
+    const el = wrap.current;
+    if (inFrame || !el) return;
+    return followFit(el, wide ? "wide" : "normal");
+  }, [inFrame, wide]);
   // The scene store is what puts a selection back on undo; without it a
   // selection change is simply not in the history.
   const ownSelection = useSelectionStore(scene, store);
@@ -515,7 +524,6 @@ export function CanvasSurface({
   // and, worse, keep answering pointer events nothing can see any more.
   useEffect(() => () => modes.exit("unmounted"), [modes]);
 
-  const wrap = useRef<HTMLDivElement>(null);
   const overlay = useRef<OverlayApi>(null);
 
   /**
@@ -1027,10 +1035,13 @@ export function CanvasSurface({
    *  that one shared helper, not a second tolerance closure). */
   const pickOpts = () => ({ tolerance: slopFor(viewport.screenScale()) });
 
-  /** The hand moves the page: a band has no view of its own to move. */
+  /**
+   * The hand moves the page: a band has no view of its own to move. In client
+   * px, undivided — the pane is never zoomed, only the sheet inside it.
+   */
   const startPan = (from: { x: number; y: number }) => {
     const el = viewport.containerRef.current;
-    const scroller = el ? scrollParent(el) : null;
+    const scroller = el ? (el.closest(".nt-pane") ?? scrollParent(el)) : null;
     el?.classList.add("is-grabbing");
     let { x, y } = from;
     drag(
@@ -1509,11 +1520,12 @@ export function CanvasSurface({
     event.preventDefault();
     const startY = event.clientY;
     const startH = el.offsetHeight;
+    const scale = effectiveScale(el);
     const floor = bandFloor(store.getScene());
     let next = startH;
     drag(
       (move) => {
-        next = Math.max(floor, Math.round(startH + move.clientY - startY));
+        next = Math.max(floor, Math.round(startH + (move.clientY - startY) / scale));
         // Written straight to the element; React learns the number once, from
         // the source this commits.
         el.style.height = `${next}px`;

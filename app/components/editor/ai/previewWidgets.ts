@@ -1,6 +1,9 @@
-import { createElement } from "react";
+import { createElement, useLayoutEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { bandHeightIn } from "@/app/components/editor/canvas/scene/band";
+import type { Scene } from "@/app/components/editor/canvas/scene/types";
+import { COLUMN_WIDTH } from "@/app/lib/column";
+import { followFit } from "@/app/lib/columnScale";
 import { loadKatex } from "@/app/components/editor/math/katex";
 import { runsToHtml } from "@/app/lib/ai/html/serialize";
 import type { AnyBlock } from "@/app/lib/ai/projection";
@@ -340,11 +343,20 @@ function diagramPreview(source: string, head: PreviewHead) {
   // scaled into the column, so it lands taller than it shows here.
   surface.style.height = `${bandHeightIn(scene)}px`;
   wrap.appendChild(surface);
+  // A column band's width, scaled to the page like one, so a narrow pane
+  // shrinks it with the text rather than leaving the height of a wider one.
+  wrap.style.width = `${COLUMN_WIDTH}px`;
 
   const root = createRoot(surface);
   roots.set(wrap, root);
-  root.render(createElement(ScenePreview, { scene }));
+  root.render(createElement(BandPreview, { scene, band: wrap }));
   return wrap;
+}
+
+/** The preview, following its page's fit while it is mounted — by then it is in the page. */
+function BandPreview({ scene, band }: { scene: Scene; band: HTMLElement }) {
+  useLayoutEffect(() => followFit(band, "normal"), [band]);
+  return createElement(ScenePreview, { scene });
 }
 
 /** Typeset now if KaTeX is here, else show the source and typeset when it lands. */

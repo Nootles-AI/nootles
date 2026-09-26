@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useSyncExternalStore } from "react";
 import type { Pane } from "@/app/components/OpenPageContext";
+import { setFitFrozen } from "@/app/lib/columnScale";
 import type { SceneStore } from "../engine/useScene";
 import { selectionFrame, type SelectionStore } from "../engine/useSelection";
 import type { CanvasApi } from "../render/CanvasSurface";
@@ -53,7 +54,7 @@ export type DiagramTarget = {
 export interface PageCanvas {
   readonly pane: Pane | null;
   readonly pageId: string | null;
-  /** Null where there is no page to draw on — a viewer, or no workspace at all. */
+  /** Null outside a workspace: the share route, a harness. A viewer's diagrams simply never take it. */
   readonly tools: PageToolControl | null;
   readonly selection: PageSelection;
   /** Moves, resizes, rotations and marquees that reach across diagrams. */
@@ -75,6 +76,8 @@ export interface PageCanvas {
   /** What a focus restore asks for: this diagram, in view. */
   focus(blockId: string): void;
   batch<T>(fn: () => T): T;
+  /** Whether a pointer pressed on one of the diagrams is still down. */
+  pressing(): boolean;
   /** The pane is on screen: what listens on its behalf starts here, and stops with the returned call. */
   attach(): () => void;
 }
@@ -96,7 +99,6 @@ export interface PageCanvasHub {
   quiet(): boolean;
   addPane(canvas: PageCanvas): () => void;
   pane(pane: Pane): PageCanvas | null;
-  forPage(pageId: string): PageCanvas | null;
   clearAll(): void;
   subscribe(listener: () => void): () => void;
   getSnapshot(): HubSnapshot;
@@ -146,6 +148,7 @@ export function createPageCanvas({
   });
   const entries = () => [...registry.values()].sort(byDocument);
   const gesture = createPageGesture({ entries, selection, batch });
+  let pressed = false;
 
   // The frame around a selection spanning diagrams moves when any of them
   // changes, and when the text between them reflows — so while there is one,
@@ -257,20 +260,39 @@ export function createPageCanvas({
       selection.focus(blockId);
       registry.get(blockId)?.api.band.current?.scrollIntoView?.({ block: "nearest" });
     },
+    pressing: () => pressed,
     attach: () => {
       // One listener for every diagram in the pane: a press outside all of
       // them lets the page's selection go, batched, where a listener per
       // diagram cleared each on its own. A press on one is the diagram's to
-      // read — it may be the start of a drag of shapes in several.
+      // read — it may be the start of a drag of shapes in several — and holds
+      // the page's fit still until it lets go, so a rail opening on the
+      // selection it makes cannot rescale the band under the pointer.
       const onDown = (event: PointerEvent) => {
         const target = event.target;
         if (!(target instanceof Element)) return;
+        if ([...registry.values()].some((e) => e.api.band.current?.contains(target))) {
+          pressed = true;
+          setFitFrozen(true);
+          return;
+        }
         if (selection.getSnapshot().parts.size === 0) return;
-        if ([...registry.values()].some((e) => e.api.band.current?.contains(target))) return;
         if (!target.closest(CANVAS_CHROME)) selection.clearAll();
       };
+      const onUp = () => {
+        if (!pressed) return;
+        pressed = false;
+        setFitFrozen(false);
+      };
       document.addEventListener("pointerdown", onDown, true);
-      return () => document.removeEventListener("pointerdown", onDown, true);
+      window.addEventListener("pointerup", onUp, true);
+      window.addEventListener("pointercancel", onUp, true);
+      return () => {
+        document.removeEventListener("pointerdown", onDown, true);
+        window.removeEventListener("pointerup", onUp, true);
+        window.removeEventListener("pointercancel", onUp, true);
+        onUp();
+      };
     },
   };
 }
@@ -341,7 +363,6 @@ export function createPageCanvasHub({ batch, quiet = never }: Deps): PageCanvasH
       };
     },
     pane: (pane) => panes.get(pane) ?? null,
-    forPage: (pageId) => [...panes.values()].find((canvas) => canvas.pageId === pageId) ?? null,
     clearAll,
     subscribe: (listener) => {
       listeners.add(listener);
@@ -360,7 +381,6 @@ const NO_SELECTION: PageSelection = {
   marqueeIn: noop,
   clearAll: noop,
   focus: noop,
-  isSelected: never,
   count: () => 0,
   unionIn: nothing,
 };
@@ -390,6 +410,7 @@ export const NO_PAGE_CANVAS: PageCanvas = {
   whenRegistered: () => Promise.resolve(null),
   focus: noop,
   batch: identity,
+  pressing: never,
   attach: () => noop,
 };
 
@@ -399,7 +420,6 @@ const NO_HUB: PageCanvasHub = {
   quiet: never,
   addPane: () => noop,
   pane: () => null,
-  forPage: () => null,
   clearAll: noop,
   subscribe: () => noop,
   getSnapshot: () => NOTHING_HELD,

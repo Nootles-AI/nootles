@@ -44,7 +44,7 @@ function Shell() {
           }}
         />
       </main>
-      {live && <PageToolbar tools={tools} focused refocus={live.focus} />}
+      {live && <PageToolbar tools={tools} focused pane="main" refocus={live.focus} />}
     </>
   );
 }

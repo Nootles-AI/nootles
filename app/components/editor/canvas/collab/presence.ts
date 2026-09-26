@@ -1,4 +1,5 @@
 import type { Awareness } from "y-protocols/awareness";
+import { effectiveScale } from "@/app/lib/columnScale";
 import { laidOutScene } from "../scene/autoLayout";
 import {
   absoluteRect,
@@ -118,8 +119,10 @@ export function broadcastCanvasPresence(
     if (!layer || !container) return undefined;
 
     const host = container.getBoundingClientRect();
-    const originX = host.left + container.clientLeft;
-    const originY = host.top + container.clientTop;
+    // Client px → the container's own, under whatever zoom the page is at.
+    const scale = effectiveScale(container);
+    const originX = host.left + container.clientLeft * scale;
+    const originY = host.top + container.clientTop * scale;
     const viewport = api.viewport.get();
     const measured: { id: string; rect: DOMRect }[] = [];
     for (const id of api.selection.getSnapshot().ids) {
@@ -134,11 +137,11 @@ export function broadcastCanvasPresence(
     const frames: NonNullable<CanvasSignal["frames"]> = {};
     for (const { id, rect } of measured) {
       const a = viewportToScene(
-        { x: rect.left - originX, y: rect.top - originY },
+        { x: (rect.left - originX) / scale, y: (rect.top - originY) / scale },
         viewport,
       );
       const b = viewportToScene(
-        { x: rect.right - originX, y: rect.bottom - originY },
+        { x: (rect.right - originX) / scale, y: (rect.bottom - originY) / scale },
         viewport,
       );
       frames[id] = { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };

@@ -27,7 +27,7 @@ import {
 } from "@/app/lib/history/useWorkspaceHistory";
 import { LayersPanel } from "./editor/canvas/panels/LayersPanel";
 import { CanvasStylePanel } from "./editor/canvas/panels/CanvasStylePanel";
-import { FrameToolbar, PageToolbar, SHAPES } from "./editor/canvas/Toolbar";
+import { FrameToolbar, PageToolbar, SHAPES, ZoomToolbar } from "./editor/canvas/Toolbar";
 import { isApplePlatform, matchShortcut } from "./editor/canvas/engine/shortcuts";
 import {
   createPageCanvasHub,
@@ -40,6 +40,7 @@ import { pageToolFor, usePageDraw } from "./PageDraw";
 import { LocationPanel } from "./editor/location/LocationPanel";
 import { LocationShellContext, type ActiveLocation } from "./editor/location/shell";
 import { useOpenPage } from "./OpenPageContext";
+import { useZoomKeys } from "./useDocumentZoom";
 import { Sidebar } from "./Sidebar";
 import { PageSkeleton, PageSurface } from "./PageSurface";
 import { ReviewBar } from "./ReviewBar";
@@ -203,7 +204,14 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     return () => spine.setNavigator(null);
   }, [spine]);
 
+  /**
+   * The focus last recorded or restored — what the next stop starts from. A
+   * restore moves it too, or the stop after an undo would say it left from
+   * where the undo left.
+   */
+  const lastFocus = useRef<WorkspaceFocus>({ kind: "none" });
   const applyFocus = useCallback((state: WorkspaceFocus) => {
+    lastFocus.current = state;
     if (state.kind === "none") {
       frameRef.current = null;
       setFrame(null);
@@ -239,7 +247,6 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
    * history's own move, not one to record.
    */
   const hubFocus = useRef<string | null>(null);
-  const lastFocus = useRef<WorkspaceFocus>({ kind: "none" });
   const noteFocus = useCallback(() => {
     const canvasKey = frameRef.current?.key ?? hubFocus.current;
     const next: WorkspaceFocus = canvasKey
@@ -308,6 +315,9 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
 
   const compact = useMediaQuery(COMPACT);
   useRepoNaming(projectId);
+  // ⌘= ⌘- ⌘0 zoom the pane with the keyboard, ahead of the page's keys and
+  // the browser's own zoom.
+  useZoomKeys(() => focus);
 
   // Only what something outside needs: the first-run guide brings the chat rail
   // out before pointing at it. Rebuilt when `compact` flips because the same
@@ -806,7 +816,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
           )}
           {designHeld && lastCanvas && (
             <div className="nt-rail-face is-right" data-on={designOn} inert={!designOn} style={railWidth(rightWidth)}>
-              <CanvasStylePanel api={lastCanvas.api} page={lastCanvas.page} />
+              <CanvasStylePanel key={lastCanvas.id} api={lastCanvas.api} page={lastCanvas.page} />
             </div>
           )}
           {placeHeld && lastPlace && (
@@ -816,8 +826,8 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
           )}
         </div>
 
-        {/* One bar, one corner, always there for a writer: the page's tools,
-            or a held shot's own. The review is a standing question and stacks
+        {/* One bar, one corner, always there: a writer's page tools, a
+            reader's zoom, or a held shot's own. The review is a standing question and stacks
             above the page's bar; a shot's bar has the corner to itself while
             it is held. */}
         {frame ? (
@@ -831,13 +841,16 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
           />
         ) : (
           <>
-            {!viewer && hub.tools && (
+            {!viewer && hub.tools ? (
               <PageToolbar
                 tools={hub.tools}
                 focused={held.focused !== null}
+                pane={focus}
                 refocus={focusedApi?.focus}
                 onPalette={find}
               />
+            ) : (
+              viewer && <ZoomToolbar pane={focus} />
             )}
             {/* Here rather than under the editor: the changes it answers for
                 can span pages, and the agent opens pages on its own. */}
