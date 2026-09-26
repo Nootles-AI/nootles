@@ -317,7 +317,7 @@ export const mathBlockSpec = createReactBlockSpec(
             editor.document as unknown as AnyBlock[],
             block.id,
             offset,
-            { title, window: AI.projection.window, collapseDrawn: true },
+            { title, ...AI.projection, collapseDrawn: true },
           )
         }
       />

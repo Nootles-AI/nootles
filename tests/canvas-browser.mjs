@@ -41,6 +41,9 @@ const HARNESSES = [
   // And the document's own keys: the title seam, the table keys and the
   // page-link menus.
   "editor-title-table-menus",
+  // And what inline completion is shown of the page, and what its Tab writes
+  // back, over a window filled to the wire's caps (NT-101).
+  "completion-window",
 ];
 
 function run(name) {

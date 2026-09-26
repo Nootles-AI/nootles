@@ -30,8 +30,11 @@ type SerializeOptions = {
    * carrying a stray `data-cursor="1"`.
    */
   cursorBlockId?: string;
-  /** Top-level blocks to include either side of the cursor. */
-  window?: number;
+  /**
+   * Characters of the page to include either side of the cursor's block,
+   * filled outwards a whole top-level block at a time. See `windowAround`.
+   */
+  around?: { before: number; after: number };
   /**
    * The page title, emitted as <title>. It is the strongest single piece of
    * context the model gets — a page called "Intro to Java" should not be
@@ -717,24 +720,71 @@ export function toDocHtml(
   blocks: AnyBlock[],
   opts: SerializeOptions = {},
 ): string {
+  const title = opts.title?.trim();
+  const head = title ? `<title>${esc(title)}</title>\n` : "";
   let visible = blocks;
-  if (opts.cursorBlockId && opts.window !== undefined) {
+  if (opts.cursorBlockId && opts.around) {
     const center = blocks.findIndex((b) => {
       const ids = new Set<string>();
       collectIds(b, ids);
       return ids.has(opts.cursorBlockId!);
     });
     if (center !== -1) {
-      visible = blocks.slice(
-        Math.max(0, center - opts.window),
-        Math.min(blocks.length, center + opts.window + 1),
-      );
+      visible = windowAround(blocks, center, opts.around, head.length, opts);
     }
   }
 
-  const body = blocksToHtml(visible, opts);
-  const title = opts.title?.trim();
-  return title ? `<title>${esc(title)}</title>\n${body}` : body;
+  return head + blocksToHtml(visible, opts);
+}
+
+/**
+ * The top-level blocks around `center` that fit the character budget, the
+ * nearest first on each side, contiguous, and cut only between blocks.
+ *
+ * The budget is the wire's (`AI.fim.maxBefore`/`maxAfter`): what the model is
+ * shown is what the wire keeps, so the wire's own trim — a cut by characters
+ * that lands mid-tag and takes the <title> first — should rarely have to run.
+ * The caret's whole block is charged to both sides before any neighbour, and
+ * the title to the side it heads, so the choice never depends on where in its
+ * block the caret is.
+ *
+ * It must not depend on the caret at all: the compiler diffs a completion
+ * against this projection serialized WITHOUT the caret, and a block shown on
+ * one side only reads as one the model deleted. So the marker is not counted.
+ *
+ * The block directly either side is kept whatever it costs, as the old
+ * four-block window always kept it: a caret under a long code block or table
+ * still sees the end of it, and the wire trims the rest.
+ */
+function windowAround(
+  blocks: AnyBlock[],
+  center: number,
+  around: { before: number; after: number },
+  title: number,
+  opts: SerializeOptions,
+): AnyBlock[] {
+  // One block alone, and the newline that joins it to the next. A list item
+  // measured alone carries its own <ul></ul>, which the grouped list shares,
+  // so this errs long — over budget never, a few characters short at worst.
+  const cost = (b: AnyBlock) =>
+    blocksToHtml([b], opts).replaceAll(CARET, "").length + 1;
+  const own = cost(blocks[center]);
+
+  let lo = center;
+  for (let left = around.before - title - own; lo > 0; ) {
+    const c = cost(blocks[lo - 1]);
+    if (c > left && lo < center) break;
+    left -= c;
+    lo--;
+  }
+  let hi = center + 1;
+  for (let left = around.after - own; hi < blocks.length; ) {
+    const c = cost(blocks[hi]);
+    if (c > left && hi > center + 1) break;
+    left -= c;
+    hi++;
+  }
+  return blocks.slice(lo, hi);
 }
 
 /**

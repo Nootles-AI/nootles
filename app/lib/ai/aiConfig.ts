@@ -8,6 +8,14 @@
  * router, or heuristic left to configure.
  */
 
+/**
+ * How much of the page the inline-completion model sees either side of the
+ * caret, in characters. One pair, read by the wire (`fim.maxBefore`/`maxAfter`)
+ * and by the projection that fills up to it (`projection.around`), so the two
+ * cannot drift apart.
+ */
+const FIM_WINDOW = { before: 4000, after: 1000 };
+
 export const AI = {
   fim: {
     model: "codestral-2508",
@@ -38,8 +46,8 @@ export const AI = {
      * carrying one very large block does not upload what is about to be
      * trimmed off again.
      */
-    maxBefore: 4000,
-    maxAfter: 1000,
+    maxBefore: FIM_WINDOW.before,
+    maxAfter: FIM_WINDOW.after,
     /**
      * How much of the project's context rides the completion seed — the
      * project's own words and the briefs of the pages around this one, so a
@@ -491,8 +499,19 @@ export const AI = {
   },
 
   projection: {
-    /** Blocks either side of the cursor included in the prompt. */
-    window: 4,
+    /**
+     * Characters of the page either side of the caret's block included in the
+     * prompt, filled outwards a whole top-level block at a time (NT-101).
+     *
+     * The same pair as `fim.maxBefore`/`maxAfter`, which the wire enforces.
+     * It used to be a count of four top-level blocks, and in BlockNote every
+     * list item, heading and short paragraph is one: a twelve-item list was
+     * read as its last four items, the heading above it went unseen, and the
+     * character caps almost never bound. Filling to the caps from here means
+     * the wire's head trim rarely runs, so the <title> it would cut first
+     * stays.
+     */
+    around: FIM_WINDOW,
   },
 
   /**
