@@ -10,7 +10,6 @@ import { PreviewBlocks } from "@/app/components/PagePreview";
 import { track } from "@/app/lib/telemetry";
 import { TEMPLATES, templateById } from "@/app/lib/onboarding/templates";
 import {
-  declaredHeight,
   examplePage,
   openingOf,
   seedDiagramHtml,
@@ -355,10 +354,7 @@ export function Welcome() {
                   <ModeDemo key={demo} mode={demo} template={shown} />
                 </>
               ) : (
-                <PreviewBlocks
-                  blocks={examplePage(shown)}
-                  diagramHeight={declaredHeight(seedDiagramHtml(shown))}
-                />
+                <PreviewBlocks blocks={examplePage(shown)} />
               )}
             </div>
           </div>
@@ -497,7 +493,7 @@ function ModeDemo({ mode, template }: { mode: Mode; template: Template }) {
             // for a full-page one, and fitted much below this the labels stop
             // being words — which turns "it drew something" into "something
             // grey appeared".
-            diagramHeight={Math.min(declaredHeight(diagram) ?? 340, 340)}
+            diagramMaxHeight={340}
           />
           {/* Where the next keystroke would land. In this mode the last thing
               the model wrote is a picture, so the caret is under it — which is

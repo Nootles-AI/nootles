@@ -1,16 +1,16 @@
 import type { Template } from "../types";
 import { ACCENT, BOX, GHOST_BOX } from "../diagramStyle";
 
-const ARCH = `<nt-diagram w="600" h="448">
-  <nt-group id="g1" x="40" y="40" w="520" h="52" style="display: flex; gap: 17px">
+const ARCH = `<nt-diagram h="416">
+  <nt-group id="g1" x="40" y="24" w="520" h="52" style="display: flex; gap: 17px">
     <nt-rect id="c1" w="162" h="52" style="${GHOST_BOX}">Web</nt-rect>
     <nt-rect id="c2" w="162" h="52" style="${GHOST_BOX}">Mobile</nt-rect>
     <nt-rect id="c3" w="162" h="52" style="${GHOST_BOX}">Partner API</nt-rect>
   </nt-group>
-  <nt-rect id="gw" x="200" y="152" w="200" h="52" style="${BOX}">Edge gateway</nt-rect>
-  <nt-rect id="rl" x="200" y="244" w="200" h="52" style="${ACCENT}">Rate limiter</nt-rect>
-  <nt-rect id="st" x="440" y="244" w="120" h="52" style="${GHOST_BOX}">Redis</nt-rect>
-  <nt-group id="g2" x="40" y="356" w="520" h="52" style="display: flex; gap: 17px">
+  <nt-rect id="gw" x="200" y="136" w="200" h="52" style="${BOX}">Edge gateway</nt-rect>
+  <nt-rect id="rl" x="200" y="228" w="200" h="52" style="${ACCENT}">Rate limiter</nt-rect>
+  <nt-rect id="st" x="440" y="228" w="120" h="52" style="${GHOST_BOX}">Redis</nt-rect>
+  <nt-group id="g2" x="40" y="340" w="520" h="52" style="display: flex; gap: 17px">
     <nt-rect id="s1" w="162" h="52" style="${BOX}">Orders</nt-rect>
     <nt-rect id="s2" w="162" h="52" style="${BOX}">Catalog</nt-rect>
     <nt-rect id="s3" w="162" h="52" style="${BOX}">Search</nt-rect>

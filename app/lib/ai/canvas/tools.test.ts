@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { fitOps } from "@/app/components/editor/canvas/scene/band";
+import { findNode, type Scene } from "@/app/components/editor/canvas/scene/types";
 import { CANVAS_TOOLS, CLIENT_TOOLS, TOOLS, type CanvasToolName, type ToolName } from "../chat/tools";
 import { runCanvasTool } from "./execute";
 import { f1 } from "./fixtures";
@@ -107,6 +109,54 @@ describe("TOOLS table invariants", () => {
     };
     await runCanvasTool("get_geometry", { pageId: "p1", blockId: "b1" }, host);
     expect(wrote).toBe(false);
+  });
+});
+
+describe("a verb lands inside the band", () => {
+  /** F1 as the diagram, and every scene the executor writes. */
+  function recording() {
+    const scene = f1();
+    const written: Scene[] = [];
+    const host: CanvasHost = {
+      readScene: async () => ({ pageId: "p1", blockId: "b1", scene }) satisfies CanvasRead,
+      writeScene: async (_read, next): Promise<WriteReceipt> => {
+        written.push(next);
+        return { added: 0, removed: 0, changed: 1, hunks: 1 };
+      },
+      prepareParse: async () => {},
+    };
+    return { host, written };
+  }
+  const move = (ids: string[], dx: number) => ({ pageId: "p1", blockId: "b1", ids, dx });
+
+  it("a move past the column shifts the whole drawing back in, and says so", async () => {
+    const { host, written } = recording();
+    // p1 is 40 wide at x=520: moved to 700, the drawing ends at 740.
+    const reply = await runCanvasTool("move", move(["p1"], 180), host);
+    expect(reply).toBe(
+      "Done: moved 1 shape by (180, 0).\nThe whole drawing then moved by (-20, 0) to stay inside the diagram.",
+    );
+    expect(findNode(written[0], "p1")).toMatchObject({ x: 680, y: 40 });
+    expect(findNode(written[0], "s1")).toMatchObject({ x: 20, y: 40 });
+  });
+
+  it("a move that leaves the drawing wider than the column scales it, and says both", async () => {
+    const { host, written } = recording();
+    // s1 at 1000 stretches the drawing to 40…1200: 1160 across, into 720.
+    const reply = await runCanvasTool("move", move(["s1"], 960), host);
+    expect(reply).toBe(
+      [
+        "Done: moved 1 shape by (960, 0).",
+        "The diagram was scaled to 0.621× to fit its 720px width.",
+        "The whole drawing then moved by (-40, 0) to stay inside the diagram.",
+      ].join("\n"),
+    );
+    expect(fitOps(written[0])).toEqual([]);
+  });
+
+  it("a move that stays inside says nothing more", async () => {
+    const { host } = recording();
+    expect(await runCanvasTool("move", move(["s1"], 10), host)).toBe("Done: moved 1 shape by (10, 0).");
   });
 });
 

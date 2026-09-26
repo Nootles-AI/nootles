@@ -1,9 +1,11 @@
 import { adoptScene } from "@/app/components/editor/canvas/scene/adopt";
+import { bandWidth, fitOps } from "@/app/components/editor/canvas/scene/band";
 import {
   applyOp,
   applyOps,
   mintEdgeIds,
   mintIds,
+  reflowHugs,
 } from "@/app/components/editor/canvas/scene/ops";
 import type { Fragment } from "@/app/components/editor/canvas/scene/parse";
 import { isAutoLayout } from "@/app/components/editor/canvas/scene/autoLayout";
@@ -208,17 +210,17 @@ export function planWriteNodes(
     working = applyOnce(working, op);
   };
 
-  // Step 4: the diagram surface itself — size only when the wrapper stated
-  // one (a bare-shapes fragment, or one with no w/h, never touches it); style
-  // and attrs are merge-only diffs regardless, and apply to any wrapper.
+  // Step 4: the diagram surface itself — its height only when the wrapper
+  // stated one (a bare-shapes fragment, or one with no h, never touches it),
+  // and never a width: a band's is the page's, and the read form's `w` is an
+  // echo. `wide`, style and attrs are merge-only diffs, so this call can widen
+  // a diagram but never narrow it.
   {
-    const diagramPatch: { w?: number; h?: number } = {};
-    if (fragment.rootSized) {
-      if (frag.w !== working.w) diagramPatch.w = frag.w;
-      if (frag.h !== working.h) diagramPatch.h = frag.h;
-    }
+    const diagramPatch: { h?: number; wide?: boolean } = {};
+    if (fragment.rootH && frag.h !== working.h) diagramPatch.h = frag.h;
+    if (frag.wide && !working.wide) diagramPatch.wide = true;
     const style = styleDiffMerge(working.style, frag.style);
-    const attrs = styleDiffMerge(working.attrs, fragment.rootAttrs);
+    const attrs = styleDiffMerge(working.attrs, omit(fragment.rootAttrs, LEGACY_ROOT_ATTRS));
     if (Object.keys(diagramPatch).length || style || attrs) {
       apply({
         type: "setDiagram",
@@ -287,6 +289,14 @@ export function planWriteNodes(
     apply({ type: "remove", ids: removedNodeIds });
   }
   if (removedEdgeIds.length) apply({ type: "removeEdge", ids: removedEdgeIds });
+
+  // Step 9: land the merged diagram in its band, as ops, so `ops` still
+  // reproduces `next` and the geometry report reads the fitted coordinates.
+  // After the merge rather than on the fragment: a shape written into an
+  // existing diagram is out of band only against what is already there.
+  const fit = fitOps(reflowHugs(working));
+  for (const op of fit) apply(op);
+  notes.push(...fitNotes(fit, working));
 
   const next = applyOps(scene, ops);
   return {
@@ -431,6 +441,27 @@ export function planWriteNodes(
 // ---------------------------------------------------------------------------
 // Pure helpers
 // ---------------------------------------------------------------------------
+
+/** What a band fit tells the model: only a scale — a nudge back inside the
+ *  band reads off the geometry, but a smaller drawing is news. `scene` is the
+ *  fitted one, which knows whether the band is wide. */
+export function fitNotes(fit: readonly SceneOp[], scene: Scene): string[] {
+  return fit.flatMap((op) =>
+    op.type === "scale"
+      ? [`The diagram was scaled to ${Number(op.k.toFixed(3))}× to fit its ${bandWidth(scene)}px width.`]
+      : [],
+  );
+}
+
+/** Root attributes that pinned an old diagram's size. A write never brings
+ *  them back — a band's width follows from `wide`, and its height from `h`. */
+const LEGACY_ROOT_ATTRS = ["w", "data-width", "data-height"] as const;
+
+function omit(attrs: Record<string, string>, keys: readonly string[]): Record<string, string> {
+  const out = { ...attrs };
+  for (const key of keys) delete out[key];
+  return out;
+}
 
 function toResolved(node: SceneNode, isFinalExisting: (id: NodeId) => boolean): Resolved {
   return { id: node.id, node, existing: isFinalExisting(node.id) };

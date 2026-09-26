@@ -1,6 +1,6 @@
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { sceneBlockHeight } from "@/app/components/editor/canvas/types";
+import { bandHeightIn } from "@/app/components/editor/canvas/scene/band";
 import { loadKatex } from "@/app/components/editor/math/katex";
 import { runsToHtml } from "@/app/lib/ai/html/serialize";
 import type { AnyBlock } from "@/app/lib/ai/projection";
@@ -336,8 +336,9 @@ function diagramPreview(source: string, head: PreviewHead) {
   const scene = sceneFrom(source);
   const surface = div("nt-diagram-preview-surface");
   // The height the block itself will take, by the block's own rule, so
-  // accepting does not move the page.
-  surface.style.height = `${sceneBlockHeight(scene)}px`;
+  // accepting one in the column does not move the page. A wide one previews
+  // scaled into the column, so it lands taller than it shows here.
+  surface.style.height = `${bandHeightIn(scene)}px`;
   wrap.appendChild(surface);
 
   const root = createRoot(surface);

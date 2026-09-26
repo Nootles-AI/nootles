@@ -120,14 +120,13 @@
   --text-meta: 11px;      /* mono: section labels        */
   --text-meta-lg: 12px;   /* mono: counts, timestamps    */
   --text-ui: 13px;        /* rows, menus, buttons        */
-  --text-body: 15px;      /* the document                */
   --text-title: 30px;     /* screen titles               */
   --text-page-title: 42px; /* a document's own title      */
-  --leading-body: 1.7;
   --tracking-meta: 0.06em;
 
-  /* The content column, --measure, is set on <html> by the root layout from
-     COLUMN_WIDTH (app/lib/column.ts), the one copy TS and CSS both read. */
+  /* The content column, --measure, and the body type, --text-body and
+     --leading-body, are set on <html> from COLUMN_VARS (app/lib/column.ts) by
+     every root that renders this sheet — the one copy TS and CSS both read. */
 
   /* Control geometry */
   --inset: 8px;
@@ -4153,7 +4152,10 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
    The room is held by the SLOT, which is in the markup from the first paint —
    the renderer under it is loaded on demand and would otherwise arrive late,
    moving the page and shifting the stagger's nth-child under everything below
-   it. A caller that knows the diagram's own height overrides this inline. */
+   it. The slot takes the drawing's shape from its root, inline: the band's
+   width over the height it states, as a ratio, so it holds at whatever width
+   the page gives it. This height is for a root that states none, or an old
+   one whose band only the reader can work out. */
 .nt-thumb-slot {
   height: 260px;
 }

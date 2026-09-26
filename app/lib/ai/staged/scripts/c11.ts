@@ -67,13 +67,13 @@ export const C11: StagedScript = {
               pageId,
               html: `<h2>Firmware architecture</h2>
 <p>Read off <code>src/rtos/tasks.c</code> — priorities and periods as declared there.</p>
-<nt-diagram w="1100" h="570">
-${box("fa-can", 40, 60, "can_rx", "src/can/rx.c", "prio 7 · ISR")}
-${box("fa-teleop", 420, 60, "teleop_wd", "src/teleop/watchdog.c", "prio 5 · 50 ms")}
-${box("fa-safety", 800, 60, "safety", "src/safety/monitor.c", "prio 6 · 1 kHz")}
-${box("fa-motor", 420, 250, "motor_ctl", "src/motor/control.c", "prio 6 · 1 kHz")}
-${box("fa-nav", 40, 430, "nav", "src/nav/plan.c", "prio 3 · 20 Hz")}
-${box("fa-tlm", 800, 430, "telemetry", "src/tlm/report.c", "prio 2 · 10 Hz")}
+<nt-diagram h="534" wide>
+${box("fa-can", -135, 24, "can_rx", "src/can/rx.c", "prio 7 · ISR")}
+${box("fa-teleop", 245, 24, "teleop_wd", "src/teleop/watchdog.c", "prio 5 · 50 ms")}
+${box("fa-safety", 625, 24, "safety", "src/safety/monitor.c", "prio 6 · 1 kHz")}
+${box("fa-motor", 245, 214, "motor_ctl", "src/motor/control.c", "prio 6 · 1 kHz")}
+${box("fa-nav", -135, 394, "nav", "src/nav/plan.c", "prio 3 · 20 Hz")}
+${box("fa-tlm", 625, 394, "telemetry", "src/tlm/report.c", "prio 2 · 10 Hz")}
   <nt-edge id="fa-e1" from="fa-can" to="fa-motor">q_cmd · depth 8</nt-edge>
   <nt-edge id="fa-e2" from="fa-can" to="fa-teleop">heartbeat</nt-edge>
   <nt-edge id="fa-e4" from="fa-teleop" to="fa-safety">fault line</nt-edge>

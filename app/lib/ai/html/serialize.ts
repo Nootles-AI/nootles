@@ -279,14 +279,20 @@ function storedScene(blocks: AnyBlock[], at: string): string | null {
     return parseStoryboard(String(block.props.data ?? "")).shots[shot]?.scene ?? null;
   }
   if (block?.type === "canvas" && !Number.isInteger(shot)) {
-    return serializeScene({
-      ...migrateLegacyCanvas(String(block.props.data ?? "")),
-      id: block.id,
-    });
+    return diagramHtml(migrateLegacyCanvas(String(block.props.data ?? "")), block.id);
   }
   return null;
 }
 
+/**
+ * A diagram block in the full form the model reads: the stored root plus the
+ * width it is drawn at. One helper for the read and for stub redemption, so a
+ * returned stub redeems to the read byte for byte. Storyboard shots are
+ * frames and pass through as stored.
+ */
+function diagramHtml(scene: Scene, id: string): string {
+  return serializeScene({ ...scene, id }, { readWidth: true });
+}
 
 /**
  * Album stubs back to the pictures they stand for. Attributes the model may
@@ -469,8 +475,7 @@ function blockToHtml(block: AnyBlock, opts: SerializeOptions): string {
       // canvas stored HTML come through the migrator on the way past.
       const parsed = migrateLegacyCanvas(String(block.props.data ?? ""));
       if (opts.diagramsAsBriefs) return briefStub(parsed, block.id);
-      const scene = serializeScene({ ...parsed, id: block.id });
-      return diagramRead(scene, block.id, block.id, block.id, opts);
+      return diagramRead(diagramHtml(parsed, block.id), block.id, block.id, block.id, opts);
     }
     case "album":
       // As with the diagram above: the block stores this grammar, so only its

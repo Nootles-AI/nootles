@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { fitOps } from "@/app/components/editor/canvas/scene/band";
 import { applyOps, setAttrs } from "@/app/components/editor/canvas/scene/ops";
 import { findNode } from "@/app/components/editor/canvas/scene/types";
 import { isRefusal } from "./host";
@@ -180,23 +181,82 @@ describe("planWriteNodes", () => {
     if (p1.kind === "path") expect(p1.d).toBe("M 0 0 L 40 40");
   });
 
-  it("a wrapping nt-diagram sizes and restyles the surface (W16)", () => {
+  it("a wrapping nt-diagram sets the height, widens and restyles the surface — never a width (W16)", () => {
     const scene = f1();
     const plan = ok(
       planWriteNodes(
         scene,
         fragment(
-          '<nt-diagram w="800" h="400" style="--brand: #0f766e">' +
+          '<nt-diagram w="1200" h="480" wide data-width="fixed" style="--brand: #0f766e">' +
             '<nt-rect id="s1" x="40" y="40" w="200" h="56" style="background: var(--brand); border-radius: 10px">Order</nt-rect>' +
             "</nt-diagram>",
         ),
       ),
     );
-    expect(plan.next.w).toBe(800);
-    expect(plan.next.h).toBe(400);
+    expect(plan.next.w).toBe(0);
+    expect(plan.next.h).toBe(480);
+    expect(plan.next.wide).toBe(true);
     expect(plan.next.style["--brand"]).toBe("#0f766e");
+    expect(plan.next.attrs).toEqual({});
+    expect(plan.ops[0]).toEqual({
+      type: "setDiagram",
+      h: 480,
+      wide: true,
+      style: { "--brand": "#0f766e" },
+    });
     // s1 itself is unchanged text-for-text, so it produces no update op.
     expect(plan.updated).toEqual([]);
+  });
+
+  it("an echo of the read form's root changes nothing — its w is the page's (W16)", () => {
+    const scene = f1();
+    const plan = ok(
+      planWriteNodes(
+        scene,
+        fragment(
+          '<nt-diagram id="b7" w="720" h="400" style="--brand: #6366f1">' +
+            '<nt-rect id="s1" x="40" y="40" w="200" h="56" style="background: var(--brand); border-radius: 10px">Order</nt-rect>' +
+            "</nt-diagram>",
+        ),
+      ),
+    );
+    expect(plan.ops).toEqual([]);
+    expect(plan.next).toBe(scene);
+  });
+
+  it("an h below the content is raised to hold it (W16)", () => {
+    const plan = ok(
+      planWriteNodes(
+        f1(),
+        fragment('<nt-diagram h="96"><nt-rect id="s1" x="40" y="40" w="200" h="56" style="background: var(--brand); border-radius: 10px">Order</nt-rect></nt-diagram>'),
+      ),
+    );
+    // g1 ends at 240; the band adds 24 below it.
+    expect(plan.next.h).toBe(264);
+  });
+
+  it("content written past the column is scaled into it, said, and reproduced by the ops", () => {
+    const scene = f1();
+    const plan = ok(
+      planWriteNodes(scene, fragment('<nt-rect id="far" x="900" y="40" w="100" h="56"></nt-rect>')),
+    );
+    // 40…1000 is 960 across: scaled by 720/960 about its top-left, then
+    // nudged left so its right edge meets the column's.
+    expect(plan.notes).toContain("The diagram was scaled to 0.75× to fit its 720px width.");
+    expect(findNode(plan.next, plan.inserted[0])).toMatchObject({ x: 645, y: 40, w: 75, h: 42 });
+    expect(findNode(plan.next, "s1")).toMatchObject({ x: 0, y: 40, w: 150, h: 42 });
+    expect(applyOps(scene, plan.ops)).toEqual(plan.next);
+    expect(fitOps(plan.next)).toEqual([]);
+  });
+
+  it("content past the column lands as written in a wide diagram", () => {
+    const scene = { ...f1(), wide: true as const };
+    const plan = ok(
+      planWriteNodes(scene, fragment('<nt-rect id="far" x="900" y="40" w="60" h="56"></nt-rect>')),
+    );
+    expect(plan.notes).toEqual([]);
+    expect(findNode(plan.next, plan.inserted[0])).toMatchObject({ x: 900, y: 40, w: 60, h: 56 });
+    expect(plan.ops.map((op) => op.type)).toEqual(["insert"]);
   });
 
   it("stub attributes never reach the diagram (W17)", () => {
@@ -233,7 +293,7 @@ describe("planWriteNodes", () => {
   });
 
   it("data-icon changes compile to setAttrs (W22)", () => {
-    const scene = applyOps(parse('<nt-diagram w="100" h="100"><nt-rect id="p1" w="10" h="10"></nt-rect></nt-diagram>'), [
+    const scene = applyOps(parse('<nt-diagram h="100"><nt-rect id="p1" w="10" h="10"></nt-rect></nt-diagram>'), [
       { type: "setAttrs", id: "p1", attrs: { "data-icon": "cat" } },
     ]);
     const plan = ok(

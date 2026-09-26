@@ -1,4 +1,5 @@
-import { COLUMN_WIDTH } from "@/app/lib/column";
+import { BAND, WIDE_MARGIN, WIDE_W } from "@/app/components/editor/canvas/scene/band";
+import { BODY_LEADING, BODY_PX, COLUMN_WIDTH } from "@/app/lib/column";
 
 /**
  * The canvas grammar, taught once.
@@ -30,7 +31,7 @@ Connector: <nt-edge from="id" to="id">label</nt-edge>
 Geometry is ATTRIBUTES, appearance is CSS in style. Never put position or size in style,
 and never put colour or borders in attributes.
   x y w h    position and size in px. x/y is the top-left corner, relative to the parent
-             group (or to the canvas for a top-level shape).
+             group (or to the diagram's origin for a top-level shape — see SIZE AND PLACEMENT).
   rot        clockwise degrees, only when rotated.
   sides      required on <nt-polygon>. 4 is a diamond, 3 a triangle, 6 a hexagon.
   d          required on <nt-path>. SVG path data.
@@ -127,8 +128,10 @@ neutral box is:
 Labels are 12-13px; a heading in a mockup can be larger.
 
 SIZE AND PLACEMENT
-The diagram sits in a document column about ${COLUMN_WIDTH}px wide and is shown from its top-left
-corner, so lay it out there: start at about x=40, y=40, keep the whole thing within ${COLUMN_WIDTH}px
-across, and set w/h on <nt-diagram> to just contain the content plus that margin. A canvas
-far wider than what is in it puts the drawing off to one side of the column, and content
-past ${COLUMN_WIDTH}px is off the edge. Keep 40px between things that are not related.`;
+The page is ${COLUMN_WIDTH}px wide. Body text is ${BODY_PX}px with a ${BODY_LEADING} line height (${BODY_PX * BODY_LEADING}px per line).
+A diagram is ${COLUMN_WIDTH} wide, or ${WIDE_W} when it has the bare wide attribute (it then spans
+x = ${-WIDE_MARGIN} … ${COLUMN_WIDTH + WIDE_MARGIN}, centred on the column). Shapes outside the width are scaled down to fit.
+x/y are px from the diagram's origin: the text's left edge, at the diagram's top.
+Leave ${BAND}px above the first shape. The diagram's height grows to fit; give h only to add room below.
+A read shows w on <nt-diagram>: it is the page's width, never yours to write.
+Keep 40px between things that are not related.`;

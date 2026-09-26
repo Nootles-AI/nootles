@@ -1,3 +1,4 @@
+import { bandWidth } from "./bandSpan";
 import {
   EDGE_TAG,
   LAYOUT_STYLE_PROPS,
@@ -157,14 +158,23 @@ function edgeHtml(edge: SceneEdge, depth: number): string {
   return `${INDENT.repeat(depth)}<${EDGE_TAG}${head}>${escText(edge.label)}</${EDGE_TAG}>`;
 }
 
+export type SerializeSceneOptions = {
+  /**
+   * Write a band's width as `w` — the read form the model gets, so it knows
+   * how much room it has. Derived, never stored: every write path drops it.
+   */
+  readWidth?: boolean;
+};
+
 /**
  * The root: `id`, then `w` only when one is held (a frame's; a band states
  * none), `h` always, a bare `wide`, the carried attributes and `style`.
  */
-export function serializeScene(scene: Scene): string {
+export function serializeScene(scene: Scene, opts: SerializeSceneOptions = {}): string {
+  const w = scene.w > 0 ? scene.w : opts.readWidth ? bandWidth(scene) : 0;
   const head =
     (scene.id ? attr("id", scene.id) : "") +
-    (scene.w > 0 ? numAttr("w", scene.w) : "") +
+    (w > 0 ? numAttr("w", w) : "") +
     numAttr("h", scene.h) +
     (scene.wide ? " wide" : "") +
     extraAttrs(scene.attrs, isReservedRootAttr) +

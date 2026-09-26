@@ -5,21 +5,21 @@ import { cell } from "../cell";
 const card = (id: string, text: string) =>
   `<nt-rect id="${id}" w="142" h="48" style="${BOX}">${text}</nt-rect>`;
 
-const BEATS = `<nt-diagram w="600" h="288">
-  <nt-text id="k1" x="40" y="40" w="162" h="20" style="${CAPTION}">ACT ONE</nt-text>
-  <nt-text id="k2" x="218" y="40" w="162" h="20" style="${CAPTION}">ACT TWO</nt-text>
-  <nt-text id="k3" x="396" y="40" w="162" h="20" style="${CAPTION}">ACT THREE</nt-text>
-  <nt-group id="a1" x="40" y="68" w="162" h="180" style="${COLUMN}">
+const BEATS = `<nt-diagram h="256">
+  <nt-text id="k1" x="40" y="24" w="162" h="20" style="${CAPTION}">ACT ONE</nt-text>
+  <nt-text id="k2" x="218" y="24" w="162" h="20" style="${CAPTION}">ACT TWO</nt-text>
+  <nt-text id="k3" x="396" y="24" w="162" h="20" style="${CAPTION}">ACT THREE</nt-text>
+  <nt-group id="a1" x="40" y="52" w="162" h="180" style="${COLUMN}">
     ${card("b1", "Arrival")}
     ${card("b2", "The key")}
     ${card("b3", "She stays")}
   </nt-group>
-  <nt-group id="a2" x="218" y="68" w="162" h="180" style="${COLUMN}">
+  <nt-group id="a2" x="218" y="52" w="162" h="180" style="${COLUMN}">
     ${card("b4", "The other guest")}
     ${card("b5", "The flats at night")}
     ${card("b6", "What she buried")}
   </nt-group>
-  <nt-group id="a3" x="396" y="68" w="162" h="180" style="${COLUMN}">
+  <nt-group id="a3" x="396" y="52" w="162" h="180" style="${COLUMN}">
     ${card("b7", "The road out")}
     ${card("b8", "She goes back")}
     ${card("b9", "Sunrise")}
