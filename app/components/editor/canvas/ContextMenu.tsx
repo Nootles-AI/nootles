@@ -20,6 +20,7 @@ import {
 import { shortcutHint, type ShortcutId } from "./engine/shortcuts";
 import type { SceneStore } from "./engine/useScene";
 import type { SelectionStore } from "./engine/useSelection";
+import type { PageCanvas } from "./page/PageCanvas";
 import { Glyph, glyphFor } from "./panels/layerGlyph";
 import type { Candidate } from "./scene/picking";
 import { laidOutScene } from "./scene/autoLayout";
@@ -127,11 +128,8 @@ export function layerRows(
  * read back out of the scene it returned along with where they went — in
  * document order, so each index still counts the inserts before it.
  */
-function duplicate(
-  store: SceneStore,
-  selection: SelectionStore,
-  ids: readonly NodeId[],
-): void {
+function duplicate(target: MenuTarget, ids: readonly NodeId[]): void {
+  const { store } = target;
   const current = store.getScene();
   const { scene: next, ids: copies } = duplicateNodes(current, ids);
   if (copies.length === 0) return;
@@ -148,7 +146,7 @@ function duplicate(
       };
     }),
   );
-  selection.select(copies);
+  target.select(copies);
 }
 
 /**
@@ -202,18 +200,77 @@ const BOOLEANS: { label: string; shortcut: ShortcutId; op: BooleanOp }[] = [
   { label: "Exclude", shortcut: "edit.exclude", op: "exclude" },
 ];
 
+/**
+ * One diagram the menu acts on: its store, its own selection, and how a
+ * result lands as its selection — replacing the page's when the menu speaks
+ * for one diagram, beside the others' when it speaks for several.
+ */
+export interface MenuTarget {
+  store: SceneStore;
+  selection: SelectionStore;
+  select(ids: readonly NodeId[]): void;
+}
+
+const identity = <T,>(fn: () => T): T => fn();
+
+/**
+ * Delete what is selected, in every target at once and as one step:
+ * connectors where a diagram holds connectors (the two never share a
+ * selection), its shapes otherwise. False when there was nothing to delete.
+ */
+export function deleteSelection(
+  targets: readonly MenuTarget[],
+  batch: <T>(fn: () => T) => T = identity,
+): boolean {
+  const parts = targets.map((target) => {
+    const { ids, edgeIds } = target.selection.getSnapshot();
+    const nodes = selectedNodes(target.store.getScene(), ids).map((node) => node.id);
+    return { target, nodes, edgeIds };
+  });
+  if (!parts.some((part) => part.nodes.length || part.edgeIds.length)) return false;
+  batch(() => {
+    for (const { target, nodes, edgeIds } of parts) {
+      if (edgeIds.length) target.store.dispatch({ type: "removeEdge", ids: [...edgeIds] });
+      else if (nodes.length) target.store.dispatch({ type: "remove", ids: nodes });
+      else continue;
+      target.selection.clear();
+    }
+  });
+  return true;
+}
+
+/**
+ * The menu over every diagram holding part of the selection. What makes sense
+ * of shapes wherever they are — delete, duplicate, lock, hide, arrange — acts
+ * on each, in one undo step; what makes one thing out of several — a group, a
+ * boolean — or copies the selection out is for one diagram only.
+ */
 function buildActions(
-  store: SceneStore,
-  selection: SelectionStore,
+  targets: readonly MenuTarget[],
+  batch: <T>(fn: () => T) => T,
   layers?: readonly LayerRow[],
 ): MenuActions {
-  const scene = store.getScene();
-  const nodes = selectedNodes(scene, selection.getSnapshot().ids);
-  const ids = nodes.map((node) => node.id);
+  const parts = targets.map((target) => {
+    const nodes = selectedNodes(target.store.getScene(), target.selection.getSnapshot().ids);
+    return { target, nodes, ids: nodes.map((node) => node.id) };
+  });
+  const across = targets.length > 1;
+  const all = parts.flatMap((part) => part.nodes);
+  const none = all.length === 0;
+  const locked = !none && all.every((node) => node.locked);
+  const hidden = !none && all.every((node) => node.hidden);
+  const each = (fn: (part: (typeof parts)[number]) => void) =>
+    batch(() => {
+      for (const part of parts) if (part.ids.length) fn(part);
+    });
+
+  // Only ever read for one diagram: every action below that uses it is
+  // disabled across several.
+  const { target, nodes, ids } = parts[0] ?? { target: null, nodes: [], ids: [] };
+  const store = target?.store;
+  const scene = store?.getScene();
   const groups = nodes.filter(isGroup);
-  const none = ids.length === 0;
-  const locked = !none && nodes.every((node) => node.locked);
-  const hidden = !none && nodes.every((node) => node.hidden);
+  const single = (disabled: boolean) => across || !store || disabled;
 
   const arrange = (
     label: string,
@@ -223,7 +280,7 @@ function buildActions(
     label,
     shortcut,
     disabled: none,
-    run: () => store.dispatch({ type: "reorder", ids, to: { at } }),
+    run: () => each((part) => part.target.store.dispatch({ type: "reorder", ids: part.ids, to: { at } })),
   });
 
   const base: MenuActions = [
@@ -231,32 +288,34 @@ function buildActions(
       {
         label: "Copy as HTML",
         shortcut: "edit.copyHtml",
-        disabled: none,
-        run: () => void copyAs(store, ids, "html"),
+        disabled: single(none),
+        run: () => store && void copyAs(store, ids, "html"),
       },
       {
         label: "Copy as React",
         shortcut: "edit.copyJsx",
-        disabled: none,
-        run: () => void copyAs(store, ids, "jsx"),
+        disabled: single(none),
+        run: () => store && void copyAs(store, ids, "jsx"),
       },
     ],
     [
       {
         label: "Group",
         shortcut: "edit.group",
-        disabled: ids.length < 2,
+        disabled: single(ids.length < 2),
         run: () => {
+          if (!store || !scene || !target) return;
           const groupId = mintId(scene);
           store.dispatch({ type: "group", ids, groupId });
-          selection.select([groupId]);
+          target.select([groupId]);
         },
       },
       {
         label: "Ungroup",
         shortcut: "edit.ungroup",
-        disabled: groups.length === 0,
+        disabled: single(groups.length === 0),
         run: () => {
+          if (!store || !target) return;
           const children = groups.flatMap((group) =>
             group.children.map((child) => child.id),
           );
@@ -264,24 +323,21 @@ function buildActions(
             type: "ungroup",
             ids: groups.map((group) => group.id),
           });
-          selection.select(children);
+          target.select(children);
         },
       },
       {
         label: "Duplicate",
         shortcut: "edit.duplicate",
         disabled: none,
-        run: () => duplicate(store, selection, ids),
+        run: () => each((part) => duplicate(part.target, part.ids)),
       },
       {
         label: "Delete",
         shortcut: "edit.delete",
         disabled: none,
         danger: true,
-        run: () => {
-          store.dispatch({ type: "remove", ids });
-          selection.clear();
-        },
+        run: () => void deleteSelection(targets, batch),
       },
     ],
     [
@@ -289,20 +345,22 @@ function buildActions(
         ({ label, shortcut, op }): MenuAction => ({
           label,
           shortcut,
-          disabled: !canBoolean(nodes),
+          disabled: single(!canBoolean(nodes)),
           run: () => {
+            if (!store || !scene || !target) return;
             const result = booleanOps(scene, nodes, op);
             if (!result) return;
             store.dispatch(result.ops);
-            selection.select(result.select);
+            target.select(result.select);
           },
         }),
       ),
       {
         label: "Flatten",
         shortcut: "edit.flatten",
-        disabled: !nodes.some(isBoolean),
+        disabled: single(!nodes.some(isBoolean)),
         run: () =>
+          store &&
           void loadClipper().then(() => {
             const ops = flattenOps(store.getScene(), ids);
             if (ops.length) store.dispatch(ops);
@@ -321,14 +379,18 @@ function buildActions(
         shortcut: "toggle.locked",
         disabled: none,
         run: () =>
-          store.dispatch({ type: "setLocked", ids, locked: !locked }),
+          each((part) =>
+            part.target.store.dispatch({ type: "setLocked", ids: part.ids, locked: !locked }),
+          ),
       },
       {
         label: hidden ? "Show" : "Hide",
         shortcut: "toggle.hidden",
         disabled: none,
         run: () =>
-          store.dispatch({ type: "setHidden", ids, hidden: !hidden }),
+          each((part) =>
+            part.target.store.dispatch({ type: "setHidden", ids: part.ids, hidden: !hidden }),
+          ),
       },
     ],
   ];
@@ -652,8 +714,26 @@ export function ContextMenu({
   );
 }
 
+/**
+ * The diagrams a menu opened over `store` acts on: every one holding part of
+ * the page's selection when there are several, else this one.
+ */
+export function menuTargets(
+  store: SceneStore,
+  selection: SelectionStore,
+  page: PageCanvas | undefined,
+): MenuTarget[] {
+  const targets = page?.targets() ?? [];
+  if (!page || targets.length < 2) return [{ store, selection, select: (ids) => selection.select(ids) }];
+  return targets.map((t) => ({
+    store: t.store,
+    selection: t.selection,
+    select: (ids) => page.selection.selectIn(t.blockId, ids, { keep: true }),
+  }));
+}
+
 /** The menu, its state and the handler that opens it — one call per host. */
-export function useContextMenu(store: SceneStore, selection: SelectionStore) {
+export function useContextMenu(store: SceneStore, selection: SelectionStore, page?: PageCanvas) {
   const [state, setState] = useState<{
     at: Point;
     layers: readonly LayerRow[];
@@ -688,7 +768,7 @@ export function useContextMenu(store: SceneStore, selection: SelectionStore) {
     menu: state && (
       <ContextMenu
         at={state.at}
-        actions={buildActions(store, selection, state.layers)}
+        actions={buildActions(menuTargets(store, selection, page), page?.batch ?? identity, state.layers)}
         layers={state.layers}
         layersOnly={state.layersOnly}
         onHoverLayer={(id) => selection.hoverNode(id)}

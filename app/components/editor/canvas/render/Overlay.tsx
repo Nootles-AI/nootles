@@ -51,6 +51,11 @@ import "./overlay.css";
 export interface OverlayApi extends OverlayHandle {
   /** The rubber band, in scene px. `null` hides it. */
   marquee(rect: Rect | null): void;
+  /**
+   * Hide the passive hints while a gesture another diagram draws is moving
+   * these shapes: their outlines would stay where the shapes were.
+   */
+  passive(hidden: boolean): void;
 }
 
 export interface OverlayProps {
@@ -405,6 +410,9 @@ export function Overlay({
         state.current.radii = values;
         const current = state.current.selection;
         if (current) drawRadii(current, 1 / state.current.zoom);
+      },
+      passive(hidden) {
+        root.current?.classList.toggle("is-passive", hidden);
       },
       marquee(rect) {
         const el = band.current;

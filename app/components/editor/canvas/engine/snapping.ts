@@ -45,6 +45,8 @@
  * 20% you could not hit it at all.
  */
 
+import { COLUMN_WIDTH } from "@/app/lib/column";
+import { WIDE_MARGIN } from "../scene/bandSpan";
 import { absoluteBounds, type Handle } from "../scene/geometry";
 import {
   findParent,
@@ -200,12 +202,36 @@ export function setSnapEnabled(on: boolean): void {
   for (const listener of snapListeners) listener();
 }
 
-/** Subscribe to {@link isSnapEnabled}, for `useSyncExternalStore`. */
+/** Subscribe to {@link isSnapEnabled} and {@link getSnapTargets}, for `useSyncExternalStore`. */
 export function subscribe(listener: () => void): () => void {
   snapListeners.add(listener);
   return () => {
     snapListeners.delete(listener);
   };
+}
+
+/**
+ * What a gesture may snap to, beneath the master switch: the other shapes in
+ * its diagram, the text column's edges and centre, and the shapes of the
+ * diagrams above and below it on the page.
+ */
+export type SnapTargetKind = "shapes" | "column" | "diagrams";
+
+let snapTargets: Readonly<Record<SnapTargetKind, boolean>> = {
+  shapes: true,
+  column: true,
+  diagrams: true,
+};
+
+/** A new object on every change, so it can be a `useSyncExternalStore` snapshot. */
+export function getSnapTargets(): Readonly<Record<SnapTargetKind, boolean>> {
+  return snapTargets;
+}
+
+export function setSnapTarget(kind: SnapTargetKind, on: boolean): void {
+  if (snapTargets[kind] === on) return;
+  snapTargets = { ...snapTargets, [kind]: on };
+  for (const listener of snapListeners) listener();
 }
 
 // ---------------------------------------------------------------------------
@@ -284,25 +310,61 @@ export interface SnapScope {
   boxes: Rect[];
 }
 
+/** What the host adds to a diagram's own shapes, each behind its own switch. */
+export interface SnapExtra {
+  /** A frame's own box — a storyboard shot. Behind the master switch alone. */
+  surface?: Rect;
+  /** The text column's lines, for a band: see {@link columnLines}. */
+  column?: readonly SnapLine[];
+  /** Shapes of the other diagrams on the page, already in this one's space. */
+  foreign?: readonly SnapLine[];
+}
+
 /**
- * What the moving nodes may snap to, in **scene** space: their siblings, the
- * group that contains them, and the diagram surface.
+ * A band's column: its two edges and its centre, and on a wide band the wide
+ * edges too. Vertical lines only — a band's top is a clamp and its bottom
+ * moves, so neither is a place to line anything up with.
+ */
+export function columnLines(wide: boolean, h: number): SnapLine[] {
+  const centre = COLUMN_WIDTH / 2;
+  const at = wide
+    ? [-WIDE_MARGIN, 0, centre, COLUMN_WIDTH, COLUMN_WIDTH + WIDE_MARGIN]
+    : [0, centre, COLUMN_WIDTH];
+  return at.map((x) => ({
+    axis: "x",
+    at: x,
+    from: 0,
+    to: h,
+    kind: x === centre ? "centre" : "edge",
+  }));
+}
+
+/**
+ * What the moving nodes may snap to, in **scene** space: their siblings and
+ * the group that contains them, plus whatever the host adds — a frame's own
+ * box, a band's column, the diagrams around it.
  *
  * Siblings only, like Figma — a shape three groups deep is not a candidate for
  * something at the top level, and offering every node in the document as a
  * target makes the guides noise rather than information. A selection spanning
  * two parents has no shared siblings, so it falls back to the top level.
  *
- * The container and the surface align but do not distribute: a gap measured to
- * the inside of the frame you are working in is a number about the frame, not
- * about the row of shapes the eye is actually reading.
+ * Only siblings distribute. A gap measured to the inside of the frame you are
+ * working in is a number about the frame, and one measured across a paragraph
+ * to another diagram is a coincidence — neither is about the row of shapes the
+ * eye is actually reading.
  */
 export function collectSnapScope(
   scene: Scene,
   moving: ReadonlySet<NodeId>,
+  extra: SnapExtra = {},
 ): SnapScope {
-  const lines = boxLines({ x: 0, y: 0, w: scene.w, h: scene.h });
+  const on = snapTargets;
+  const lines: SnapLine[] = extra.surface ? boxLines(extra.surface) : [];
+  if (on.column && extra.column) lines.push(...extra.column);
+  if (on.diagrams && extra.foreign) lines.push(...extra.foreign);
   const boxes: Rect[] = [];
+  if (!on.shapes) return { lines, boxes };
   const parent = sharedParent(scene, moving);
   if (parent) lines.push(...boxLines(absoluteBounds(scene, parent.id)));
   for (const node of parent ? parent.children : scene.nodes) {

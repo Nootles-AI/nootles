@@ -55,7 +55,8 @@ import {
 } from "react";
 
 import { useContextMenu } from "../ContextMenu";
-import { CANVAS_CHROME } from "../page/PageCanvas";
+import { CANVAS_CHROME, type PageCanvas } from "../page/PageCanvas";
+import type { GestureHost } from "../page/pageGesture";
 import type { PageToolControl } from "../page/tools";
 import { ConnectorTool } from "./ConnectorTool";
 import { EdgeLayer } from "./EdgeLayer";
@@ -66,9 +67,17 @@ import {
   type LiveObstacles,
 } from "./liveEdges";
 import { prepareBooleans, reflowBooleans, type LiveBooleans } from "./liveBoolean";
-import { useTransformGesture, type BandRange, type LiveFrame } from "../engine/gestures";
+import {
+  isDoubleClick,
+  useTransformGesture,
+  type BandRange,
+  type LiveFrame,
+  type PointerLike,
+  type Press,
+  type TransformGestureOptions,
+} from "../engine/gestures";
 import { isModKey, useCanvasShortcuts, type CanvasTool } from "../engine/shortcuts";
-import type { SnapGuide } from "../engine/snapping";
+import { columnLines, type SnapExtra, type SnapGuide } from "../engine/snapping";
 import { createSurfaceModes, type SurfaceModeContext, type SurfaceModes } from "../engine/surfaceMode";
 import { useScene, useSceneSnapshot, type SceneStore } from "../engine/useScene";
 import {
@@ -86,6 +95,7 @@ import {
   normalizeRect,
   toLocal,
   unrotateBound,
+  type Handle,
   type RotatedRect,
 } from "../scene/geometry";
 import { hitTestPath, slopFor } from "../scene/picking";
@@ -121,6 +131,10 @@ const DRAWN_MIN = 2;
 
 const NO_GUIDES: readonly SnapGuide[] = [];
 const NO_MEMBERS: readonly RotatedRect[] = [];
+const NO_IDS: readonly NodeId[] = [];
+const noSubscription = () => () => {};
+const nothing = () => null;
+const never = () => false;
 
 /**
  * A pointer drag, batched to one callback per animation frame however fast the
@@ -259,7 +273,16 @@ export interface ToolControl {
  */
 export interface CanvasApi {
   store: SceneStore;
+  /**
+   * The selection as the page means it: on a page with other diagrams, what
+   * replaces it replaces theirs too, and clearing it clears the page. The
+   * diagram's own store when it stands alone.
+   */
   selection: SelectionStore;
+  /** The diagram's own selection store, which the page composes. */
+  ownSelection: SelectionStore;
+  /** What the page drives when a gesture moves shapes in several diagrams. */
+  gesture: GestureHost;
   viewport: ViewportController;
   /** The band itself — `.nt-canvas`, the element the page lays out. */
   band: RefObject<HTMLDivElement | null>;
@@ -382,6 +405,11 @@ export interface CanvasSurfaceProps {
    * shot, the share route, a harness — the surface keeps a tool of its own.
    */
   tools?: PageToolControl;
+  /**
+   * The page this diagram is one of, and its block: selection, gestures and
+   * the marquee then reach across every diagram on it.
+   */
+  page?: { canvas: PageCanvas; blockId: string };
 }
 
 export function CanvasSurface({
@@ -392,6 +420,7 @@ export function CanvasSurface({
   storeKey,
   frame,
   tools,
+  page,
 }: CanvasSurfaceProps) {
   const store = useScene({
     source,
@@ -433,8 +462,26 @@ export function CanvasSurface({
   }, [viewport, scale, wide]);
   // The scene store is what puts a selection back on undo; without it a
   // selection change is simply not in the history.
-  const selection = useSelectionStore(scene, store);
+  const ownSelection = useSelectionStore(scene, store);
+  const canvas = page?.canvas ?? null;
+  const blockId = page?.blockId ?? null;
+  const selection = useMemo(
+    () => (canvas && blockId ? canvas.selection.facade(blockId, ownSelection) : ownSelection),
+    [canvas, blockId, ownSelection],
+  );
   const sel = useSelection(selection, scene);
+  // A selection spanning diagrams is drawn as one frame, in the band the page
+  // is focused on; every band outlines its own members.
+  const spanFrame = useSyncExternalStore(
+    canvas?.subscribeFrame ?? noSubscription,
+    () => (canvas && blockId ? canvas.frameIn(blockId) : null),
+    nothing,
+  );
+  const leadsFrame = useSyncExternalStore(
+    canvas?.selection.subscribe ?? noSubscription,
+    () => !!canvas && canvas.selection.getSnapshot().focused === blockId,
+    never,
+  );
   // The two elements the viewport owns: the one that clips and takes input,
   // and the one that carries the transform.
   const { containerRef, sceneRef, gridRef } = viewport;
@@ -759,12 +806,23 @@ export function CanvasSurface({
     return out;
   }, [store, selection]);
 
-  const gesture = useTransformGesture({
+  /**
+   * What a gesture snaps to beyond this diagram's shapes: a shot's own frame,
+   * or the column a band sits on.
+   */
+  const snapExtra = useCallback((): SnapExtra => {
+    const scene = store.getScene();
+    if (inFrame) return { surface: { x: 0, y: 0, w: scene.w, h: scene.h } };
+    return { column: columnLines(scene.wide === true, sceneBlockHeight(scene)) };
+  }, [store, inFrame]);
+
+  const gestureOptions: TransformGestureOptions = {
     store,
     clientToScene: viewport.clientToScene,
     screenScale: viewport.screenScale,
     band: bandRange,
-    getSelection: () => selection.getSnapshot().ids,
+    snapExtra,
+    getSelection: () => ownSelection.getSnapshot().ids,
     getElement,
     overlay,
     onSelect: (ids) => selection.select(ids),
@@ -772,12 +830,12 @@ export function CanvasSurface({
     // whatever is moving them — the scene does not change until the gesture
     // commits, and a connector rendered from the scene would sit still while
     // its shape slid away.
-    onFrame: (frames, bottom) => {
+    onFrame: (frames) => {
       reflowLive(frames);
       liveFrames.current = new Map(frames.map((frame) => [frame.id, frame]));
       tellLive();
-      grow(bottom);
     },
+    grow,
     onLand: keepGrowth,
     // A cancelled gesture puts the transforms back without touching the scene,
     // so nothing re-renders and the paths written above would stay stale. One
@@ -804,7 +862,18 @@ export function CanvasSurface({
         tellLive();
       });
     },
+  };
+  const gesture = useTransformGesture(gestureOptions);
+  // The page runs this diagram's share of a gesture spanning several with the
+  // same options its own gesture has, as of the last render.
+  const latestGesture = useRef(gestureOptions);
+  useEffect(() => {
+    latestGesture.current = gestureOptions;
   });
+  const gestureHost = useMemo<GestureHost>(
+    () => ({ options: () => latestGesture.current, overlay }),
+    [],
+  );
 
   const live = useMemo<LiveDrawing>(
     () => ({
@@ -882,12 +951,12 @@ export function CanvasSurface({
     enabled: !readOnly,
   });
 
-  const { open: openMenu, menu } = useContextMenu(store, selection);
+  const { open: openMenu, menu } = useContextMenu(store, selection, canvas ?? undefined);
 
   // A press anywhere that is not this canvas or the panels speaking for it —
   // another block, another diagram, the page background — drops the selection.
   // On a page, the page decides that for all of its diagrams at once.
-  const hasSelection = sel.ids.length > 0 && !tools;
+  const hasSelection = sel.ids.length > 0 && !tools && !canvas;
   useEffect(() => {
     if (!hasSelection) return;
     const onDown = (event: PointerEvent) => {
@@ -909,6 +978,8 @@ export function CanvasSurface({
     () => ({
       store,
       selection,
+      ownSelection,
+      gesture: gestureHost,
       viewport,
       band: wrap,
       modes,
@@ -923,6 +994,8 @@ export function CanvasSurface({
     [
       store,
       selection,
+      ownSelection,
+      gestureHost,
       viewport,
       modes,
       toolControl,
@@ -1092,10 +1165,41 @@ export function CanvasSurface({
     const settle = () => {
       window.removeEventListener("pointerup", settle);
       window.removeEventListener("pointercancel", settle);
-      if (!moveDidDrag.current) selection.click(point, mods);
+      // A press inside a frame spanning several diagrams can land on a band
+      // with no share of the drag it starts; the page knows it was one.
+      if (!moveDidDrag.current && !canvas?.gesture.didDrag()) selection.click(point, mods);
     };
     window.addEventListener("pointerup", settle);
     window.addEventListener("pointercancel", settle);
+  };
+
+  /**
+   * The selection is taken hold of: by the page when it spans diagrams, so
+   * every diagram's share moves as one, and by this diagram's own gesture
+   * otherwise.
+   */
+  const startMove = (event: ReactPointerEvent) => {
+    if (canvas && blockId && canvas.gesture.start(event, "move", null, blockId)) return;
+    gesture.startMove(event);
+  };
+  const startResize = (event: PointerLike, handle: Handle) => {
+    const mode = toolSource.get() === "scale" ? "scale" : "resize";
+    if (canvas && blockId && canvas.gesture.start(event, mode, handle, blockId)) return;
+    if (mode === "scale") gesture.startScale(event, handle);
+    else gesture.startResize(event, handle);
+  };
+  const rotatePress = useRef<Press>({ key: "", time: 0, x: 0, y: 0 });
+  const startRotate = (event: PointerLike) => {
+    if (canvas && blockId && canvas.gesture.spans()) {
+      if (isDoubleClick(rotatePress.current, "rotate", event)) {
+        event.preventDefault();
+        canvas.gesture.resetRotation();
+      } else {
+        canvas.gesture.start(event, "rotate", null, blockId);
+      }
+      return;
+    }
+    gesture.startRotate(event);
   };
 
   const onPointerDown = (event: ReactPointerEvent) => {
@@ -1183,10 +1287,11 @@ export function CanvasSurface({
       return;
     }
 
+    const frameHeld = spanFrame ?? (sel.ids.length > 0 ? sel.selectionBounds : null);
     const onSelection =
       hit !== null
         ? selection.isSelected(hit)
-        : sel.ids.length > 0 && withinSelectionBounds(point, sel.selectionBounds);
+        : frameHeld !== null && withinSelectionBounds(point, frameHeld);
 
     // Figma's rule: a press anywhere on the selection's own box — painted or
     // not, one shape or several — drags all of it. What the click *means*
@@ -1195,17 +1300,23 @@ export function CanvasSurface({
     if (onSelection) {
       busy.current = false;
       clickOnRelease(point, mods);
-      gesture.startMove(event);
+      startMove(event);
       return;
     }
 
     const clicked = selection.click(point, mods);
     if (clicked === null) {
       event.preventDefault();
-      startMarquee(point, event.shiftKey);
+      if (canvas && blockId) {
+        canvas.gesture.marquee({ x: event.clientX, y: event.clientY }, blockId, event.shiftKey, () => {
+          busy.current = false;
+        });
+      } else {
+        startMarquee(point, event.shiftKey);
+      }
     } else if (selection.isSelected(clicked)) {
       busy.current = false;
-      gesture.startMove(event);
+      startMove(event);
     } else {
       // A shift-click that removed a node from the selection is not the start
       // of a drag of what is left.
@@ -1417,6 +1528,13 @@ export function CanvasSurface({
   // would be three things to grab that all mean "the whole shape". Figma drops
   // them for the same reason: in vector edit mode the anchors are the chrome.
   const framed = picking && !editPath;
+  const spanning = spanFrame !== null;
+  const own = sel.selectionBounds;
+  const members = useMemo(
+    () => (spanning && sel.ids.length === 1 ? [own] : sel.memberBounds),
+    [spanning, sel.ids.length, own, sel.memberBounds],
+  );
+  const frameShown = spanning ? (leadsFrame ? spanFrame : null) : sel.ids.length ? own : null;
 
   /**
    * The path the pen overlay is on: the one whose points were opened, or — on
@@ -1498,12 +1616,12 @@ export function CanvasSurface({
           <Overlay
             ref={overlay}
             viewport={viewport}
-            selection={framed && sel.ids.length ? sel.selectionBounds : null}
-            members={framed ? sel.memberBounds : NO_MEMBERS}
-            ids={sel.ids}
+            selection={framed ? frameShown : null}
+            members={framed ? members : NO_MEMBERS}
+            ids={spanning ? NO_IDS : sel.ids}
             hover={framed ? sel.hoverBounds : null}
-            onResizeStart={tool === "scale" ? gesture.startScale : gesture.startResize}
-            onRotateStart={gesture.startRotate}
+            onResizeStart={startResize}
+            onRotateStart={startRotate}
             // Withheld read-only, which is also what stops the overlay reading
             // a shape's corner radii off the DOM to place anchors nobody gets.
             onRadiusStart={readOnly ? undefined : gesture.startRadius}

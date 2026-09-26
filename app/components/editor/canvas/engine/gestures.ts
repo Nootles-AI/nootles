@@ -93,7 +93,9 @@ import {
   collectSnapScope,
   createSnapper,
   resizeTargets,
+  type SnapExtra,
   type SnapGuide,
+  type SnapLine,
   type SnapTarget,
   type Snapper,
 } from "./snapping";
@@ -183,9 +185,17 @@ export interface TransformGestureOptions {
    * shapes rather than by them — the connectors, whose route is a function of
    * two boxes that this gesture is in the middle of moving, a boolean group,
    * whose one drawing is cut from operands that have no element of their own
-   * to read — and for the band, which grows to hold them.
+   * to read.
    */
   onFrame?(frames: readonly LiveFrame[], bottom: number): void;
+  /**
+   * With the frame's other writes, the lowest scene y the moving boxes reach:
+   * the band grows to hold them. A write, never a read, so a gesture spanning
+   * several diagrams writes every band before anything measures one.
+   */
+  grow?(bottom: number): void;
+  /** Lines beyond the diagram's own shapes — a frame's box, a band's column. */
+  snapExtra?(): SnapExtra;
   /**
    * Inside the bracket the gesture lands in, after its ops: anything the
    * landing implies, in the same undo entry.
@@ -207,6 +217,40 @@ export interface LiveFrame {
   w: number;
   h: number;
   rot: number;
+}
+
+/**
+ * What one frame of a gesture came to, in the scene px of the diagram that
+ * decided it. A gesture spanning several diagrams is decided once, by the
+ * diagram under the pointer, and every other one lands the same decision in
+ * its own px — see {@link convertDecision}.
+ */
+export type Decision =
+  | { kind: "move"; dx: number; dy: number }
+  | { kind: "resize"; dx: number; dy: number }
+  | { kind: "scale"; k: number }
+  | { kind: "rotate"; deg: number };
+
+/** How far a move may take a selection, in scene px; downward is open. */
+export interface Allowed {
+  minDx: number;
+  maxDx: number;
+  minDy: number;
+}
+
+/**
+ * What a session is told by whoever runs several at once. `bounds` is the box
+ * every one of them acts about — the page's selection, in this diagram's px —
+ * so a resize stretches, a scale pins and a rotation turns about the same
+ * place in each. `sole` says whether the page holds exactly one shape.
+ */
+export interface SessionOverrides {
+  bounds?: Rect;
+  sole?: boolean;
+  /** Decided with others: a resize is refused whole rather than clamped per edge. */
+  lockstep?: boolean;
+  /** Other diagrams' shapes, in this one's px — the decider's alone. */
+  foreign?: readonly SnapLine[];
 }
 
 export interface TransformGestureApi {
@@ -319,6 +363,63 @@ function fenceFor(band: BandRange | null, box: Rect): Fence | null {
 /** Below this, two coordinates are the same place. */
 const FENCE_EPS = 1e-6;
 
+/**
+ * How far a box may move inside a band: to its edges and no higher than its
+ * top, or — for a box that already reached past one — no further out than it
+ * began, so nothing jumps on the first frame.
+ */
+export function moveAllowed(band: BandRange | null, reach: Rect): Allowed | null {
+  const fence = fenceFor(band, reach);
+  if (!fence) return null;
+  return {
+    minDx: fence.left - reach.x,
+    maxDx: fence.right - (reach.x + reach.w),
+    minDy: fence.top - reach.y,
+  };
+}
+
+/** Room that suits both; `null` is no fence at all. Each holds zero, so the result does. */
+export function intersectAllowed(a: Allowed | null, b: Allowed | null): Allowed | null {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    minDx: Math.max(a.minDx, b.minDx),
+    maxDx: Math.min(a.maxDx, b.maxDx),
+    minDy: Math.max(a.minDy, b.minDy),
+  };
+}
+
+/** `a` measured in another diagram's px, `ratio` of theirs to one of these. */
+export function scaleAllowed(a: Allowed | null, ratio: number): Allowed | null {
+  if (!a || ratio === 1) return a;
+  return { minDx: a.minDx * ratio, maxDx: a.maxDx * ratio, minDy: a.minDy * ratio };
+}
+
+/**
+ * A decision made in one diagram's px, for another's: lengths go through the
+ * screen, where the two agree (`from` and `to` are each one's screen px per
+ * scene px); a factor and an angle mean the same everywhere.
+ */
+export function convertDecision(decision: Decision, from: number, to: number): Decision {
+  const ratio = from / to;
+  if (ratio === 1) return decision;
+  switch (decision.kind) {
+    case "move":
+    case "resize":
+      return { kind: decision.kind, dx: decision.dx * ratio, dy: decision.dy * ratio };
+    default:
+      return decision;
+  }
+}
+
+const IDENTITY: Record<GestureMode, Decision> = {
+  move: { kind: "move", dx: 0, dy: 0 },
+  reorder: { kind: "move", dx: 0, dy: 0 },
+  resize: { kind: "resize", dx: 0, dy: 0 },
+  scale: { kind: "scale", k: 1 },
+  rotate: { kind: "rotate", deg: 0 },
+};
+
 /** A node as it was when the gesture began, plus the styles to restore. */
 interface NodeStart {
   id: NodeId;
@@ -384,6 +485,9 @@ interface ReorderState {
 
 interface Session {
   mode: GestureMode;
+  /** The only shape the gesture moves on the whole page: its own axes, its own angle. */
+  sole: boolean;
+  lockstep: boolean;
   pointerId: number;
   handle: Handle | null;
   scene: Scene;
@@ -400,8 +504,10 @@ interface Session {
   fence: Fence | null;
   /** The selection's box at the start, rotation included — what the fence holds. */
   reach: Rect;
-  /** Resize only: the last drag that stayed inside the fence. */
-  accepted: Point;
+  /** A move's reach inside the fence — narrowed to every diagram's when decided for several. */
+  allowed: Allowed | null;
+  /** The last decision that stayed inside the fence, for a resize or a rotation to fall back on. */
+  accepted: Decision;
   centre: Point;
   startAngle: number;
   /** Accumulated rotation, unwrapped so a full turn keeps counting. */
@@ -427,14 +533,14 @@ interface Session {
  * click count, and a `dblclick` listener would arrive after the drag it is
  * meant to replace, so the pair is recognised here from time and distance.
  */
-interface Press {
+export interface Press {
   key: string;
   time: number;
   x: number;
   y: number;
 }
 
-function isDoubleClick(press: Press, key: string, event: PointerLike): boolean {
+export function isDoubleClick(press: Press, key: string, event: PointerLike): boolean {
   const now = performance.now();
   const again =
     press.key === key &&
@@ -447,6 +553,49 @@ function isDoubleClick(press: Press, key: string, event: PointerLike): boolean {
   press.x = event.clientX;
   press.y = event.clientY;
   return again;
+}
+
+/** What a held pointer reports to whoever is driving a gesture with it. */
+export interface PointerDrive {
+  move(event: PointerEvent): void;
+  /** Any key but Escape, down or up: a modifier may have changed. */
+  key(event: KeyboardEvent): void;
+  /** Released (with the event) or cancelled — Escape, or the pointer lost. */
+  end(cancelled: boolean, event?: PointerEvent): void;
+}
+
+/**
+ * One pointer, followed on the window until it lets go. Returns the detach,
+ * which `end` does not call for you — a driver tearing down several sessions
+ * wants to choose when its listeners go.
+ */
+export function drivePointer(pointerId: number, drive: PointerDrive): () => void {
+  const onMove = (ev: PointerEvent) => {
+    if (ev.pointerId === pointerId) drive.move(ev);
+  };
+  const onUp = (ev: PointerEvent) => {
+    if (ev.pointerId === pointerId) drive.end(false, ev);
+  };
+  const onKey = (ev: KeyboardEvent) => {
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      drive.end(true);
+      return;
+    }
+    drive.key(ev);
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
+  window.addEventListener("keydown", onKey);
+  window.addEventListener("keyup", onKey);
+  return () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
+    window.removeEventListener("keydown", onKey);
+    window.removeEventListener("keyup", onKey);
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -469,50 +618,29 @@ export function useTransformGesture(
     (event: PointerLike, mode: GestureMode, handle: Handle | null) => {
       const o = optionsRef.current;
       if (sessionRef.current) return;
-      const session = createSession(o, event, mode, handle);
+      const session = createGestureSession(o, event, mode, handle);
       if (!session) return;
       event.preventDefault();
       sessionRef.current = session;
 
-      const done = (cancelled: boolean) => {
-        if (sessionRef.current !== session) return;
-        sessionRef.current = null;
-        finish(session, optionsRef.current, cancelled);
-      };
-      const onMove = (ev: PointerEvent) => {
-        if (ev.pointerId !== session.pointerId) return;
-        session.client.x = ev.clientX;
-        session.client.y = ev.clientY;
-        readMods(session, ev);
-        schedule(session, optionsRef.current);
-      };
-      const onUp = (ev: PointerEvent) => {
-        if (ev.pointerId !== session.pointerId) return;
-        readMods(session, ev);
-        done(false);
-      };
-      const onKey = (ev: KeyboardEvent) => {
-        if (ev.key === "Escape") {
-          ev.preventDefault();
-          done(true);
-          return;
-        }
-        readMods(session, ev);
-        schedule(session, optionsRef.current);
-      };
-
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
-      window.addEventListener("pointercancel", onUp);
-      window.addEventListener("keydown", onKey);
-      window.addEventListener("keyup", onKey);
-      session.detach = () => {
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
-        window.removeEventListener("pointercancel", onUp);
-        window.removeEventListener("keydown", onKey);
-        window.removeEventListener("keyup", onKey);
-      };
+      session.detach = drivePointer(session.pointerId, {
+        move: (ev) => {
+          session.client.x = ev.clientX;
+          session.client.y = ev.clientY;
+          readGestureMods(session, ev);
+          schedule(session, optionsRef.current);
+        },
+        key: (ev) => {
+          readGestureMods(session, ev);
+          schedule(session, optionsRef.current);
+        },
+        end: (cancelled, ev) => {
+          if (sessionRef.current !== session) return;
+          if (ev) readGestureMods(session, ev);
+          sessionRef.current = null;
+          finish(session, optionsRef.current, cancelled);
+        },
+      });
     },
     [],
   );
@@ -538,7 +666,7 @@ export function useTransformGesture(
           return;
         }
         event.preventDefault();
-        resetRotation(optionsRef.current);
+        resetGestureRotation(optionsRef.current);
       },
       startRadius: (event, corner) =>
         isDoubleClick(pressRef.current, `radius:${corner}`, event)
@@ -795,11 +923,15 @@ function radiusCss(
 // Starting a gesture
 // ---------------------------------------------------------------------------
 
-function createSession(
+/** One diagram's share of a gesture, or `null` when it has nothing it may move. */
+export type GestureSession = Session;
+
+export function createGestureSession(
   o: TransformGestureOptions,
   event: PointerLike,
   mode: GestureMode,
   handle: Handle | null,
+  overrides: SessionOverrides = {},
 ): Session | null {
   // Laid out, so a child of an auto-layout group starts the gesture from where
   // it is on screen rather than from an `x`/`y` nothing has honoured since it
@@ -837,12 +969,16 @@ function createSession(
   if (!starts.length) return null;
 
   const scratch: RotatedRect[] = starts.map((s) => ({ ...s.scene, rot: s.sceneRot }));
-  const bounds = selectionBounds(scratch);
+  const bounds = overrides.bounds ?? selectionBounds(scratch);
   const reach = unionBounds(scratch);
   const targets = boxTargets(bounds);
+  const band = o.band?.() ?? null;
+  const extra = o.snapExtra?.() ?? {};
 
   const session: Session = {
     mode,
+    sole: overrides.sole ?? starts.length === 1,
+    lockstep: overrides.lockstep ?? false,
     pointerId: event.pointerId,
     handle,
     scene,
@@ -870,9 +1006,10 @@ function createSession(
     })),
     scratch,
     bounds,
-    fence: fenceFor(o.band?.() ?? null, reach),
+    fence: fenceFor(band, reach),
     reach,
-    accepted: { x: 0, y: 0 },
+    allowed: moveAllowed(band, reach),
+    accepted: IDENTITY[mode],
     centre: { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 },
     startAngle: angleOf(
       { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 },
@@ -884,11 +1021,14 @@ function createSession(
     targets,
     targetsX: targets.filter((t) => t.axis === "x"),
     targetsY: targets.filter((t) => t.axis === "y"),
-    snapper: createSnapper(collectSnapScope(scene, new Set(ids)), {
-      threshold: o.snapThreshold,
-      grid: o.grid,
-      moving: bounds,
-    }),
+    snapper: createSnapper(
+      collectSnapScope(scene, new Set(ids), { ...extra, foreign: overrides.foreign ?? extra.foreign }),
+      {
+        threshold: o.snapThreshold,
+        grid: o.grid,
+        moving: bounds,
+      },
+    ),
     reorder: null,
     flow: starts.some((s) => s.flow),
     active: false,
@@ -987,20 +1127,34 @@ function schedule(session: Session, o: TransformGestureOptions) {
   });
 }
 
-function readMods(session: Session, event: PointerLike | KeyboardEvent) {
+export function readGestureMods(session: Session, event: PointerLike | KeyboardEvent) {
   session.mods.shift = event.shiftKey;
   session.mods.alt = event.altKey;
   session.mods.free = event.metaKey || event.ctrlKey;
 }
 
+/** Whether the pointer has travelled far enough from the press to be a drag. */
+export function pastThreshold(start: Point, client: Point): boolean {
+  return (
+    Math.abs(client.x - start.x) >= DRAG_THRESHOLD ||
+    Math.abs(client.y - start.y) >= DRAG_THRESHOLD
+  );
+}
+
+/**
+ * The press became a drag. `announce` tells the overlay what its readout
+ * should say — the one overlay a gesture spanning several diagrams draws in.
+ */
+export function activateGesture(session: Session, o: TransformGestureOptions, announce = true) {
+  session.active = true;
+  if (announce) o.overlay?.current?.mode(READOUT[session.mode]);
+  o.onActiveChange?.(true);
+}
+
 function runFrame(session: Session, o: TransformGestureOptions) {
   if (!session.active) {
-    const dx = session.client.x - session.startClient.x;
-    const dy = session.client.y - session.startClient.y;
-    if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
-    session.active = true;
-    o.overlay?.current?.mode(READOUT[session.mode]);
-    o.onActiveChange?.(true);
+    if (!pastThreshold(session.startClient, session.client)) return;
+    activateGesture(session, o);
   }
 
   const point = o.clientToScene(session.client);
@@ -1012,17 +1166,82 @@ function runFrame(session: Session, o: TransformGestureOptions) {
     return;
   }
 
+  const { decision, guides } = decideGesture(session, o, point);
   const min = o.minSize ?? 1;
-  const scale = o.screenScale();
-  const guides =
-    session.mode === "move"
-      ? applyMove(session, point, scale)
-      : session.mode === "resize"
-        ? applyResize(session, point, scale, min)
-        : session.mode === "scale"
-          ? applyScale(session, point, min)
-          : applyRotate(session, point);
+  let shown = guides;
+  if (applyDecision(session, decision, min)) {
+    session.accepted = decision;
+  } else {
+    applyDecision(session, session.accepted, min);
+    shown = NO_GUIDES;
+  }
+  writeGesture(session, o, shown, true);
+  // After the writes: whatever reads the shapes' live boxes must read them as
+  // they are this frame, not as they were last one.
+  o.onFrame?.(session.frames, liveBottomOf(session.frames));
+}
 
+const NO_FRAMES: readonly LiveFrame[] = [];
+
+/**
+ * What the pointer at `point` (scene px) asks of this frame — snapped, and
+ * held inside the band wherever that is exact.
+ */
+export function decideGesture(
+  session: Session,
+  o: TransformGestureOptions,
+  point: Point,
+): { decision: Decision; guides: readonly SnapGuide[] } {
+  const scale = o.screenScale();
+  switch (session.mode) {
+    case "resize":
+      return decideResize(session, point, scale);
+    case "scale":
+      return { decision: decideScale(session, point, o.minSize ?? 1), guides: NO_GUIDES };
+    case "rotate":
+      return { decision: decideRotate(session, point), guides: NO_GUIDES };
+    default:
+      return decideMove(session, point, scale);
+  }
+}
+
+/**
+ * Every frame placed as `decision` says. False when a resize or a rotation
+ * would take a box past the fence — the caller then places the last one that
+ * did not, for this diagram and every other one moving with it.
+ */
+export function applyDecision(session: Session, decision: Decision, minSize: number): boolean {
+  switch (decision.kind) {
+    case "move":
+      placeMove(session, decision.dx, decision.dy);
+      return true;
+    case "resize":
+      if (!session.handle) return true;
+      placeResize(
+        session,
+        session.handle,
+        { x: decision.dx, y: decision.dy },
+        session.mods.shift,
+        session.mods.alt,
+        minSize,
+      );
+      return !escapes(session);
+    case "scale":
+      placeScale(session, decision.k);
+      return true;
+    case "rotate":
+      placeRotate(session, decision.deg);
+      return !escapes(session);
+  }
+}
+
+/** The frame's writes, in one pass: the shapes, the overlay if it is this session's, the band. */
+export function writeGesture(
+  session: Session,
+  o: TransformGestureOptions,
+  guides: readonly SnapGuide[],
+  overlay: boolean,
+) {
   // A scale previews as a transform, which no layout can see — so an
   // auto-layout parent has nothing to reflow from until the gesture lands, and
   // asking it where things would go would only move the overlay off the pixels.
@@ -1030,27 +1249,39 @@ function runFrame(session: Session, o: TransformGestureOptions) {
   syncGhosts(session);
   if (session.mode === "scale") writeScale(session);
   else writeFrames(session, session.mode === "resize");
-  writeOverlay(session, o, guides);
-  // After the writes: whatever reads the shapes' live boxes must read them as
-  // they are this frame, not as they were last one.
-  o.onFrame?.(session.frames, lowest(session.frames));
+  if (overlay) writeOverlay(session, o, guides);
+  o.grow?.(liveBottomOf(session.frames));
 }
-
-const NO_FRAMES: readonly LiveFrame[] = [];
 
 /** A frame's scene box as drawn, turned by its rotation. */
 function drawnBounds(f: Frame): Rect {
   return nodeBounds({ x: f.sx, y: f.sy, w: f.sw, h: f.sh, rot: f.srot });
 }
 
-/** The lowest scene y the frames reach, each turned by its rotation. */
-function lowest(frames: readonly Frame[]): number {
+/** The lowest scene y the boxes reach, each turned by its rotation; `-Infinity` for none. */
+export function liveBottomOf(
+  frames: readonly { sx: number; sy: number; sw: number; sh: number; srot: number }[],
+): number {
   let bottom = -Infinity;
   for (const f of frames) {
-    const b = drawnBounds(f);
+    const b = nodeBounds({ x: f.sx, y: f.sy, w: f.sw, h: f.sh, rot: f.srot });
     bottom = Math.max(bottom, b.y + b.h);
   }
   return bottom;
+}
+
+/** Every box this frame, in scene px with its rotation — what a union overlay is drawn from. */
+export function liveBoxes(session: Session): readonly RotatedRect[] {
+  for (let i = 0; i < session.frames.length; i++) {
+    const frame = session.frames[i];
+    const box = session.scratch[i];
+    box.x = frame.sx;
+    box.y = frame.sy;
+    box.w = frame.sw;
+    box.h = frame.sh;
+    box.rot = frame.srot;
+  }
+  return session.scratch;
 }
 
 /** Whether this frame's boxes have gone past the fence. */
@@ -1070,11 +1301,11 @@ function escapes(session: Session): boolean {
   return false;
 }
 
-function applyMove(
+function decideMove(
   session: Session,
   point: Point,
   scale: number,
-): readonly SnapGuide[] {
+): { decision: Decision; guides: readonly SnapGuide[] } {
   let dx = point.x - session.origin.x;
   let dy = point.y - session.origin.y;
 
@@ -1102,13 +1333,15 @@ function applyMove(
   dx = snapped.dx;
   dy = snapped.dy;
 
-  const fence = session.fence;
-  if (fence) {
-    const b = session.reach;
-    dx = Math.min(fence.right - (b.x + b.w), Math.max(fence.left - b.x, dx));
-    dy = Math.max(fence.top - b.y, dy);
+  const allowed = session.allowed;
+  if (allowed) {
+    dx = Math.min(allowed.maxDx, Math.max(allowed.minDx, dx));
+    dy = Math.max(allowed.minDy, dy);
   }
+  return { decision: { kind: "move", dx, dy }, guides: snapped.guides };
+}
 
+function placeMove(session: Session, dx: number, dy: number) {
   for (let i = 0; i < session.starts.length; i++) {
     const start = session.starts[i];
     const frame = session.frames[i];
@@ -1118,28 +1351,25 @@ function applyMove(
     frame.sx = start.scene.x + dx;
     frame.sy = start.scene.y + dy;
   }
-  return snapped.guides;
 }
 
-function applyResize(
+function decideResize(
   session: Session,
   point: Point,
   scale: number,
-  minSize: number,
-): readonly SnapGuide[] {
+): { decision: Decision; guides: readonly SnapGuide[] } {
   const handle = session.handle;
-  if (!handle) return NO_GUIDES;
+  let delta = { x: point.x - session.origin.x, y: point.y - session.origin.y };
+  if (!handle) return { decision: { kind: "resize", dx: 0, dy: 0 }, guides: NO_GUIDES };
 
   const aspect = session.mods.shift;
   const fromCentre = session.mods.alt;
-  const single = session.starts.length === 1;
-  let delta = { x: point.x - session.origin.x, y: point.y - session.origin.y };
   let guides: readonly SnapGuide[] = NO_GUIDES;
 
   // A rotated node resizes along its own axes and an aspect lock owns the
   // second axis outright; in both cases a snapped edge would fight the drag.
   const snappable =
-    !aspect && !session.mods.free && !(single && session.starts[0].sceneRot !== 0);
+    !aspect && !session.mods.free && !(session.sole && session.starts[0].sceneRot !== 0);
   if (snappable) {
     const snapped = session.snapper.snap(
       resizeTargets(session.bounds, handle, fromCentre),
@@ -1156,21 +1386,17 @@ function applyResize(
     session.snapper.reset();
   }
 
-  if (session.fence) delta = fenceResize(session, handle, delta, aspect, fromCentre);
-  placeResize(session, handle, delta, aspect, fromCentre, minSize);
-  if (escapes(session)) {
-    placeResize(session, handle, session.accepted, aspect, fromCentre, minSize);
-    return NO_GUIDES;
+  if (session.fence && !session.lockstep) {
+    delta = fenceResize(session, handle, delta, aspect, fromCentre);
   }
-  session.accepted = delta;
-  return guides;
+  return { decision: { kind: "resize", dx: delta.x, dy: delta.y }, guides };
 }
 
 /**
  * The drag with the edges it moves stopped at the fence. Exact wherever an
  * edge follows the pointer one for one — an unrotated box, no aspect lock
  * tying one axis to the other; anything else is left to the refusal in
- * {@link applyResize}. The bottom is never stopped: the band grows.
+ * {@link applyDecision}. The bottom is never stopped: the band grows.
  */
 function fenceResize(
   session: Session,
@@ -1180,7 +1406,7 @@ function fenceResize(
   fromCentre: boolean,
 ): Point {
   const fence = session.fence;
-  const single = session.starts.length === 1;
+  const single = session.sole;
   if (!fence || aspect || (single && session.starts[0].sceneRot !== 0)) return delta;
   const b = single ? session.starts[0].scene : session.bounds;
   const { hx, hy } = HANDLE_EDGES[handle];
@@ -1206,7 +1432,7 @@ function placeResize(
   fromCentre: boolean,
   minSize: number,
 ): void {
-  if (session.starts.length === 1) {
+  if (session.sole && session.starts.length === 1) {
     const start = session.starts[0];
     const box = resizeRect(
       start.local,
@@ -1243,6 +1469,19 @@ function placeResize(
 }
 
 /**
+ * The point a scale pins: the far side from the dragged handle, or with Alt
+ * the centre, as a resize does.
+ */
+function scaleAnchor(session: Session): Point {
+  const b = session.bounds;
+  const { hx, hy } = HANDLE_EDGES[session.handle ?? "se"];
+  const centre = session.mods.alt;
+  const ax = centre ? 0.5 : hx > 0 ? 0 : hx < 0 ? 1 : 0.5;
+  const ay = centre ? 0.5 : hy > 0 ? 0 : hy < 0 ? 1 : 0.5;
+  return { x: b.x + ax * b.w, y: b.y + ay * b.h };
+}
+
+/**
  * One factor for the whole selection, taken from the dragged handle's distance
  * to the pinned point over what that distance was.
  *
@@ -1252,20 +1491,13 @@ function placeResize(
  * own axis and ignores the rest, which falls out of the projection for free.
  * Alt pins the centre instead of the far side, as it does in a resize.
  */
-function applyScale(
-  session: Session,
-  point: Point,
-  minSize: number,
-): readonly SnapGuide[] {
+function decideScale(session: Session, point: Point, minSize: number): Decision {
   const handle = session.handle;
-  if (!handle) return NO_GUIDES;
+  if (!handle) return IDENTITY.scale;
 
   const b = session.bounds;
   const { hx, hy } = HANDLE_EDGES[handle];
-  const centre = session.mods.alt;
-  const ax = centre ? 0.5 : hx > 0 ? 0 : hx < 0 ? 1 : 0.5;
-  const ay = centre ? 0.5 : hy > 0 ? 0 : hy < 0 ? 1 : 0.5;
-  const anchor = { x: b.x + ax * b.w, y: b.y + ay * b.h };
+  const anchor = scaleAnchor(session);
   // The arm from the pinned point out to the handle, which the drag lengthens.
   const arm = {
     x: b.x + ((hx + 1) / 2) * b.w - anchor.x,
@@ -1278,11 +1510,20 @@ function applyScale(
   // Never through the anchor and out the other side: a mirrored scale would
   // need a negative stroke width to mean anything.
   const floor = minSize / Math.max(b.w, b.h, minSize);
-  let k = span === 0 ? 1 : Math.max(floor, 1 + (dx * arm.x + dy * arm.y) / span);
-  if (session.fence) k = Math.min(k, scaleCap(session.reach, anchor, session.fence));
+  const k = span === 0 ? 1 : Math.max(floor, 1 + (dx * arm.x + dy * arm.y) / span);
+  return { kind: "scale", k: capScale(session, k) };
+}
+
+/** `k`, no larger than keeps this session's selection inside its band. */
+export function capScale(session: Session, k: number): number {
+  if (!session.fence) return k;
+  return Math.min(k, scaleCap(session.reach, scaleAnchor(session), session.fence));
+}
+
+function placeScale(session: Session, k: number) {
+  const anchor = scaleAnchor(session);
   session.k = k;
   session.anchor = anchor;
-
   for (let i = 0; i < session.starts.length; i++) {
     const start = session.starts[i];
     const w = start.scene.w * k;
@@ -1296,7 +1537,6 @@ function applyScale(
       start.sceneRot,
     );
   }
-  return NO_GUIDES;
 }
 
 /**
@@ -1365,7 +1605,7 @@ function relayout(session: Session) {
   }
 }
 
-function applyRotate(session: Session, point: Point): readonly SnapGuide[] {
+function decideRotate(session: Session, point: Point): Decision {
   const angle = angleOf(session.centre, point) - session.startAngle;
   // `angleOf` wraps at 360; unwrap against the running total so a shape can be
   // spun round more than once without the rotation flipping sign.
@@ -1376,9 +1616,11 @@ function applyRotate(session: Session, point: Point): readonly SnapGuide[] {
 
   // Quantise the resulting *angle* of a lone node rather than the delta, so a
   // shape that starts crooked ends up square.
-  const base = session.starts.length === 1 ? session.starts[0].sceneRot : 0;
-  const delta = quantizeRotation(base + turn, session.mods.shift) - base;
+  const base = session.sole ? session.starts[0].sceneRot : 0;
+  return { kind: "rotate", deg: quantizeRotation(base + turn, session.mods.shift) - base };
+}
 
+function placeRotate(session: Session, delta: number) {
   for (let i = 0; i < session.starts.length; i++) {
     const start = session.starts[i];
     const centre = rotateAround(
@@ -1398,7 +1640,6 @@ function applyRotate(session: Session, point: Point): readonly SnapGuide[] {
       start.sceneRot + delta,
     );
   }
-  return NO_GUIDES;
 }
 
 /**
@@ -1416,7 +1657,7 @@ function quantizeRotation(angle: number, shift: boolean): number {
 }
 
 /** Double-clicking a rotation zone stands the selection back up. */
-function resetRotation(o: TransformGestureOptions) {
+export function resetGestureRotation(o: TransformGestureOptions) {
   const scene = o.store.getScene();
   const ids = topMostIds(scene, o.getSelection()).filter((id) => {
     const node = findNode(scene, id);
@@ -1620,16 +1861,7 @@ function writeOverlay(
     );
     return;
   }
-  for (let i = 0; i < session.frames.length; i++) {
-    const frame = session.frames[i];
-    const box = session.scratch[i];
-    box.x = frame.sx;
-    box.y = frame.sy;
-    box.w = frame.sw;
-    box.h = frame.sh;
-    box.rot = frame.srot;
-  }
-  overlay.update(unionBounds(session.scratch), 0, guides);
+  overlay.update(unionBounds(liveBoxes(session)), 0, guides);
 }
 
 function restoreDom(session: Session) {
@@ -1695,6 +1927,21 @@ function finish(
     if (!cancelled) runFrame(session, o);
   }
   session.detach();
+  const { ops, select } = finishGesture(session, o, cancelled);
+  if (landGesture(o, ops) && select?.length) o.onSelect?.(select);
+  endGesture(session, o);
+}
+
+/**
+ * Puts the DOM back where the scene will take over, and says what the gesture
+ * comes to — nothing, for a click or a cancel. Dispatches nothing: a gesture
+ * spanning several diagrams lands all of them in one step.
+ */
+export function finishGesture(
+  session: Session,
+  o: TransformGestureOptions,
+  cancelled: boolean,
+): { ops: SceneOp[]; select: NodeId[] | null } {
   removeGhosts(session);
 
   let ops: SceneOp[] = [];
@@ -1722,14 +1969,21 @@ function finish(
     if (session.mode === "scale") restoreDom(session);
     ops = transformOps(session);
   }
+  return { ops, select };
+}
 
-  if (ops.length) {
-    o.store.begin();
-    o.store.dispatch(ops);
-    o.onLand?.();
-    o.store.commit();
-    if (select?.length) o.onSelect?.(select);
-  }
+/** One undo entry: the gesture's ops and whatever landing them implies. False for none. */
+export function landGesture(o: TransformGestureOptions, ops: readonly SceneOp[]): boolean {
+  if (!ops.length) return false;
+  o.store.begin();
+  o.store.dispatch([...ops]);
+  o.onLand?.();
+  o.store.commit();
+  return true;
+}
+
+/** The gesture is over: the overlay draws from the scene again, and the host hears so. */
+export function endGesture(session: Session, o: TransformGestureOptions) {
   if (!session.active) return;
   o.overlay?.current?.update(null, 0, NO_GUIDES);
   o.onActiveChange?.(false);

@@ -24,9 +24,12 @@ import { useColumnEdges } from "@/app/lib/columnEdges";
 import { useAutocomplete } from "../ai/useAutocomplete";
 import { ReachPopover, SPARK_PATH as SPARK } from "../ai/ReachSlider";
 import {
+  getSnapTargets,
   isSnapEnabled,
   setSnapEnabled,
+  setSnapTarget,
   subscribe as subscribeSnap,
+  type SnapTargetKind,
 } from "./engine/snapping";
 import { isGridShown, setGridShown, subscribeGrid } from "./engine/dotGrid";
 import type { WorkspaceHistory } from "@/app/lib/history/spine";
@@ -367,9 +370,21 @@ function UndoRedo({
   );
 }
 
-/** Snapping and the dot grid: the snapper and the grid own them; this mirrors. */
-function Settings() {
+/** What a gesture on the page may snap to, beneath the master switch. */
+const SNAP_TARGETS: readonly { kind: SnapTargetKind; label: string }[] = [
+  { kind: "shapes", label: "Shapes" },
+  { kind: "column", label: "Text column" },
+  { kind: "diagrams", label: "Other diagrams" },
+];
+
+/**
+ * Snapping and the dot grid: the snapper and the grid own them; this mirrors.
+ * On the page, snapping also says what to: a shot has no column and no other
+ * diagrams to line up with.
+ */
+function Settings({ targets = false }: { targets?: boolean }) {
   const snap = useSyncExternalStore(subscribeSnap, isSnapEnabled, () => true);
+  const on = useSyncExternalStore(subscribeSnap, getSnapTargets, getSnapTargets);
   const grid = useSyncExternalStore(subscribeGrid, isGridShown, () => true);
   return (
     <Menu
@@ -400,6 +415,18 @@ function Settings() {
           <ToggleRow on={snap} onToggle={() => setSnapEnabled(!snap)}>
             Snap to guides
           </ToggleRow>
+          {targets &&
+            SNAP_TARGETS.map(({ kind, label }) => (
+              <ToggleRow
+                key={kind}
+                on={on[kind]}
+                disabled={!snap}
+                inset
+                onToggle={() => setSnapTarget(kind, !on[kind])}
+              >
+                {label}
+              </ToggleRow>
+            ))}
         </>
       )}
     </Menu>
@@ -449,7 +476,7 @@ export function PageToolbar({
         />
         <History hint={hint} />
         <span className="nt-toolbar-sep" aria-hidden />
-        <Settings />
+        <Settings targets />
         <AutocompleteButton />
         {onPalette && <PaletteButton apple={apple} onOpen={onPalette} />}
       </div>
@@ -523,14 +550,20 @@ export function FrameToolbar({
 function ToggleRow({
   on,
   onToggle,
+  disabled,
+  inset,
   children,
 }: {
   on: boolean;
   onToggle: () => void;
+  /** Its parent setting is off, so it has nothing to decide. */
+  disabled?: boolean;
+  /** Indented under the setting it refines. */
+  inset?: boolean;
   children: ReactNode;
 }) {
   return (
-    <MenuItem onClick={onToggle}>
+    <MenuItem onClick={onToggle} disabled={disabled} className={inset ? "pl-[calc(var(--inset)+22px)]" : undefined}>
       <span
         aria-hidden
         className={`flex size-3.5 shrink-0 items-center justify-center rounded-[var(--radius-sm)] border transition-colors ${

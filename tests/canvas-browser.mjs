@@ -23,6 +23,9 @@ const HARNESSES = [
   "canvas-block-drag",
   "canvas-picking",
   "canvas-presence",
+  // Diagrams on one page: a selection, a drag, a marquee and an undo that
+  // reach across two of them.
+  "canvas-page",
   // Not a canvas harness, but the collaboration path beside it: a collaborator
   // who goes stale and comes back is on the carets again (NT-26). Outside any
   // gate it hung on `main` from #150 on without anyone hearing (NT-74).

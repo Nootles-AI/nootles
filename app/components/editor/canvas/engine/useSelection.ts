@@ -857,6 +857,20 @@ function frameOf(scene: SceneLike, id: NodeId): RotatedRect {
   return { ...absoluteRect(scene, id), rot: absoluteRotation(scene, id) };
 }
 
+/**
+ * The frame the overlay draws around `ids`, in scene px: one node's own box
+ * and rotation, or the unrotated union of several. `null` when none of them is
+ * in the scene.
+ */
+export function selectionFrame(scene: SceneLike, ids: readonly NodeId[]): RotatedRect | null {
+  const live = idsOf(selectedNodes(scene, ids));
+  if (live.length === 0) return null;
+  const laid = laidOutScene(scene);
+  return live.length === 1
+    ? frameOf(laid, live[0])
+    : { ...absoluteSelectionBounds(laid, live), rot: 0 };
+}
+
 export function useSelection(store: SelectionStore, scene: SceneLike): ResolvedSelection {
   const snapshot = useSyncExternalStore(
     store.subscribe,

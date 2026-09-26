@@ -351,12 +351,17 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   // A selection in a diagram — or a held shot — turns both rails over to it,
   // collapsed or not, but only where there is room for them. The diagram is
   // fully editable without the panels.
-  const focusedApi =
-    held.pane && held.focused ? (hub.pane(held.pane)?.get(held.focused.blockId)?.api ?? null) : null;
+  const focusedPage = held.pane ? hub.pane(held.pane) : null;
+  const focusedApi = held.focused ? (focusedPage?.get(held.focused.blockId)?.api ?? null) : null;
   const panelTarget = frame
-    ? { id: frame.key, api: frame.api }
+    ? { id: frame.key, api: frame.api, page: null, blockId: undefined }
     : focusedApi && held.focused
-      ? { id: `${held.pane}:${held.focused.blockId}`, api: focusedApi }
+      ? {
+          id: `${held.pane}:${held.focused.blockId}`,
+          api: focusedApi,
+          page: focusedPage,
+          blockId: held.focused.blockId,
+        }
       : null;
   const canvasPanels = compact ? null : panelTarget;
   // A selected place card takes the right rail the same way, and yields to a
@@ -666,6 +671,8 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
                     key={lastCanvas.id}
                     store={lastCanvas.api.store}
                     selection={lastCanvas.api.selection}
+                    page={lastCanvas.page}
+                    blockId={lastCanvas.blockId}
                   />
                 </aside>
               </div>
@@ -799,7 +806,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
           )}
           {designHeld && lastCanvas && (
             <div className="nt-rail-face is-right" data-on={designOn} inert={!designOn} style={railWidth(rightWidth)}>
-              <CanvasStylePanel api={lastCanvas.api} />
+              <CanvasStylePanel api={lastCanvas.api} page={lastCanvas.page} />
             </div>
           )}
           {placeHeld && lastPlace && (

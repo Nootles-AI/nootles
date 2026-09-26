@@ -2,7 +2,11 @@
 
 import { createContext, useContext, useEffect, useMemo, useSyncExternalStore } from "react";
 import type { Pane } from "@/app/components/OpenPageContext";
+import type { SceneStore } from "../engine/useScene";
+import { selectionFrame, type SelectionStore } from "../engine/useSelection";
 import type { CanvasApi } from "../render/CanvasSurface";
+import type { RotatedRect } from "../scene/geometry";
+import { createPageGesture, type PageGesture } from "./pageGesture";
 import {
   createPageSelection,
   EMPTY_PAGE_SELECTION,
@@ -32,6 +36,15 @@ export type DiagramEntry = {
   remove(): void;
 };
 
+/** A diagram holding part of the page's selection, and its own store of it. */
+export type DiagramTarget = {
+  blockId: string;
+  store: SceneStore;
+  /** The diagram's own selection, not the page's facade over it. */
+  selection: SelectionStore;
+  entry: DiagramEntry;
+};
+
 /**
  * The diagrams of one pane's page, and what they share: the tool, the
  * selection, one undo step for an edit that spans several of them. One per
@@ -43,6 +56,17 @@ export interface PageCanvas {
   /** Null where there is no page to draw on — a viewer, or no workspace at all. */
   readonly tools: PageToolControl | null;
   readonly selection: PageSelection;
+  /** Moves, resizes, rotations and marquees that reach across diagrams. */
+  readonly gesture: PageGesture;
+  /** Every diagram holding part of the selection, in document order. */
+  targets(): DiagramTarget[];
+  /**
+   * The frame around a selection spanning several diagrams, in this one's px;
+   * `null` while the selection is one diagram's or none. The same object
+   * until it moves, so it can be a `useSyncExternalStore` snapshot.
+   */
+  frameIn(blockId: string): RotatedRect | null;
+  subscribeFrame(listener: () => void): () => void;
   register(entry: DiagramEntry): () => void;
   get(blockId: string): DiagramEntry | undefined;
   /** In document order. */
@@ -83,6 +107,13 @@ type Deps = { batch<T>(fn: () => T): T; quiet?: () => boolean };
 const identity = <T,>(fn: () => T): T => fn();
 const never = () => false;
 const noop = () => {};
+const nothing = () => null;
+
+function sameFrame(a: RotatedRect | null, b: RotatedRect | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h && a.rot === b.rot;
+}
 const NOTHING_HELD: HubSnapshot = { pane: null, focused: null };
 
 const byDocument = (a: DiagramEntry, b: DiagramEntry) => {
@@ -101,27 +132,112 @@ export function createPageCanvas({
 }: Deps & { pane: Pane; pageId: string; tools: PageToolControl | null }): PageCanvas {
   const registry = new Map<string, DiagramEntry>();
   const waiting = new Map<string, Set<(entry: DiagramEntry) => void>>();
-  const selection = createPageSelection({ batch, quiet });
+  const selection = createPageSelection({
+    batch,
+    quiet,
+    geometry: {
+      bounds: (blockId, ids) => {
+        const entry = registry.get(blockId);
+        return entry ? selectionFrame(entry.api.store.getScene(), ids) : null;
+      },
+      toClient: (blockId, point) => registry.get(blockId)?.api.viewport.sceneToClient(point) ?? point,
+      toScene: (blockId, point) => registry.get(blockId)?.api.viewport.clientToScene(point) ?? point,
+    },
+  });
+  const entries = () => [...registry.values()].sort(byDocument);
+  const gesture = createPageGesture({ entries, selection, batch });
+
+  // The frame around a selection spanning diagrams moves when any of them
+  // changes, and when the text between them reflows — so while there is one,
+  // and someone is drawing it, the stores and the editor are watched.
+  const frameListeners = new Set<() => void>();
+  const frames = new Map<string, { version: number; frame: RotatedRect | null }>();
+  let version = 0;
+  let watching: (() => void) | null = null;
+  const spanning = () => {
+    let holding = 0;
+    for (const part of selection.getSnapshot().parts.values()) if (part.ids.length) holding++;
+    return holding > 1;
+  };
+  const bump = () => {
+    version++;
+    for (const listener of frameListeners) listener();
+  };
+  const rewatch = (force = false) => {
+    const wanted = frameListeners.size > 0 && spanning();
+    if (!force && wanted === (watching !== null)) return;
+    watching?.();
+    watching = null;
+    if (!wanted) return;
+    const offs = [...registry.values()].map((entry) => entry.api.store.subscribe(bump));
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(bump);
+    const roots = new Set<Element>();
+    for (const entry of registry.values()) {
+      const band = entry.api.band.current;
+      const root = band?.closest(".bn-editor") ?? band;
+      if (root) roots.add(root);
+    }
+    for (const root of roots) observer?.observe(root);
+    watching = () => {
+      for (const off of offs) off();
+      observer?.disconnect();
+    };
+  };
+  selection.subscribe(() => {
+    rewatch();
+    bump();
+  });
 
   return {
     pane,
     pageId,
     tools,
     selection,
+    gesture,
     batch,
     register: (entry) => {
       registry.set(entry.blockId, entry);
-      const detach = selection.attach(entry.blockId, entry.api.selection);
+      const detach = selection.attach(entry.blockId, entry.api.ownSelection);
       const woken = waiting.get(entry.blockId);
       waiting.delete(entry.blockId);
       for (const wake of woken ?? []) wake(entry);
+      if (watching) rewatch(true);
       return () => {
         detach();
         if (registry.get(entry.blockId) === entry) registry.delete(entry.blockId);
+        if (watching) rewatch(true);
       };
     },
     get: (blockId) => registry.get(blockId),
-    entries: () => [...registry.values()].sort(byDocument),
+    entries,
+    targets: () => {
+      const parts = selection.getSnapshot().parts;
+      return entries()
+        .filter((entry) => parts.has(entry.blockId))
+        .map((entry) => ({
+          blockId: entry.blockId,
+          store: entry.api.store,
+          selection: entry.api.ownSelection,
+          entry,
+        }));
+    },
+    frameIn: (blockId) => {
+      if (!spanning()) return null;
+      const held = frames.get(blockId);
+      if (held?.version === version) return held.frame;
+      const next = selection.unionIn(blockId);
+      const frame = held && sameFrame(held.frame, next) ? held.frame : next;
+      frames.set(blockId, { version, frame });
+      return frame;
+    },
+    subscribeFrame: (listener) => {
+      frameListeners.add(listener);
+      rewatch();
+      return () => {
+        frameListeners.delete(listener);
+        rewatch();
+      };
+    },
     whenRegistered: (blockId, ms = 1500) => {
       const held = registry.get(blockId);
       if (held) return Promise.resolve(held);
@@ -143,17 +259,14 @@ export function createPageCanvas({
     },
     attach: () => {
       // One listener for every diagram in the pane: a press outside all of
-      // them lets the page's selection go, and a press on one lets go of the
-      // rest — batched, where a listener per diagram cleared each on its own.
+      // them lets the page's selection go, batched, where a listener per
+      // diagram cleared each on its own. A press on one is the diagram's to
+      // read — it may be the start of a drag of shapes in several.
       const onDown = (event: PointerEvent) => {
         const target = event.target;
         if (!(target instanceof Element)) return;
         if (selection.getSnapshot().parts.size === 0) return;
-        const owner = [...registry.values()].find((e) => e.api.band.current?.contains(target));
-        if (owner) {
-          if (!event.shiftKey) selection.clearAll(owner.blockId);
-          return;
-        }
+        if ([...registry.values()].some((e) => e.api.band.current?.contains(target))) return;
         if (!target.closest(CANVAS_CHROME)) selection.clearAll();
       };
       document.addEventListener("pointerdown", onDown, true);
@@ -242,10 +355,23 @@ const NO_SELECTION: PageSelection = {
   subscribe: () => noop,
   getSnapshot: () => EMPTY_PAGE_SELECTION,
   attach: () => noop,
-  select: noop,
+  facade: (_blockId, raw) => raw,
+  selectIn: noop,
+  marqueeIn: noop,
   clearAll: noop,
   focus: noop,
   isSelected: never,
+  count: () => 0,
+  unionIn: nothing,
+};
+
+const NO_GESTURE: PageGesture = {
+  spans: never,
+  start: never,
+  resetRotation: never,
+  didDrag: never,
+  cancel: noop,
+  marquee: noop,
 };
 
 /** A diagram outside any workspace — the share route, a harness — stands alone. */
@@ -254,6 +380,10 @@ export const NO_PAGE_CANVAS: PageCanvas = {
   pageId: null,
   tools: null,
   selection: NO_SELECTION,
+  gesture: NO_GESTURE,
+  targets: () => [],
+  frameIn: nothing,
+  subscribeFrame: () => noop,
   register: () => noop,
   get: () => undefined,
   entries: () => [],

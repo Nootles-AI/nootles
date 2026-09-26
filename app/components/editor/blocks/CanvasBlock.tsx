@@ -483,6 +483,7 @@ function CanvasBlockView({
     writeMirror();
   }, [liveApi, writeMirror]);
   const remove = useCallback(() => editor.removeBlocks([blockId]), [editor, blockId]);
+  const onPage = useMemo(() => (page.pane ? { canvas: page, blockId } : undefined), [page, blockId]);
   useEffect(() => {
     if (!liveApi) return;
     return page.register({ blockId, api: liveApi, readOnly, flushMirror, remove });
@@ -527,6 +528,7 @@ function CanvasBlockView({
           onChange={surfaceChange}
           storeKey={sceneStoreKey(blockId)}
           tools={page.tools ?? undefined}
+          page={onPage}
           onApi={(next) => {
             api.current = next;
             setLiveApi(next);
