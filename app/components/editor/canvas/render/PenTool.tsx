@@ -37,7 +37,7 @@ import {
   toLocal,
   toWorld,
 } from "../scene/geometry";
-import { roomFor, roomOps } from "../scene/bandRoom";
+import { absorb, roomFor, roomOps, type Room } from "../scene/bandRoom";
 import { mintId } from "../scene/ops";
 import {
   bendSegment,
@@ -55,6 +55,8 @@ import {
   subpathsBounds,
   type Anchor,
 } from "../scene/path";
+import { SETTLE_MS, settleEase } from "./settle";
+import { sceneBlockHeight } from "../types";
 import { DRAWN_INK, DRAWN_STROKE_WIDTH } from "./svgShape";
 import type { NodeId, PathNode, Point } from "../scene/types";
 
@@ -206,6 +208,27 @@ function load(store: SceneStore, id: NodeId | null) {
   };
 }
 
+/**
+ * The path as the store holds it — its data and its box on the page — or
+ * `null` once it is gone. The pen compares this with what it last wrote to
+ * tell a change it made from one made under it.
+ */
+function stateOf(store: SceneStore, id: NodeId | null): string | null {
+  const node = id ? store.getNode(id) : null;
+  if (!node || node.kind !== "path") return null;
+  const f = nodeFrame(store, node.id);
+  return `${node.d}|${f.x},${f.y},${f.w},${f.h},${f.rot}`;
+}
+
+/** The element the page scrolls in, around `el`. */
+function scrollerOf(el: Element): HTMLElement | null {
+  for (let at = el.parentElement; at; at = at.parentElement) {
+    const { overflowY } = getComputedStyle(at);
+    if ((overflowY === "auto" || overflowY === "scroll") && at.scrollHeight > at.clientHeight) return at;
+  }
+  return null;
+}
+
 /** Somewhere a Backspace means "delete a character", not "delete an anchor". */
 function isTextEntry(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -291,7 +314,15 @@ export function PenTool({
   const selectedRef = useRef<Set<number>>(
     new Set(initial.anchors.length ? [initial.anchors.length - 1] : []),
   );
+  /**
+   * The path's node. Kept when an undo takes the node away, so a redo that
+   * brings it back is the same path coming back to the pen.
+   */
   const idRef = useRef<NodeId | null>(nodeId);
+  /** What the pen last knew of its path in the store — see {@link stateOf}. */
+  const seenRef = useRef<string | null>(null);
+  /** Inside one of the pen's own edits, whose changes it already holds. */
+  const ownRef = useRef(0);
   /** Only a path we are drawing grows from a click on empty canvas. */
   const drawingRef = useRef(nodeId === null);
   const cursorRef = useRef<Point | null>(null);
@@ -449,7 +480,118 @@ export function PenTool({
   }, [paint, onDrawing]);
   useEffect(() => () => onDrawing?.(false), [onDrawing]);
 
+  /**
+   * The store is the path's one truth; the anchors here are its working copy.
+   * Whatever changes the path from outside the pen — an undo or redo of its
+   * own points, a collaborator, the assistant — is read back in, so what the
+   * pen draws, what the canvas renders and what the next point extends are
+   * always the same path. A path an undo took away leaves the pen as it was
+   * before its first point. Nothing arrives mid-gesture: the store holds
+   * outside changes, and refuses undo, until the bracket closes.
+   */
+  useEffect(() => {
+    seenRef.current = stateOf(store, idRef.current);
+    return store.subscribe(() => {
+      if (ownRef.current || dragRef.current) return;
+      const now = stateOf(store, idRef.current);
+      if (now === seenRef.current) return;
+      seenRef.current = now;
+      const loaded = load(store, idRef.current);
+      anchorsRef.current = loaded.anchors;
+      closedRef.current = loaded.closed;
+      const n = loaded.anchors.length;
+      selectedRef.current =
+        drawingRef.current && !loaded.closed
+          ? new Set(n ? [n - 1] : [])
+          : new Set([...selectedRef.current].filter((i) => i < n));
+      sync();
+    });
+  }, [store, sync]);
+
   // -- Writing --------------------------------------------------------------
+
+  /** One of the pen's own edits: the store's answer to it is already in hand. */
+  const own = useCallback(
+    (edit: () => void) => {
+      ownRef.current += 1;
+      try {
+        edit();
+      } finally {
+        ownRef.current -= 1;
+      }
+      seenRef.current = stateOf(store, idRef.current);
+    },
+    [store],
+  );
+
+  /** The forced move being shown, if one is — see {@link showMove}. */
+  const moveRef = useRef<{ finish(): void } | null>(null);
+
+  /**
+   * A move the band forced on the drawing, as the hand sees it. The move has
+   * landed; this is only how it is seen. The page scrolls down with it as far
+   * as it can, so the drawing stays put under the pointer while the band
+   * grows up to meet it and the text above goes up with its top; whatever the
+   * scroll cannot take, the drawing glides the rest of the way, as a shape
+   * drawn on the page settles into its diagram.
+   *
+   * One clock drives the scroll, the band's height and the drawing's lag
+   * behind its new place — the three have to cancel exactly, frame by frame,
+   * which a CSS animation beside a scroll cannot promise. On the drawing, the
+   * lag is always `-room * (1 - p)`: with the scroll taking the whole move it
+   * holds the drawing still, and with none it is the glide.
+   */
+  const showMove = useCallback(
+    (room: Room) => {
+      moveRef.current?.finish();
+      const k = viewport.screenScale();
+      const zoom = viewport.get().zoom;
+      // After the render that grows the band, so the page has the room to scroll.
+      queueMicrotask(() => {
+        const svg = svgRef.current;
+        const band = svg?.closest<HTMLElement>(".nt-canvas");
+        if (!svg || !band || !k) return;
+        const layer = svg.parentElement?.querySelector<HTMLElement>(":scope > .nt-canvas-scene") ?? null;
+        const pane = room.dy > 0 ? scrollerOf(band) : null;
+        const top = pane?.scrollTop ?? 0;
+        const { scroll } = absorb(room, k, pane ? pane.scrollHeight - pane.clientHeight - top : 0);
+        // The browser's own anchoring would scroll against the band's growth.
+        const anchoring = pane?.style.overflowAnchor ?? "";
+        if (pane) pane.style.overflowAnchor = "none";
+        let frame = 0;
+        const at = (p: number) => {
+          const lag = 1 - p;
+          if (pane) pane.scrollTop = top + scroll * k * p;
+          const by = lag ? `${-room.dx * lag * zoom}px ${-room.dy * lag * zoom}px` : "";
+          if (layer) layer.style.translate = by;
+          svg.style.translate = by;
+          // Read each frame: an edit landing mid-move has the last word on the height.
+          if (room.dy) band.style.height = `${sceneBlockHeight(store.getScene()) - room.dy * lag}px`;
+        };
+        const move = {
+          finish: () => {
+            cancelAnimationFrame(frame);
+            at(1);
+            if (pane) pane.style.overflowAnchor = anchoring;
+            if (moveRef.current === move) moveRef.current = null;
+          },
+        };
+        const still = Math.abs(room.dx * k) < 0.5 && Math.abs(room.dy * k) < 0.5;
+        if (still || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return move.finish();
+        moveRef.current = move;
+        at(0);
+        const start = performance.now();
+        const tick = (now: number) => {
+          const t = (now - start) / SETTLE_MS;
+          if (t >= 1) return move.finish();
+          at(settleEase(t));
+          frame = requestAnimationFrame(tick);
+        };
+        frame = requestAnimationFrame(tick);
+      });
+    },
+    [viewport, store],
+  );
 
   const write = useCallback(() => {
     const id = idRef.current;
@@ -488,7 +630,7 @@ export function PenTool({
       { x: box.x + box.w / 2, y: box.y + box.h / 2 },
       node,
     );
-    store.dispatch({
+    own(() => store.dispatch({
       type: "setPath",
       id,
       d: serializeSubpaths([
@@ -501,8 +643,8 @@ export function PenTool({
         w: box.w,
         h: box.h,
       },
-    });
-  }, [store]);
+    }));
+  }, [store, own]);
 
   /**
    * Make room in the band for what the pen drew: turn it wide, or move the
@@ -523,7 +665,7 @@ export function PenTool({
       tintedRef.current = null;
       tintMargins(svgRef.current?.closest(".nt-canvas"), null);
     }
-    store.dispatch(roomOps(scene, room));
+    own(() => store.dispatch(roomOps(scene, room)));
     if (!room.dx && !room.dy) return;
     const shift = (a: Anchor): Anchor => ({
       ...a,
@@ -532,7 +674,8 @@ export function PenTool({
     anchorsRef.current = anchors.map(shift);
     const drag = dragRef.current;
     if (drag?.kind === "place") dragRef.current = { ...drag, anchor: shift(drag.anchor) };
-  }, [band, store]);
+    showMove(room);
+  }, [band, store, own, showMove]);
 
   /** An edit outside any gesture: the path written and room made, one step. */
   const land = useCallback(() => {
@@ -544,7 +687,8 @@ export function PenTool({
 
   const ensureNode = useCallback(
     (at: Point): void => {
-      if (idRef.current) return;
+      // A path an undo took away is begun again, as a new one.
+      if (idRef.current && store.getNode(idRef.current)) return;
       const id = mintId(store.getScene());
       const node: PathNode = {
         kind: "path",
@@ -565,10 +709,12 @@ export function PenTool({
         attrs: {},
         d: "",
       };
-      store.dispatch({ type: "insert", nodes: [node] });
-      idRef.current = id;
+      own(() => {
+        idRef.current = id;
+        store.dispatch({ type: "insert", nodes: [node] });
+      });
     },
-    [store],
+    [store, own],
   );
 
   /**
@@ -598,7 +744,9 @@ export function PenTool({
       // A path the pen began, taken back: a diagram that held nothing else was
       // empty before the pen began, and the last-shape guard is not asked. One
       // it was handed to edit is a shape going like any other.
-      if (id) store.dispatch({ type: "remove", ids: [id] }, nodeId === null ? { guard: false } : undefined);
+      if (id && store.getNode(id)) {
+        own(() => store.dispatch({ type: "remove", ids: [id] }, nodeId === null ? { guard: false } : undefined));
+      }
       onDrawing?.(false);
       onFinish(null);
       return;
@@ -606,7 +754,7 @@ export function PenTool({
     write();
     onDrawing?.(false);
     onFinish(id);
-  }, [endNudgeRun, store, write, onFinish, onDrawing, nodeId]);
+  }, [endNudgeRun, store, write, own, onFinish, onDrawing, nodeId]);
 
   /** One visual update and one committed edit per frame, never per event. */
   const schedule = useCallback(() => {
@@ -621,6 +769,7 @@ export function PenTool({
   useEffect(
     () => () => {
       if (frameRef.current) cancelAnimationFrame(frameRef.current);
+      moveRef.current?.finish();
       // Escape can unmount us mid-drag; an unclosed bracket would wedge undo.
       if (bracketRef.current) store.commit();
       if (nudgeTimer.current !== null) {
@@ -681,6 +830,8 @@ export function PenTool({
     (e: ReactPointerEvent<SVGSVGElement>) => {
       if (e.button !== 0) return;
       e.preventDefault();
+      // A press lands on the drawing where it is, not where it was seen gliding.
+      moveRef.current?.finish();
       const p = viewport.clientToScene({ x: e.clientX, y: e.clientY });
       const tol = GRAB / viewport.screenScale();
       const anchors = anchorsRef.current;

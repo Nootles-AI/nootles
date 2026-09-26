@@ -279,8 +279,27 @@ async function selectCanvasBlock(on: boolean) {
   return !!band && getComputedStyle(band, "::after").content !== "none";
 }
 
+/** A root-level diagram edit through the block's own scene store — the path the Style panel's Width takes. */
+function setDiagram(patch: { wide?: boolean | "pinned"; h?: number }) {
+  const canvasId = block("canvas")?.id;
+  const store = canvasId ? peekSceneStore(sceneStoreKey(canvasId)) : null;
+  if (!store) return false;
+  store.dispatch({ type: "setDiagram", ...patch });
+  return true;
+}
+
+/** Where the grip's centre is, and what a press there would land on. */
+function handleHit(label = "Block actions") {
+  const rect = handleRect(label);
+  if (!rect) return null;
+  const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  return { ...rect, hit: hit?.closest("button")?.getAttribute("aria-label") ?? null };
+}
+
 const harness = {
   mount,
+  setDiagram,
+  handleHit,
   bandRect,
   hitAt,
   selectCanvasBlock,

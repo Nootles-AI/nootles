@@ -122,7 +122,7 @@ import {
   type SceneOp,
   type StylePatch,
 } from "../scene/types";
-import { BAND, bandFloor, contentBottom, unfitted, WIDE_MARGIN, wideOps, type Fold } from "../scene/band";
+import { BAND, bandFloor, contentBottom, operationHeight, unfitted, WIDE_MARGIN, wideOps, type Fold } from "../scene/band";
 import { sceneBlockHeight } from "../types";
 import { defaultBox, newNode, type DrawKind } from "./newShape";
 import { Overlay, type OverlayApi } from "./Overlay";
@@ -843,30 +843,38 @@ export function CanvasSurface({
   );
 
   /**
-   * The tallest the band has been drawn during the gesture in hand; 0 while it
-   * has not grown. A drag or a draw past the bottom grows the band under the
-   * pointer rather than at the release, written straight to the element.
+   * The gesture in hand's share of the band's height: what the band was drawn
+   * at when it began, and what the boxes it is moving need of it this frame.
+   * A drag or a draw past the bottom grows the band under the pointer rather
+   * than at the release, written straight to the element — and takes it back
+   * up with the pointer, as far as where it began (`operationHeight`).
    */
-  const grown = useRef(0);
+  const opHeight = useRef<{ start: number; need: number } | null>(null);
+  const beginHeight = useCallback(() => {
+    opHeight.current = { start: sceneBlockHeight(store.getScene()), need: -Infinity };
+  }, [store]);
   const grow = useCallback(
     (bottom: number) => {
       const el = wrap.current;
-      if (inFrame || !el || !Number.isFinite(bottom)) return;
-      const next = Math.ceil(bottom + BAND);
-      if (next <= Math.max(grown.current, sceneBlockHeight(store.getScene()))) return;
-      grown.current = next;
-      el.style.height = `${next}px`;
+      if (inFrame || !el) return;
+      const op = (opHeight.current ??= { start: sceneBlockHeight(store.getScene()), need: -Infinity });
+      op.need = Number.isFinite(bottom) ? bottom + BAND : -Infinity;
+      const px = `${operationHeight(op.start, op.need)}px`;
+      if (el.style.height !== px) el.style.height = px;
     },
     [store, inFrame],
   );
   /**
-   * The height the gesture grew to, kept by the entry it lands as — so a band
-   * never springs back under a shape dragged down and then up again, and undo
-   * puts the old height back with the move.
+   * The height the gesture ends at, kept by the entry it lands as — none
+   * when it ends no taller than it began, so a shape dragged down and back up
+   * leaves the band as it found it, and undo puts the old height back with
+   * the move.
    */
   const keepGrowth = useCallback(() => {
-    const h = grown.current;
-    if (h > store.getScene().h) store.dispatch({ type: "setDiagram", h });
+    const op = opHeight.current;
+    if (!op) return;
+    const h = operationHeight(op.start, op.need);
+    if (h > op.start && h > store.getScene().h) store.dispatch({ type: "setDiagram", h });
   }, [store]);
   /**
    * The band at the height its scene says, once a gesture is over. A cancel
@@ -874,9 +882,9 @@ export function CanvasSurface({
    */
   const settleHeight = useCallback(() => {
     const el = wrap.current;
-    if (!grown.current || !el) return;
-    grown.current = 0;
-    el.style.height = `${sceneBlockHeight(store.getScene())}px`;
+    if (!opHeight.current) return;
+    opHeight.current = null;
+    if (el) el.style.height = `${sceneBlockHeight(store.getScene())}px`;
   }, [store]);
 
   /** The column band's two margins, washed in while a drag is held at its side. */
@@ -1041,6 +1049,7 @@ export function CanvasSurface({
     onActiveChange: (active) => {
       if (active) {
         moveDidDrag.current = true;
+        beginHeight();
         const moving = movingSubtrees();
         held.current = {
           moving,
@@ -1310,6 +1319,7 @@ export function CanvasSurface({
   const startDraw = (kind: DrawKind, from: Point) => {
     const origin = withinBand(from);
     const id = mintId(store.getScene());
+    beginHeight();
     store.begin();
     store.dispatch({
       type: "insert",

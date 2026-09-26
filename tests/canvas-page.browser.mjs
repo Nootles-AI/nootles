@@ -194,6 +194,61 @@ try {
   await frame();
   check("one undo puts both heights back", [await at("height", "top"), await at("height", "bottom")], [180, 180]);
 
+  // Down past the bottom and back up in the same drag: each band follows the
+  // shapes back, as far as where it began, and lands there.
+  const downAndBack = async (from, down, back, sample) => {
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(from.x, from.y + down, { steps: 12 });
+    await frame();
+    const deep = await sample();
+    await page.mouse.move(from.x, from.y + back, { steps: 12 });
+    await frame();
+    const shallow = await sample();
+    await page.mouse.up();
+    await frame();
+    return { deep, shallow };
+  };
+  const bandHeights = async () => [(await at("band", "top")).height, (await at("band", "bottom")).height];
+  const both = await downAndBack(centre(await at("shape", "bottom", "b1")), 150, 10, bandHeights);
+  check("both bands grow under a drag taken down", both.deep.map((h) => h > 180), [true, true]);
+  check("and follow it back up, to where they began", both.shallow, [180, 180]);
+  check("landing there", [await at("height", "top"), await at("height", "bottom")], [180, 180]);
+  check("the drag landed", (await at("model", "bottom", "b1")).y, 50);
+  await at("undo");
+  await frame();
+  check("and its undo is the move alone", [(await at("model", "bottom", "b1")).y, await at("height", "top"), await at("height", "bottom")], [40, 180, 180]);
+
+  // One shape, alone: the same.
+  await at("clear");
+  await page.mouse.click(...Object.values(centre(await at("shape", "bottom", "b1"))));
+  await frame();
+  const alone = await downAndBack(centre(await at("shape", "bottom", "b1")), 150, 10, async () => (await at("band", "bottom")).height);
+  check("a shape dragged down and back: the band grows, then follows it back", [alone.deep > 180, alone.shallow], [true, 180]);
+  check("and lands at the height it began with", await at("height", "bottom"), 180);
+  await at("undo");
+  await frame();
+
+  // A run of nudges down past the bottom and back up is one operation too: an
+  // arrow held, then the other one held over it — one run until a key comes up.
+  await page.keyboard.down("Shift");
+  for (let i = 0; i < 10; i++) await page.keyboard.down("ArrowDown");
+  await frame();
+  const nudgedDown = await at("height", "bottom");
+  for (let i = 0; i < 10; i++) await page.keyboard.down("ArrowUp");
+  await frame();
+  const nudgedBack = await at("height", "bottom");
+  await page.keyboard.up("ArrowUp");
+  await page.keyboard.up("ArrowDown");
+  await page.keyboard.up("Shift");
+  await frame();
+  check("a run of nudges down grows the band, and back up takes it back", [nudgedDown > 180, nudgedBack], [true, 180]);
+  check("where the run closes on it", await at("height", "bottom"), 180);
+  await at("undo");
+  await frame();
+  check("and its undo is the run alone", [(await at("model", "bottom", "b1")).y, await at("height", "bottom")], [40, 180]);
+  await at("clear");
+
   {
     // ---- A band's height, pinned and not --------------------------------------
     // Scrolled so a band sits mid-screen: whatever changes its height moves only
@@ -984,21 +1039,49 @@ try {
     };
     const pathOf = async (id) => at("frameOf", id, (await at("nodes", id))[0].id);
 
+    // Room under the page, so it can scroll with a band growing up.
+    await at("padPage", 600);
     const up = await penBornAt();
     const band = await at("band", up);
     const scale = await at("bandScale", up);
     const first = await pathOf(up);
+    const [firstAt] = await at("penSquares", up);
+    const upOrder = (await at("blocks")).map((block) => block.split(":")[0]);
+    const textAbove = upOrder[upOrder.indexOf(up) - 1];
+    const aboveBefore = await at("block", textAbove);
+    const scrolledBefore = await at("scrollTop");
     await page.mouse.move(band.left + 300, band.top - 40, { steps: 4 });
     await frame();
     const reaching = await at("penDraft", up);
     check("hovered above the band, the pen's rubber band reaches the pointer", !!reaching && near(reaching.top, band.top - 40, 2), true);
+    const textBelow = upOrder[upOrder.indexOf(up) + 1];
+    const belowBefore = await at("block", textBelow);
+    await at("record", up, textAbove, textBelow, 400);
     await page.mouse.click(band.left + 300, band.top - 40);
-    await frame();
+    await page.waitForTimeout(450);
+    // Every frame of the way: the page scrolling, smoothly, and the drawing
+    // and the point just placed holding still under it.
+    const way = (await at("recorded")).filter((f) => f.squares.length === 2);
+    const scrolledBy = way.map((f) => f.scrollTop - scrolledBefore);
+    check("the page scrolls smoothly: frames part-way there, not at once", scrolledBy.some((d) => d > 1 && d < 39), true);
+    check("never back and forth", scrolledBy.every((d, i) => i === 0 || d >= scrolledBy[i - 1] - 0.5), true);
+    check("the point already placed holds still the whole way", way.every((f) => near(f.squares[0].x, firstAt.x, 2) && near(f.squares[0].y, firstAt.y, 2)), true);
+    check("and the new one stays under the pointer", way.every((f) => near(f.squares[1].y, band.top - 40, 2)), true);
+    check("the text above glides up with the band's top", way.every((f, i) => near(f.above.top, aboveBefore.top - scrolledBy[i], 1)), true);
+    check("and the text below does not move", way.every((f) => near(f.below.top, belowBefore.top, 2)), true);
     const lifted = await pathOf(up);
     check("a point pressed above the band lands at its top", near(lifted.y, 0, 0.5), true);
     check("the first point moved down with it, keeping the path's shape", near(lifted.h, first.y + 40 / scale), true);
     const grown = await at("band", up);
-    check("the band grows to hold it, its top where it was", [near(grown.top, band.top), grown.height > band.height], [true, true]);
+    check("the page scrolled by the overshoot rather than the drawing moving", near((await at("scrollTop")) - scrolledBefore, 40, 1), true);
+    const settled = await at("penMoment", up, textAbove, textBelow);
+    const [firstNow, placed] = settled.squares;
+    check("so the point already placed is where it was on screen", [near(firstNow.x, firstAt.x), near(firstNow.y, firstAt.y)], [true, true]);
+    check("and the new one under the pointer", [near(placed.x, band.left + 300), near(placed.y, band.top - 40)], [true, true]);
+    check("the band grew up to meet it, its bottom where it was", [near(grown.top, band.top - 40), near(grown.top + grown.height, band.top + band.height)], [true, true]);
+    check("the text above went up with the band's top, and below stayed", [near(settled.above.top, aboveBefore.top - 40), near(settled.below.top, belowBefore.top)], [true, true]);
+    const truth = await at("penTruth", up);
+    check("and the band is drawn at the height its scene says, nothing left over", [truth.bandPx, settled.lag], [truth.bandH, ""]);
 
     const below = await at("band", up);
     await page.mouse.move(below.left + 200, below.top + below.height + 50, { steps: 4 });
@@ -1041,6 +1124,8 @@ try {
     // The second anchor near the top, dragged down-right: its in-handle points
     // up-left, and the curve into it arches above the band's top.
     await drag({ x: cb.left + 420, y: cb.top + 20 }, 160, 140);
+    // The band grows up to hold the arch, the page scrolling with it.
+    await page.waitForTimeout(320);
     let f = await pathOf(curve);
     check("a curve arched above the band's top is moved down into it", f.y >= -0.01, true);
     // The two anchors are a few px apart down the band; the arch between them
@@ -1059,6 +1144,160 @@ try {
     drawn = await at("band", curve);
     check("the band still holds its lowest point", drawn.height / (await at("bandScale", curve)) >= f.y + f.h - 0.5, true);
     await page.keyboard.press("Enter");
+
+    // ---- Where the page cannot scroll, the path glides ------------------------
+    await at("clear");
+    const pinned = await penBornAt();
+    await at("holdPane", true);
+    const hb = await at("band", pinned);
+    const heldOrder = (await at("blocks")).map((block) => block.split(":")[0]);
+    const [heldAbove, heldBelow] = [heldOrder[heldOrder.indexOf(pinned) - 1], heldOrder[heldOrder.indexOf(pinned) + 1]];
+    const still = await at("penMoment", pinned, heldAbove, heldBelow);
+    await at("record", pinned, heldAbove, heldBelow, 400);
+    await page.mouse.click(hb.left + 300, hb.top - 30);
+    const heldTruth = await at("penTruth", pinned);
+    check("preview and path move as one", !!heldTruth.curve && !!heldTruth.path && near(heldTruth.curve.top, heldTruth.path.top, 1), true);
+    await page.waitForTimeout(450);
+    const glide = (await at("recorded")).filter((f) => f.squares.length === 2);
+    const moved = glide.map((f) => f.squares[0].y - still.squares[0].y);
+    check("with the page held, nothing scrolls", glide.every((f) => f.scrollTop === still.scrollTop), true);
+    check("the drawing glides down to make room: frames part-way there, not at once", moved.some((d) => d > 1 && d < 29), true);
+    check("never back and forth", moved.every((d, i) => i === 0 || d >= moved[i - 1] - 0.5), true);
+    check("the band's bottom glides with it", glide.every((f, i) => near(f.below.top, still.below.top + moved[i], 2)), true);
+    check("the text above stays put", glide.every((f) => near(f.above.top, still.above.top)), true);
+    const rested = await at("penMoment", pinned, heldAbove, heldBelow);
+    check("it comes to rest the overshoot further down", [near(rested.squares[0].y - still.squares[0].y, 30), rested.lag], [true, ""]);
+    check("the new point at the band's top", near(rested.squares[1].y, (await at("band", pinned)).top), true);
+    const restedTruth = await at("penTruth", pinned);
+    check("the band at its scene's height, the preview on the path", [restedTruth.bandPx === restedTruth.bandH, near(restedTruth.curve.top, restedTruth.path.top, 1)], [true, true]);
+    await at("holdPane", false);
+    await page.keyboard.press("Enter");
+    await at("clear");
+    await at("padPage", null);
+    await frame();
+  }
+
+  {
+    // ---- Undo and redo while the pen draws, and after -------------------------
+    // The store is the path's one truth: after every step the pen's anchors,
+    // the path the canvas renders and the band's height all say the same.
+    const near = (a, b, tol = 1) => Math.abs(a - b) <= tol;
+    const sameBox = (a, b) => (!a && !b) || (!!a && !!b && ["left", "top", "width", "height"].every((k) => near(a[k], b[k])));
+    const truthOf = async (id) => {
+      const t = await at("penTruth", id);
+      return { n: t.committed, agrees: t.overlay === t.committed && sameBox(t.curve, t.path) && t.bandPx === t.bandH };
+    };
+    const undoKey = async () => {
+      await page.keyboard.press(`${mod}+KeyZ`);
+      await frame();
+    };
+    const redoKey = async () => {
+      await page.keyboard.press(`${mod}+Shift+KeyZ`);
+      await frame();
+    };
+    await at("padPage", 600);
+    const tail = (await at("blocks")).at(-1).split(":")[0];
+    const line = await at("addLine", await at("addLine", await at("addLine", tail)));
+    await frame();
+    await page.evaluate((id) => document.querySelector(`.bn-block-outer[data-id="${id}"]`)?.scrollIntoView({ block: "center" }), line);
+    await frame();
+    const known = await at("diagrams");
+    await at("pick", "pen");
+    const lb = await at("block", line);
+    await page.mouse.click(lb.left + 200, lb.top + lb.height / 2);
+    await page.waitForFunction((n) => window.canvasPage.diagrams().length === n, known.length + 1);
+    const id = (await at("diagrams")).find((d) => !known.includes(d));
+    await page.waitForFunction((d) => window.canvasPage.count(d) === 1, id);
+    await frame();
+    let b = await at("band", id);
+    await page.mouse.click(b.left + 400, b.top + 20);
+    await frame();
+    b = await at("band", id);
+    // Above the band: the band grows up and the page scrolls with it.
+    await page.mouse.click(b.left + 300, b.top - 30);
+    await page.waitForTimeout(320);
+    b = await at("band", id);
+    await page.mouse.click(b.left + 500, b.top + b.height - 30);
+    await frame();
+    const drawn = await truthOf(id);
+    check("four points drawn, the pen and the store agreeing", drawn, { n: 4, agrees: true });
+    const heights = [];
+    for (let i = 0; i < 3; i++) {
+      await undoKey();
+      heights.push(await at("height", id));
+      check(`⌘Z mid-path takes back point ${4 - i}, and the pen follows the store`, await truthOf(id), { n: 3 - i, agrees: true });
+    }
+    check("undoing the point above the band takes back the growth it made", heights[1] < heights[0], true);
+    await redoKey();
+    check("⇧⌘Z puts the point back into the pen", await truthOf(id), { n: 2, agrees: true });
+    b = await at("band", id);
+    await page.mouse.click(b.left + 600, b.top + 30);
+    await frame();
+    check("the next point extends the path as the store has it, bringing nothing undone back", await truthOf(id), { n: 3, agrees: true });
+    for (let i = 0; i < 3; i++) await undoKey();
+    check("undone to nothing, the path is gone and the pen still open", [await truthOf(id), (await at("penTruth", id)).open, await at("count", id)], [{ n: 0, agrees: true }, true, 0]);
+    await redoKey();
+    check("and redo brings the path back to the pen", await truthOf(id), { n: 1, agrees: true });
+    b = await at("band", id);
+    await page.mouse.click(b.left + 450, b.top + 30);
+    await frame();
+    await page.keyboard.press("Enter");
+    await page.waitForFunction((d) => (window.canvasPage.selection()[d] ?? []).length === 1, id);
+    check("Enter finishes a two-point path", (await at("penTruth", id)).committed, 2);
+    // After finishing: the selection Enter made, then point by point, then the
+    // path, then the diagram the pen made for it.
+    const order = [];
+    for (let i = 0; i < 4; i++) {
+      await undoKey();
+      order.push((await at("diagrams")).includes(id) ? (await at("penTruth", id)).committed : "gone");
+    }
+    await page.waitForFunction((d) => !window.canvasPage.diagrams().includes(d), id);
+    check("after Enter, ⌘Z walks back: the selection, each point, the path, then the diagram", order, [2, 1, 0, "gone"]);
+    await redoKey();
+    await page.waitForFunction((d) => window.canvasPage.count(d) !== null, id);
+    await redoKey();
+    await redoKey();
+    check("and ⇧⌘Z walks forward again, the diagram first", [await at("count", id), (await at("penTruth", id)).committed], [1, 2]);
+
+    // In a diagram that was already there: the same one truth.
+    await at("clear");
+    await at("centreBand", id);
+    await frame();
+    await at("pick", "pen");
+    b = await at("band", id);
+    for (const [dx, dy] of [[80, 20], [160, 40], [240, 20]]) {
+      await page.mouse.click(b.left + dx, b.top + dy);
+      await frame();
+    }
+    const other = async () => {
+      const t = await at("penTruth", id);
+      const ids = (await at("nodes", id)).map((node) => node.id);
+      return { paths: ids.length, overlay: t.overlay, bandAgrees: t.bandPx === t.bandH };
+    };
+    check("a second path drawn in the diagram", await other(), { paths: 2, overlay: 3, bandAgrees: true });
+    await undoKey();
+    await undoKey();
+    check("⌘Z mid-path in an existing diagram takes its points back", await other(), { paths: 2, overlay: 1, bandAgrees: true });
+    await redoKey();
+    check("and ⇧⌘Z gives one back", await other(), { paths: 2, overlay: 2, bandAgrees: true });
+    // A point dragged down past the bottom and back up in one drag: the band
+    // follows it back to where it began.
+    const startH = await at("height", id);
+    const point = (await at("penSquares", id))[1];
+    await page.mouse.move(point.x, point.y);
+    await page.mouse.down();
+    await page.mouse.move(point.x, point.y + 220, { steps: 12 });
+    await frame();
+    const pulled = (await at("penTruth", id)).bandPx;
+    await page.mouse.move(point.x, point.y + 4, { steps: 12 });
+    await frame();
+    const back = (await at("penTruth", id)).bandPx;
+    await page.mouse.up();
+    await frame();
+    check("a pen point dragged down grows the band, and back up takes it back", [pulled > startH, back], [true, startH]);
+    check("landing at the height it began with", [await at("height", id), (await at("penTruth", id)).bandPx], [startH, startH]);
+    await page.keyboard.press("Enter");
+    await at("pick", "move");
     await at("clear");
     await at("padPage", null);
     await frame();

@@ -61,6 +61,28 @@ export function bandFloor(scene: Scene): number {
 }
 
 /**
+ * The band's height while one operation is under way — a drag, a draw, a
+ * pen's point or its handle, a run of nudges: as tall as it was when the
+ * operation began, or as tall as what the operation has drawn needs right
+ * now, whichever is taller. So it grows under what is taken down and follows
+ * it back up again, but never above where it began; where the operation ends
+ * is the height it lands at, and the next one begins from there. `need` is
+ * `-Infinity` for nothing needed.
+ */
+export function operationHeight(startH: number, need: number): number {
+  return Number.isFinite(need) ? Math.max(startH, Math.ceil(need - EPS)) : startH;
+}
+
+/**
+ * What a scene needs of its band, for {@link operationHeight}: room under its
+ * drawing, for a band that had it when the operation began; for one sized
+ * tight to its shapes, only once something passes its edge.
+ */
+export function sceneNeed(scene: Scene, startH: number, roomy: boolean): number {
+  return roomy || contentBottom(scene) > startH ? bandFloor(scene) : -Infinity;
+}
+
+/**
  * The height a band is drawn at: what it stores, raised to where its drawing
  * ends — so content that arrived from elsewhere taller than the stored height
  * is shown whole without anything being written, and a band pulled up tight

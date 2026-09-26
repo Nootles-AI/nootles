@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { COLUMN_WIDTH } from "@/app/lib/column";
 import { WIDE_MARGIN, WIDE_W } from "./bandSpan";
-import { roomFor, roomOps } from "./bandRoom";
+import { bandHeight } from "./bandGeometry";
+import { absorb, roomFor, roomOps } from "./bandRoom";
 import { emptyScene } from "./migrate";
 import { applyOps } from "./ops";
 import { pathDataBounds } from "./path";
@@ -77,5 +78,34 @@ describe("roomOps", () => {
     const scene: Scene = { ...band, nodes: [curve("M 0 0 C 100 0 100 50 0 50", 680, 10)] };
     const room = roomFor(scene, { x: 680, y: 10, w: 75, h: 50 })!;
     expect(applyOps(scene, roomOps(scene, room)).wide).toBe(true);
+  });
+
+  it("grows the band up by what it moved the drawing down, keeping the room under it", () => {
+    const path = curve("M 0 0 L 100 0", 40, 20);
+    const scene: Scene = { ...band, h: 300, nodes: [path] };
+    const next = applyOps(scene, roomOps(scene, { wide: false, dx: 0, dy: 37 }));
+    expect(next.nodes[0].y).toBe(57);
+    expect(bandHeight(next)).toBe(337);
+  });
+
+  it("leaves the height alone for a move sideways", () => {
+    const scene: Scene = { ...band, h: 300, nodes: [curve("M 0 0 L 100 0", 40, 20)] };
+    expect(applyOps(scene, roomOps(scene, { wide: false, dx: -12, dy: 0 })).h).toBe(300);
+  });
+});
+
+describe("absorb", () => {
+  it("scrolls the whole of a move down when the page has the room", () => {
+    expect(absorb({ dx: 0, dy: 40 }, 1.5, 1000)).toEqual({ scroll: 40, rest: { x: 0, y: 0 } });
+  });
+
+  it("scrolls what it can and leaves the rest to be seen moving", () => {
+    expect(absorb({ dx: 0, dy: 40 }, 2, 30)).toEqual({ scroll: 15, rest: { x: 0, y: 25 } });
+  });
+
+  it("scrolls nothing at the end of the page, nor for a move up or sideways", () => {
+    expect(absorb({ dx: 0, dy: 40 }, 1, 0)).toEqual({ scroll: 0, rest: { x: 0, y: 40 } });
+    expect(absorb({ dx: 12, dy: 0 }, 1, 500)).toEqual({ scroll: 0, rest: { x: 12, y: 0 } });
+    expect(absorb({ dx: 0, dy: -5 }, 1, 500)).toEqual({ scroll: 0, rest: { x: 0, y: -5 } });
   });
 });

@@ -1,4 +1,5 @@
 import { COLUMN_WIDTH } from "@/app/lib/column";
+import { bandHeight } from "./bandGeometry";
 import { bandLeft, bandWidth } from "./bandSpan";
 import type { Rect, Scene, SceneOp } from "./types";
 
@@ -47,12 +48,29 @@ export function leastMove(box: Rect, left: number, right: number): { dx: number;
   return { dx, dy: box.y < -EPS ? -box.y : 0 };
 }
 
-/** {@link Room} as the ops that make it: every top-level node moves. */
+/**
+ * {@link Room} as the ops that make it: every top-level node moves, and a
+ * move down is the band growing up — it is taller by the same amount, so the
+ * room it had under its drawing is still there.
+ */
 export function roomOps(scene: Scene, room: Room): SceneOp[] {
   const ops: SceneOp[] = [];
   if (room.wide) ops.push({ type: "setDiagram", wide: true });
   if (room.dx || room.dy) {
     ops.push({ type: "move", ids: scene.nodes.map((node) => node.id), dx: room.dx, dy: room.dy });
   }
+  if (room.dy > 0) ops.push({ type: "setDiagram", h: Math.ceil(bandHeight(scene) + room.dy) });
   return ops;
+}
+
+/**
+ * How a {@link Room}'s move is shown, for a drawing in hand: the page scrolls
+ * with the drawing as far as it can, so what moved down stays under the hand
+ * while the band grows up to meet it; what the scroll cannot take is left to
+ * be seen moving. `canScroll` is how much further the page scrolls down, and
+ * `scale` client px per band px. Both answers are in band px.
+ */
+export function absorb(room: Pick<Room, "dx" | "dy">, scale: number, canScroll: number): { scroll: number; rest: { x: number; y: number } } {
+  const scroll = room.dy > 0 && scale > 0 ? Math.min(room.dy, Math.max(0, canScroll) / scale) : 0;
+  return { scroll, rest: { x: room.dx, y: room.dy - scroll } };
 }

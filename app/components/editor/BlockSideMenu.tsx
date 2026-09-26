@@ -16,6 +16,7 @@ import {
   offset,
   type Middleware,
   type MiddlewareState,
+  type ReferenceElement,
 } from "@floating-ui/react";
 import { useEffect, type ReactElement, type SVGProps } from "react";
 import { effectiveScale, onScaleWithin } from "@/app/lib/columnScale";
@@ -209,13 +210,61 @@ function wideReach(anchor: Element, box: DOMRect): number {
   return band ? Math.min(0, band.getBoundingClientRect().left - box.left) : 0;
 }
 
-/** Position tracking without BlockNote's hide-on-scroll, which blinks. */
-const trackOnly = () => () => {};
+const BAND = ".nt-canvas:not(.nt-canvas-shot)";
+
+/**
+ * Replaces BlockNote's hide-on-scroll, which blinks. floating-ui's own
+ * autoUpdate — which the popover always runs — follows scroll, the block's box
+ * and layout shifts. What it cannot see is a change that leaves the block's box
+ * alone yet moves the anchor `gutterFit` picks: a diagram going wide or back
+ * (its band outgrows the block, `data-wide` flips), or a rescale by zoom or
+ * fit. Without this the handle waited for the pointer to move. One `update`
+ * per frame at most, and nothing runs while the block holds still.
+ */
+function trackAnchor(
+  reference: ReferenceElement,
+  _floating: HTMLElement,
+  update: () => void,
+): () => void {
+  const block = reference instanceof Element ? reference : reference.contextElement;
+  if (!block) return () => {};
+
+  let frame = 0;
+  let band: Element | null = null;
+  const resize = new ResizeObserver(() => schedule());
+  const rebind = () => {
+    const next = block.querySelector(BAND);
+    if (next === band) return;
+    if (band) resize.unobserve(band);
+    band = next;
+    if (band) resize.observe(band);
+  };
+  const schedule = () => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      rebind();
+      update();
+    });
+  };
+
+  resize.observe(block);
+  rebind();
+  const wide = new MutationObserver(schedule);
+  wide.observe(block, { subtree: true, attributeFilter: ["data-wide"] });
+  const offScale = onScaleWithin(() => block, schedule);
+  return () => {
+    cancelAnimationFrame(frame);
+    resize.disconnect();
+    wide.disconnect();
+    offScale();
+  };
+}
 
 const floatingUIOptions = {
   useFloatingOptions: {
     middleware: [offset(GUTTER_GAP), gutterFit],
-    whileElementsMounted: trackOnly,
+    whileElementsMounted: trackAnchor,
   },
   elementProps: {
     className: "nt-side-menu-anchor",
@@ -448,14 +497,6 @@ function SideMenuBody() {
 export const editorPortalElements: PortalElementsMap = { default: null };
 
 export function BlockSideMenu() {
-  const editor = useBlockNoteEditor();
-  const sideMenu = useExtension(SideMenuExtension);
-  // Placement tracks the pointer, not the page, so after a zoom the handle
-  // would stand where its block used to be until the next move.
-  useEffect(
-    () => onScaleWithin(() => editor.domElement, () => sideMenu.hideMenuIfNotFrozen()),
-    [editor, sideMenu],
-  );
   // BlockNote lets the menu go once the pointer is 250px from the text, and a
   // wide diagram's handle stands past its band's edge, further out than that:
   // it vanished under the pointer reaching for it. Over that handle the

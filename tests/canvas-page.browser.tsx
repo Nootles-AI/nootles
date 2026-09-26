@@ -38,6 +38,8 @@ import { setSnapTarget, type SnapTargetKind } from "../app/components/editor/can
 import { laidOutScene } from "../app/components/editor/canvas/scene/autoLayout";
 import { drawnEdges } from "../app/components/editor/canvas/scene/edgePath";
 import { absoluteBounds } from "../app/components/editor/canvas/scene/geometry";
+import { parsePath } from "../app/components/editor/canvas/scene/path";
+import { sceneBlockHeight } from "../app/components/editor/canvas/types";
 import { ZoomToolbar } from "../app/components/editor/canvas/Toolbar";
 import { PagePane } from "../app/components/PagePane";
 import { useZoomKeys } from "../app/components/useDocumentZoom";
@@ -197,6 +199,8 @@ function box(el: Element | null | undefined) {
   const r = el.getBoundingClientRect();
   return { left: r.left, top: r.top, width: r.width, height: r.height };
 }
+
+let recorded: unknown[] = [];
 
 const harness = {
   /** Both diagrams are up and on the page. */
@@ -374,6 +378,81 @@ const harness = {
     return draft?.getAttribute("d") ? box(draft) : null;
   },
   insertLine: () => box(document.querySelector(".nt-page-insert")),
+  /**
+   * The pen's overlay on a diagram, against what the store says: how many
+   * anchors each shows, the curve as the overlay draws it and as the canvas
+   * renders the committed path (both on screen), and the band's height as
+   * drawn and as the scene gives it.
+   */
+  penTruth: (blockId: string) => {
+    const band = bandOf(blockId);
+    const svg = band?.querySelector("svg.nt-pen");
+    const scene = entry(blockId)?.api.store.getScene();
+    const path = scene?.nodes.find((node) => node.kind === "path") as (SceneNode & { d: string }) | undefined;
+    const curve = svg?.querySelector<SVGPathElement>(":scope > g > path:not([stroke-dasharray])");
+    const drawn = path && band?.querySelector(`.nt-canvas-scene svg[data-id="${CSS.escape(path.id)}"] > path`);
+    return {
+      open: !!svg,
+      overlay: svg ? svg.querySelectorAll(":scope > g > rect").length : null,
+      committed: path ? parsePath(path.d).anchors.length : 0,
+      curve: curve?.getAttribute("d") ? box(curve) : null,
+      path: drawn && path.d ? box(drawn) : null,
+      bandPx: band?.offsetHeight ?? null,
+      bandH: scene ? sceneBlockHeight(scene) : null,
+    };
+  },
+  /**
+   * One moment of a pen's path in a diagram, read at once: the page's scroll,
+   * the anchors on screen, the text above the band and below it, and the lag
+   * the drawing is shown at while it settles ("" once it has).
+   */
+  penMoment: (blockId: string, above: string, below: string) => {
+    const band = bandOf(blockId);
+    return {
+      scrollTop: document.querySelector(".nt-pane")?.scrollTop ?? null,
+      squares: [...(band?.querySelectorAll("svg.nt-pen > g > rect") ?? [])].map((el) => {
+        const r = el.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      }),
+      above: box(document.querySelector(`.bn-block-outer[data-id="${CSS.escape(above)}"]`)),
+      below: box(document.querySelector(`.bn-block-outer[data-id="${CSS.escape(below)}"]`)),
+      lag: band?.querySelector<HTMLElement>(".nt-canvas-scene")?.style.translate ?? null,
+    };
+  },
+  /**
+   * {@link harness.penMoment} every frame for `ms`, from now: what a move
+   * looked like the whole way through, whatever the machine's timing.
+   */
+  record: (blockId: string, above: string, below: string, ms: number) => {
+    const frames: ReturnType<typeof harness.penMoment>[] = [];
+    recorded = frames;
+    const until = performance.now() + ms;
+    const tick = () => {
+      frames.push(harness.penMoment(blockId, above, below));
+      if (performance.now() < until) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  },
+  recorded: () => recorded,
+  /** Holds the pane still, as a page that cannot scroll; false lets it go. */
+  holdPane: (held: boolean) => {
+    const pane = document.querySelector<HTMLElement>(".nt-pane");
+    if (pane) pane.style.overflowY = held ? "hidden" : "";
+  },
+  /** Scrolls the pane as far down as it goes. */
+  scrollToEnd: () => {
+    const pane = document.querySelector(".nt-pane");
+    if (pane) pane.scrollTop = pane.scrollHeight;
+  },
+  /** The page's scroll offset. */
+  scrollTop: () => document.querySelector(".nt-pane")?.scrollTop ?? null,
+  /** The pen's anchor squares on screen, in order. */
+  penSquares: (blockId: string) =>
+    [...(bandOf(blockId)?.querySelectorAll("svg.nt-pen > g > rect") ?? [])].map((el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    }),
+
   /** Which band is outlined as a draw's target. */
   target: () => (page?.entries() ?? []).find((diagram) => diagram.api.band.current?.hasAttribute("data-target"))?.blockId ?? null,
   /** Room above and below the page's blocks, so a band can sit mid-screen; null takes it away. */

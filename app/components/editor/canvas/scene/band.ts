@@ -14,7 +14,9 @@ export {
   contentBottom,
   EMPTY_BAND_H,
   EPS,
+  operationHeight,
   reachesMargins,
+  sceneNeed,
   WIDE_MARGIN,
   WIDE_W,
 } from "./bandGeometry";

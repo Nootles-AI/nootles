@@ -9,7 +9,7 @@ import {
   migrateLegacyCanvas,
   readCanvasSource,
 } from "../scene/migrate";
-import { bandFloor, contentBottom, reachesMargins } from "../scene/band";
+import { bandFloor, operationHeight, reachesMargins, sceneNeed } from "../scene/band";
 import { applyOps } from "../scene/ops";
 import { serializeScene } from "../scene/serialize";
 import {
@@ -202,6 +202,10 @@ export class SceneStore {
   /** Whether a gesture bracket is open — the presence sampler's cue. */
   gesturing = (): boolean => this.depth > 0;
 
+  /** The open bracket's height to follow back to, and whether it had room under its drawing — see {@link dispatch}. */
+  private opH = 0;
+  private opRoomy = false;
+
   /** The open bracket turned Wide on or off, or was the model's — see {@link narrowed}. */
   private wideHeld = false;
 
@@ -338,14 +342,19 @@ export class SceneStore {
     if (this.band) {
       // A band that kept the room under its drawing keeps it; one sized tight
       // to its shapes — or being sized so, now — stays tight until content
-      // passes its edge, and then gets the room under it again.
-      const floor = bandFloor(next);
+      // passes its edge, and then gets the room under it again. Inside a
+      // bracket the height is the operation's (`operationHeight`): it follows
+      // what the gesture takes down back up, as far as where it began.
       const sized = ops.some((o) => o.type === "setDiagram" && o.h !== undefined);
-      const roomy = !sized && bandFloor(before) <= before.h;
-      if (floor > next.h && (roomy || contentBottom(next) > next.h)) {
-        const raise: SceneOp = { type: "setDiagram", h: floor };
-        next = applyOps(next, [raise]);
-        ops = [...ops, raise];
+      const inOp = this.depth > 0;
+      if (sized && inOp) this.opH = next.h;
+      const startH = sized ? next.h : inOp ? this.opH : before.h;
+      const roomy = !sized && (inOp ? this.opRoomy : bandFloor(before) <= before.h);
+      const h = operationHeight(startH, sceneNeed(next, startH, roomy));
+      if (h !== next.h) {
+        const fit: SceneOp = { type: "setDiagram", h };
+        next = applyOps(next, [fit]);
+        ops = [...ops, fit];
       }
       const held = isApplyingAi() || ops.some((o) => o.type === "setDiagram" && o.wide !== undefined);
       if (this.depth > 0) {
@@ -421,6 +430,10 @@ export class SceneStore {
     if (this.depth === 0) {
       this.gestureBefore = this.scene;
       this.gestureSelection = this.captureSelection();
+      if (this.band) {
+        this.opH = this.scene.h;
+        this.opRoomy = bandFloor(this.scene) <= this.scene.h;
+      }
     }
     this.depth += 1;
   };

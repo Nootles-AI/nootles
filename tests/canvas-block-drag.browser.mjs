@@ -302,6 +302,71 @@ try {
   await page.evaluate(() => window.canvasBlockDrag.selectCanvasBlock(false));
   assert.deepEqual(selected, unselected, "a selected wide diagram stays centred");
 
+  // The handle follows its block's geometry, not only the pointer: a diagram
+  // that goes wide (or back to the column) under a still pointer takes its
+  // grip to the new anchor within a frame or two, where a press still finds it.
+  const gripSettles = (predicate) =>
+    page.waitForFunction(
+      (source) => {
+        const grip = window.canvasBlockDrag.handleHit();
+        const band = window.canvasBlockDrag.bandRect();
+        return !!grip && !!band && grip.hit === "Block actions" && new Function("grip", "band", `return ${source}`)(grip, band);
+      },
+      predicate,
+      { timeout: 500, polling: "raf" },
+    );
+  assert.equal(await page.evaluate(() => window.canvasBlockDrag.setDiagram({ wide: false })), true);
+  await page.waitForFunction(() => window.canvasBlockDrag.bandRect()?.wide === false);
+  const columnBand = await page.evaluate(() => window.canvasBlockDrag.bandRect());
+  await page.mouse.move(columnBand.left + columnBand.width / 2, columnBand.top + 30);
+  await page.waitForFunction(() => window.canvasBlockDrag.handleHit()?.hit === "Block actions");
+  // Past the cluster's entrance, which slides it the last few px into place.
+  await page.waitForTimeout(400);
+  const columnGrip = await page.evaluate(() => window.canvasBlockDrag.handleHit());
+  const atEdge = "band.left - grip.right >= -0.5 && band.left - grip.right < 8";
+  assert.ok(
+    new Function("grip", "band", `return ${atEdge}`)(columnGrip, columnBand),
+    "a column diagram's grip stands in the gutter, at its edge",
+  );
+
+  await page.evaluate(() => window.canvasBlockDrag.setDiagram({ wide: true }));
+  await page.waitForFunction(() => window.canvasBlockDrag.bandRect()?.wide === true);
+  await gripSettles(atEdge);
+  const wideGrip = await page.evaluate(() => window.canvasBlockDrag.handleHit());
+  assert.ok(wideGrip.left < columnGrip.left - 50, "going wide took the grip out to the band's edge");
+
+  await page.evaluate(() => window.canvasBlockDrag.setDiagram({ wide: false }));
+  await page.waitForFunction(() => window.canvasBlockDrag.bandRect()?.wide === false);
+  // Back in the column, the grip is back where it started.
+  await gripSettles(
+    `Math.abs(grip.left - ${columnGrip.left}) < 0.5 && Math.abs(grip.top - ${columnGrip.top}) < 0.5`,
+  );
+
+  // A height change moves the blocks below it; a grip shown for one follows.
+  const paragraph = await page.evaluate(() => window.canvasBlockDrag.rectOf("paragraph"));
+  await page.mouse.move(paragraph.left + 20, paragraph.top + paragraph.height / 2);
+  await page.waitForFunction(
+    (top) => {
+      const grip = window.canvasBlockDrag.handleHit();
+      return !!grip && grip.hit === "Block actions" && grip.top >= top - 4;
+    },
+    paragraph.top,
+  );
+  const paragraphGrip = await page.evaluate(() => window.canvasBlockDrag.handleHit());
+  const columnHeight = columnBand.height;
+  await page.evaluate((h) => window.canvasBlockDrag.setDiagram({ h }), columnHeight + 160);
+  await page.waitForFunction((h) => window.canvasBlockDrag.bandRect()?.height > h + 100, columnHeight);
+  const grown = await page.evaluate(() => window.canvasBlockDrag.rectOf("paragraph"));
+  assert.ok(grown.top > paragraph.top + 100, "the paragraph moved down under the grown diagram");
+  await page.waitForFunction(
+    (shift) => {
+      const grip = window.canvasBlockDrag.handleHit();
+      return !!grip && grip.hit === "Block actions" && Math.abs(grip.top - shift) < 1.5;
+    },
+    paragraphGrip.top + (grown.top - paragraph.top),
+    { timeout: 500, polling: "raf" },
+  );
+
   const screenshot = path.join(output, "canvas-block-drag.png");
   await page.screenshot({ path: screenshot, fullPage: true });
   assert.deepEqual(errors, []);
@@ -320,6 +385,7 @@ try {
           "themed-menu",
           "wide-side-menu-reachable",
           "wide-selected-stays-centred",
+          "grip-follows-width-and-height",
           "no-browser-errors",
           "no-external-requests",
         ],

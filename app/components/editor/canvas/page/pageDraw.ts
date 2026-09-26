@@ -6,6 +6,7 @@ import { forgetTextStep, newestTextStep } from "@/app/lib/history/textDomain";
 import type { CanvasTool } from "../engine/shortcuts";
 import { defaultBox, newNode, type DrawKind } from "../render/newShape";
 import { hoverPen } from "../render/PenTool";
+import { SETTLE, SETTLE_MS } from "../render/settle";
 import { BAND, bandFloor, bandLeft, bandWidth, EMPTY_BAND_H, WIDE_MARGIN } from "../scene/band";
 import { emptyScene } from "../scene/migrate";
 import { mintId, mintIds } from "../scene/ops";
@@ -346,8 +347,6 @@ const frames = (n: number) =>
     step(n);
   });
 
-/** The `--ease` family, so the settle moves like the rest of the page. */
-const SETTLE = "cubic-bezier(0.25, 0, 0, 1)";
 
 /** A press the page draws from, rather than one of its own controls or a diagram's. */
 function pagePress(e: PointerEvent): boolean {
@@ -538,7 +537,7 @@ function armShapes(canvas: PageCanvas, pane: HTMLElement, kind: DrawKind): () =>
           { left: `${drawn.x}px`, top: `${drawn.y}px`, width: `${drawn.w}px`, height: `${drawn.h}px` },
           { left: `${to.left}px`, top: `${to.top}px`, width: `${to.width}px`, height: `${to.height}px` },
         ],
-        { duration: reduced ? 1 : 270, easing: SETTLE, fill: "forwards" },
+        { duration: reduced ? 1 : SETTLE_MS, easing: SETTLE, fill: "forwards" },
       )
       .finished.catch(() => {});
     shape.style.visibility = "";
@@ -724,6 +723,8 @@ async function handPen(
   // the text step that put the block in.
   const unmake = (gone: NonNullable<typeof made>, diagram: DiagramEntry | null) => {
     if (!editor || (diagram && diagram.api.store.getScene().nodes.length > 0)) return;
+    // Undone past its making, the diagram is the history's now, not the pen's.
+    if (!editor.getBlock(gone.blockId)) return;
     diagram?.api.store.forget();
     editor.transact((tr: { setMeta(key: string, value: unknown): void }) => {
       tr.setMeta("addToHistory", false);

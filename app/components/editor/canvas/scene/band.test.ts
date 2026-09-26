@@ -13,6 +13,8 @@ import {
   isLegacyRoot,
   narrowOps,
   normalizeDiagram,
+  operationHeight,
+  sceneNeed,
   unfitted,
   unfoldOps,
   WIDE_MARGIN,
@@ -97,6 +99,26 @@ describe("the band's geometry", () => {
     expect(bandHeight(band([rect("a", 0, 24)], { h: 40 }))).toBe(84);
     expect(bandHeight(band([rect("a", 0, 24)]))).toBe(108);
     expect(bandHeight(band([]))).toBe(74);
+  });
+});
+
+describe("operationHeight", () => {
+  test("is where the operation began until it needs more", () => {
+    expect(operationHeight(200, 150)).toBe(200);
+    expect(operationHeight(200, -Infinity)).toBe(200);
+    expect(operationHeight(200, 260.2)).toBe(261);
+  });
+
+  test("follows the need back down, no further than where it began", () => {
+    const need = [180, 320, 410, 290, 150];
+    expect(need.map((n) => operationHeight(200, n))).toEqual([200, 320, 410, 290, 200]);
+  });
+
+  test("a scene needs room under its drawing; a band sized tight, only once passed", () => {
+    const low = band([rect("a", 0, 200)]);
+    expect(sceneNeed(low, 300, true)).toBe(bandFloor(low));
+    expect(sceneNeed(low, 270, false)).toBe(-Infinity);
+    expect(sceneNeed(low, 250, false)).toBe(bandFloor(low));
   });
 });
 

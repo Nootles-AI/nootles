@@ -54,6 +54,54 @@ describe("a band's store raises its height to hold a local edit", () => {
     expect(store.getScene().h).toBe(200);
   });
 
+  it("inside one gesture, follows content taken down back up — never above where it began", () => {
+    const store = new SceneStore(band, undefined, true);
+    const events: SceneHistoryEvent[] = [];
+    store.onHistory((event) => void events.push(event));
+    store.begin();
+    store.dispatch({ type: "move", ids: ["a"], dx: 0, dy: 300 });
+    expect(store.getScene().h).toBe(340 + 60 + BAND);
+    store.dispatch({ type: "move", ids: ["a"], dx: 0, dy: -200 });
+    expect(store.getScene().h).toBe(140 + 60 + BAND);
+    store.dispatch({ type: "move", ids: ["a"], dx: 0, dy: -100 });
+    expect(store.getScene().h).toBe(200);
+    store.commit();
+    expect(store.getScene().h).toBe(200);
+    expect(events).toEqual([{ type: "push", selectionOnly: false }]);
+  });
+
+  it("lands at the height the gesture ended needing, and the next gesture begins from there", () => {
+    const store = new SceneStore(band, undefined, true);
+    store.begin();
+    store.dispatch({ type: "move", ids: ["a"], dx: 0, dy: 300 });
+    store.dispatch({ type: "move", ids: ["a"], dx: 0, dy: -100 });
+    store.commit();
+    expect(store.getScene().h).toBe(240 + 60 + BAND);
+    store.begin();
+    store.dispatch({ type: "move", ids: ["a"], dx: 0, dy: -100 });
+    store.commit();
+    expect(store.getScene().h).toBe(240 + 60 + BAND);
+  });
+
+  it("follows back no further than a height the gesture set itself", () => {
+    const store = new SceneStore(band, undefined, true);
+    store.begin();
+    store.dispatch([{ type: "move", ids: ["a"], dx: 0, dy: 20 }, { type: "setDiagram", h: 260 }]);
+    store.dispatch({ type: "move", ids: ["a"], dx: 0, dy: 300 });
+    expect(store.getScene().h).toBe(360 + 60 + BAND);
+    store.dispatch({ type: "move", ids: ["a"], dx: 0, dy: -300 });
+    store.commit();
+    expect(store.getScene().h).toBe(260);
+  });
+
+  it("an aborted gesture leaves the height it began with", () => {
+    const store = new SceneStore(band, undefined, true);
+    store.begin();
+    store.dispatch({ type: "move", ids: ["a"], dx: 0, dy: 300 });
+    store.abort();
+    expect(store.getScene().h).toBe(200);
+  });
+
   it("only for a band: a store without the option, or a frame's, leaves h alone", () => {
     const plain = new SceneStore(band);
     plain.dispatch({ type: "move", ids: ["a"], dx: 0, dy: 300 });
