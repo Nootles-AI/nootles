@@ -287,7 +287,10 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
           decos.push(
             Decoration.widget(after, () => previewElement(p, head), {
               side: 1,
-              key: `nt-preview-${after}-${previewKey(p)}`,
+              // The head is part of the widget. Keyed on the content alone, a
+              // finished preview identical to the last one streamed kept the
+              // old DOM, and with it "Drawing…" over an offer Tab could take.
+              key: `nt-preview-${after}-${s.batch ? "ready" : "live"}-${previewKey(p)}`,
               // A diagram preview mounts the canvas renderer; this is the only
               // notice we get that the widget has gone.
               destroy: disposePreview,

@@ -15,6 +15,7 @@
     "test:canvas:browser": "node tests/canvas-browser.mjs",
     "test:editor:code": "node tests/editor-code-block.browser.mjs",
     "test:completion:window": "node tests/completion-window.browser.mjs",
+    "test:diagram:suggestion": "node tests/diagram-suggestion.browser.mjs",
     "test:editor:typing": "node tests/editor-typing-paste.browser.mjs",
     "test:canvas:drag": "node tests/canvas-block-drag.browser.mjs",
     "test:canvas:camera": "node tests/canvas-camera.browser.mjs",

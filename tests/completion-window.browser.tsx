@@ -48,6 +48,13 @@ const SCENARIOS: Record<string, { title: string; blocks: ReturnType<typeof block
       block("caret", "paragraph", "Next quarter we migrate the"),
     ],
   },
+  diagram: {
+    title: "Fulfilment",
+    blocks: [
+      block("intro", "paragraph", "Orders move through picking, packing and shipping."),
+      block("caret", "paragraph", "Here is the flow"),
+    ],
+  },
   below: {
     title: "Platform plan",
     blocks: [
@@ -113,6 +120,11 @@ const harness = {
     editor.setTextCursorPosition(id, "end");
   },
   doc: () => flat(editor.document),
+  /** Each canvas block's stored markup, in document order. */
+  canvases: () =>
+    (editor.document as Array<{ type: string; props: { data?: string } }>)
+      .filter((b) => b.type === "canvas")
+      .map((b) => b.props.data ?? ""),
   ghost: () => document.querySelector(".nt-ghost")?.textContent ?? "",
 };
 
