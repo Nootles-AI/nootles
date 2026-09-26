@@ -528,6 +528,13 @@ export function CanvasSurface({
     () => !!canvas && canvas.selection.getSnapshot().focused === blockId,
     never,
   );
+  // The diagram the panels speak for shows its edge and grid without a shape
+  // held — chosen by a press on its empty canvas.
+  const active = useSyncExternalStore(
+    canvas?.selection.subscribe ?? noSubscription,
+    () => !!canvas && canvas.selection.getSnapshot().active === blockId,
+    never,
+  );
   const spanning = useSyncExternalStore(
     canvas?.selection.subscribe ?? noSubscription,
     () => !!canvas && spansDiagrams(canvas.selection.getSnapshot().parts),
@@ -1606,8 +1613,8 @@ export function CanvasSurface({
   );
 
   const height = sceneBlockHeight(scene);
-  /** What this diagram has selected — the band shows its edge, its grid and its grip. */
-  const holding = sel.ids.length > 0 || sel.edges.length > 0;
+  /** Whether this diagram is chosen or has anything selected — the band shows its edge, its grid and its grip. */
+  const holding = active || sel.ids.length > 0 || sel.edges.length > 0;
 
   const onGripDown = (event: ReactPointerEvent) => {
     const el = wrap.current;

@@ -172,7 +172,9 @@ const gutterFit: Middleware = {
           : box.top + span / 2;
     }
     const y = state.y + (centre - box.top) - state.rects.floating.height / 2;
-    const x = state.x + wideReach(anchor, box);
+    const reach = wideReach(anchor, box);
+    const x = state.x + reach;
+    flag(floating, "data-nt-reach", reach < 0);
 
     const clipper = clipperOf(anchor);
     const overflow = clipper
@@ -454,6 +456,20 @@ export function BlockSideMenu() {
     () => onScaleWithin(() => editor.domElement, () => sideMenu.hideMenuIfNotFrozen()),
     [editor, sideMenu],
   );
+  // BlockNote lets the menu go once the pointer is 250px from the text, and a
+  // wide diagram's handle stands past its band's edge, further out than that:
+  // it vanished under the pointer reaching for it. Over that handle the
+  // pointer's moves are BlockNote's business no longer — they would only ever
+  // say "still here". Window capture runs ahead of its document listener.
+  useEffect(() => {
+    const keep = (event: MouseEvent) => {
+      if (event.target instanceof Element && event.target.closest("[data-nt-reach]")) {
+        event.stopPropagation();
+      }
+    };
+    window.addEventListener("mousemove", keep, true);
+    return () => window.removeEventListener("mousemove", keep, true);
+  }, []);
   return (
     <SideMenuController
       sideMenu={SideMenuBody}

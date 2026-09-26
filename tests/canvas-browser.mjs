@@ -26,6 +26,9 @@ const HARNESSES = [
   // Diagrams on one page: a selection, a drag, a marquee and an undo that
   // reach across two of them.
   "canvas-page",
+  // The shell's rails as a diagram takes them, in the real workspace: a rail
+  // that is out turns over in place, one put away floats, the column holds.
+  "canvas-rails",
   // Not a canvas harness, but the collaboration path beside it: a collaborator
   // who goes stale and comes back is on the carets again (NT-26). Outside any
   // gate it hung on `main` from #150 on without anyone hearing (NT-74).

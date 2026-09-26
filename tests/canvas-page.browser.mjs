@@ -123,6 +123,27 @@ try {
     return during;
   };
 
+  // A press on a band's empty canvas chooses the diagram itself — what the
+  // panels then speak for — with nothing selected, and shows its edge.
+  const emptyOf = (band) => [band.left + band.width - 40, band.top + band.height - 20];
+  await page.mouse.click(...emptyOf(await at("band", "top")));
+  await frame();
+  check("a press on empty canvas makes its diagram active", [await at("active"), await at("selection")], ["top", {}]);
+  check("the active band shows its edge", [await at("holding", "top"), await at("holding", "bottom")], [true, false]);
+  await page.mouse.click(...emptyOf(await at("band", "bottom")));
+  await frame();
+  check("a press on another diagram's empty canvas moves it", await at("active"), "bottom");
+  check("and its edge with it", [await at("holding", "top"), await at("holding", "bottom")], [false, true]);
+  await page.mouse.click(...Object.values(centre(await at("shape", "top", "a1"))));
+  await frame();
+  check("a shape selected makes its diagram active", [await at("active"), await at("focused")], ["top", "top"]);
+  await page.keyboard.press("Escape");
+  await frame();
+  check("Escape lets the shape go and keeps the diagram", [await at("active"), await at("selection")], ["top", {}]);
+  await page.mouse.click(...Object.values(centre(await at("block", "between"))));
+  await frame();
+  check("a press on the page's text lets the diagram go", [await at("active"), await at("holding", "top")], [null, false]);
+
   // A Shift-click selects across diagrams; the frame is drawn once, in the
   // diagram last pressed, and each diagram outlines its own members.
   await page.mouse.click(...Object.values(centre(await at("shape", "top", "a1"))));

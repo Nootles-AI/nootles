@@ -32,7 +32,9 @@ import {
   createPageCanvasHub,
   PageCanvasHubContext,
   useHubSnapshot,
+  type PageCanvas,
 } from "./editor/canvas/page/PageCanvas";
+import type { CanvasApi } from "./editor/canvas/render/CanvasSurface";
 import { FrameClaimContext, type ActiveFrame } from "./editor/canvas/page/frameClaim";
 import { isApplePlatform, matchShortcut, type CanvasTool } from "./editor/canvas/engine/shortcuts";
 import { LocationPanel } from "./editor/location/LocationPanel";
@@ -111,12 +113,13 @@ const RAIL_MS = 220;
    Counting any open menu is safe: a menu is only open because its trigger was
    pressed, and a trigger outside the shot has already let it go.
 
-   And the rails the panels stand in, edges and resize handles included:
-   widening one is adjusting the shot's tools, not leaving it. The split between
-   two pages (`.is-gap`) is the document's. */
+   And the rails the panels stand in, edges and resize handles included, or
+   the floating panels that stand in for a rail put away: widening one is
+   adjusting the shot's tools, not leaving it. The split between two pages
+   (`.is-gap`) is the document's. */
 const FRAME_SHELL =
   ".nt-canvas-shot, .nt-lyr, .nt-style-panel, .nt-toolbar, .nt-mention-anchor, .nt-sb-full, .nt-menu, " +
-  ".nt-rail-slot, .nt-resize:not(.is-gap)";
+  ".nt-rail-slot, .nt-rail-float, .nt-resize:not(.is-gap)";
 
 /* The same idea for a place card: a press inside the card or its panel — or a
    menu one of them opened — is still about that card, and anywhere else is
@@ -364,19 +367,19 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   const showLeft = leftOpen && !compact;
   const showRight = rightOpen && !compact;
   const openDrawer = compact ? drawer : null;
-  // A selection in a diagram — or a held shot — turns both rails over to it,
-  // collapsed or not, but only where there is room for them. The diagram is
-  // fully editable without the panels.
-  const focusedPage = held.pane ? hub.pane(held.pane) : null;
-  const focusedApi = held.focused ? (focusedPage?.get(held.focused.blockId)?.api ?? null) : null;
+  // The active diagram — the one holding the selection, or one pressed on its
+  // empty canvas — or a held shot brings its panels to both sides, but only
+  // where there is room for them. The diagram is fully editable without them.
+  const activePage = held.pane ? hub.pane(held.pane) : null;
+  const activeApi = held.active ? (activePage?.get(held.active.blockId)?.api ?? null) : null;
   const panelTarget = frame
     ? { id: frame.key, api: frame.api, page: null, blockId: undefined }
-    : focusedApi && held.focused
+    : activeApi && held.active
       ? {
-          id: `${held.pane}:${held.focused.blockId}`,
-          api: focusedApi,
-          page: focusedPage,
-          blockId: held.focused.blockId,
+          id: `${held.pane}:${held.active.blockId}`,
+          api: activeApi,
+          page: activePage,
+          blockId: held.active.blockId,
         }
       : null;
   const canvasPanels = compact ? null : panelTarget;
@@ -594,19 +597,28 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     return () => document.removeEventListener("keydown", onKey);
   }, [viewer, hub]);
 
+  // A rail that is out turns its face over to the diagram's panel in place. A
+  // rail that is put away stays away: the panel floats over the page where the
+  // rail would stand, so the column never reflows under the diagram being
+  // edited. The chat's rail is out only where there is a chat to show.
+  const rightOut = !viewer && showRight;
   const pagesOn = showLeft && !canvasPanels;
-  const layersOn = !!canvasPanels;
+  const layersOn = !!canvasPanels && showLeft;
+  const layersFloat = !!canvasPanels && !showLeft;
   const leftRail = pagesOn || layersOn;
   const pagesHeld = useLinger(pagesOn, RAIL_MS);
   const layersHeld = useLinger(layersOn, RAIL_MS) && !!lastCanvas;
+  const layersFloatHeld = useLinger(layersFloat, RAIL_MS) && !!lastCanvas;
 
   const rightClaimed = !!canvasPanels || !!placePanel;
-  const chatOn = !viewer && showRight && !rightClaimed;
-  const designOn = !!canvasPanels;
+  const chatOn = rightOut && !rightClaimed;
+  const designOn = !!canvasPanels && rightOut;
+  const designFloat = !!canvasPanels && !rightOut;
   const placeOn = !!placePanel;
   const rightRail = chatOn || designOn || placeOn;
   const chatHeld = useLinger(chatOn, RAIL_MS) && !compact;
   const designHeld = useLinger(designOn, RAIL_MS) && !!lastCanvas;
+  const designFloatHeld = useLinger(designFloat, RAIL_MS) && !!lastCanvas;
   const placeHeld = useLinger(placeOn, RAIL_MS) && !!lastPlace;
 
   const sidebar = (
@@ -672,20 +684,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
             )}
             {layersHeld && lastCanvas && (
               <div className="nt-rail-face" data-on={layersOn} inert={!layersOn} style={railWidth(leftWidth)}>
-                <aside
-                  className="nt-panel"
-                  style={{ width: FILL }}
-                  aria-label="Layers"
-                  {...undoScope}
-                >
-                  <LayersPanel
-                    key={lastCanvas.id}
-                    store={lastCanvas.api.store}
-                    selection={lastCanvas.api.selection}
-                    page={lastCanvas.page}
-                    blockId={lastCanvas.blockId}
-                  />
-                </aside>
+                <CanvasLayers target={lastCanvas} />
               </div>
             )}
           </div>
@@ -827,6 +826,26 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
           )}
         </div>
 
+        {/* A rail that is put away lends its place to the diagram's panels
+            without coming out: they float over the page, and the column keeps
+            its width. After the column, so they paint over it by DOM order
+            alone — no z-index, and nothing portalled out of them is capped. */}
+        {layersFloatHeld && lastCanvas && (
+          <div className="nt-rail-float" data-on={layersFloat} inert={!layersFloat} style={railWidth(leftWidth)}>
+            <CanvasLayers target={lastCanvas} />
+          </div>
+        )}
+        {designFloatHeld && lastCanvas && (
+          <div
+            className="nt-rail-float is-right"
+            data-on={designFloat}
+            inert={!designFloat}
+            style={railWidth(rightWidth)}
+          >
+            <CanvasStylePanel key={lastCanvas.id} api={lastCanvas.api} page={lastCanvas.page} />
+          </div>
+        )}
+
         {/* One bar, one corner, always there: a writer's page tools, a
             reader's zoom, or a held shot's own. The review is a standing question and stacks
             above the page's bar; a shot's bar has the corner to itself while
@@ -847,7 +866,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
                 tools={hub.tools}
                 focused={held.focused !== null}
                 pane={focus}
-                refocus={focusedApi?.focus}
+                refocus={activeApi?.focus}
                 onPalette={find}
               />
             ) : (
@@ -910,6 +929,28 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
       </LocationShellContext>
     </FrameClaimContext>
     </PageCanvasHubContext>
+  );
+}
+
+type CanvasPanelTarget = {
+  id: string;
+  api: CanvasApi;
+  page: PageCanvas | null;
+  blockId: string | undefined;
+};
+
+/** The layers of the diagram the panels speak for, in a rail's face or floating in its place. */
+function CanvasLayers({ target }: { target: CanvasPanelTarget }) {
+  return (
+    <aside className="nt-panel" style={{ width: FILL }} aria-label="Layers" {...undoScope}>
+      <LayersPanel
+        key={target.id}
+        store={target.api.store}
+        selection={target.api.selection}
+        page={target.page}
+        blockId={target.blockId}
+      />
+    </aside>
   );
 }
 

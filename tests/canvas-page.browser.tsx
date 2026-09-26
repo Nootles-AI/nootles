@@ -206,6 +206,10 @@ const harness = {
       [...(page?.selection.getSnapshot().parts ?? new Map())].map(([blockId, part]) => [blockId, [...part.ids]]),
     ),
   focused: () => page?.selection.getSnapshot().focused ?? null,
+  /** The diagram the panels speak for, shapes held or not. */
+  active: () => page?.selection.getSnapshot().active ?? null,
+  /** Whether a band shows its edge and grid. */
+  holding: (blockId: string) => bandOf(blockId)?.hasAttribute("data-holding") ?? false,
   /** Whether this band draws the selection frame. */
   framed: (blockId: string) => {
     const outline = bandOf(blockId)?.querySelector(".nt-ov-outline");

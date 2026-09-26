@@ -203,6 +203,93 @@ describe("page selection", () => {
   });
 });
 
+describe("the active diagram", () => {
+  it("is the focused diagram while one holds a selection", () => {
+    const page = plain();
+    const a = fakeStore();
+    page.attach("a", a);
+    page.attach("b", fakeStore());
+    page.activate("b");
+    a.select(["a1"]);
+    expect(page.getSnapshot()).toMatchObject({ focused: "a", active: "a" });
+  });
+
+  it("is a diagram pressed on its empty canvas, which selects nothing", () => {
+    const page = plain();
+    page.attach("a", fakeStore());
+    page.activate("a");
+    expect(page.getSnapshot()).toMatchObject({ focused: null, active: "a" });
+    expect(page.getSnapshot().parts.size).toBe(0);
+  });
+
+  it("stays on a diagram whose selection is let go, until the page is left", () => {
+    const page = plain();
+    const a = fakeStore();
+    page.attach("a", a);
+    a.select(["a1"]);
+    page.clearAll();
+    expect(page.getSnapshot()).toMatchObject({ focused: null, active: "a" });
+    page.leave();
+    expect(page.getSnapshot().active).toBeNull();
+  });
+
+  it("moves to another diagram pressed, and a plain click there lets the first's shapes go", () => {
+    const page = plain();
+    const a = fakeStore();
+    const b = fakeStore();
+    page.attach("a", a);
+    page.attach("b", b);
+    a.select(["a1"]);
+    page.activate("b");
+    page.facade("b", b).click({ x: 0, y: 0 });
+    expect(a.getSnapshot().ids).toEqual([]);
+    expect(page.getSnapshot()).toMatchObject({ focused: null, active: "b" });
+  });
+
+  it("leaving lets the selection go and the diagram with it, in one step", () => {
+    let batches = 0;
+    const page = createPageSelection({
+      batch: <T,>(fn: () => T): T => {
+        batches++;
+        return fn();
+      },
+    });
+    const a = fakeStore();
+    const b = fakeStore();
+    page.attach("a", a);
+    page.attach("b", b);
+    page.selectIn("a", ["a1"]);
+    page.selectIn("b", ["b1"], { keep: true });
+    batches = 0;
+    page.leave();
+    expect(batches).toBe(1);
+    expect(page.getSnapshot()).toMatchObject({ focused: null, active: null });
+    expect(page.getSnapshot().parts.size).toBe(0);
+  });
+
+  it("choosing the diagram already active tells no one", () => {
+    const page = plain();
+    page.attach("a", fakeStore());
+    page.activate("a");
+    const before = page.getSnapshot();
+    const listener = vi.fn();
+    page.subscribe(listener);
+    page.activate("a");
+    expect(listener).not.toHaveBeenCalled();
+    expect(page.getSnapshot()).toBe(before);
+  });
+
+  it("is forgotten with a diagram that detaches, and never taken by one not on the page", () => {
+    const page = plain();
+    const off = page.attach("a", fakeStore());
+    page.activate("a");
+    off();
+    expect(page.getSnapshot().active).toBeNull();
+    page.activate("ghost");
+    expect(page.getSnapshot().active).toBeNull();
+  });
+});
+
 const entry = (blockId: string, selection = fakeStore()): DiagramEntry => ({
   blockId,
   api: { selection, ownSelection: selection, band: { current: null } } as unknown as CanvasApi,
@@ -385,7 +472,11 @@ describe("page canvas hub", () => {
     const a = entry("a");
     main.register(a);
     a.api.selection.select(["a1"]);
-    expect(hub.getSnapshot()).toEqual({ pane: "main", focused: { pageId: "p1", blockId: "a" } });
+    expect(hub.getSnapshot()).toEqual({
+      pane: "main",
+      focused: { pageId: "p1", blockId: "a" },
+      active: { pageId: "p1", blockId: "a" },
+    });
   });
 
   it("keeps the same snapshot across clicks inside the focused diagram", () => {
@@ -425,7 +516,11 @@ describe("page canvas hub", () => {
     a.api.selection.select(["a1"]);
     b.api.selection.select(["b1"]);
     expect(a.api.selection.getSnapshot().ids).toEqual([]);
-    expect(hub.getSnapshot()).toEqual({ pane: "aside", focused: { pageId: "p2", blockId: "b" } });
+    expect(hub.getSnapshot()).toEqual({
+      pane: "aside",
+      focused: { pageId: "p2", blockId: "b" },
+      active: { pageId: "p2", blockId: "b" },
+    });
   });
 
   it("clears every pane at once — what a frame claim does", () => {
@@ -436,8 +531,40 @@ describe("page canvas hub", () => {
     aside.register(b);
     main.selection.selectIn("a", ["a1"]);
     hub.clearAll();
-    expect(hub.getSnapshot()).toEqual({ pane: null, focused: null });
+    expect(hub.getSnapshot()).toEqual({ pane: null, focused: null, active: null });
     expect(b.api.selection.getSnapshot().ids).toEqual([]);
+  });
+
+  it("names a diagram pressed on its empty canvas as active, holding nothing", () => {
+    const { hub, main } = setup();
+    main.register(entry("a"));
+    main.selection.activate("a");
+    expect(hub.getSnapshot()).toEqual({ pane: "main", focused: null, active: { pageId: "p1", blockId: "a" } });
+  });
+
+  it("keeps the same snapshot when the active diagram takes a selection and lets it go", () => {
+    const { hub, main } = setup();
+    const a = entry("a");
+    main.register(a);
+    a.api.selection.select(["a1"]);
+    const listener = vi.fn();
+    hub.subscribe(listener);
+    a.api.selection.select(["a2"]);
+    expect(listener).not.toHaveBeenCalled();
+    a.api.selection.clear();
+    expect(hub.getSnapshot()).toEqual({ pane: "main", focused: null, active: { pageId: "p1", blockId: "a" } });
+  });
+
+  it("a diagram chosen in one pane leaves the other's", () => {
+    const { hub, main, aside } = setup();
+    const a = entry("a");
+    main.register(a);
+    aside.register(entry("b"));
+    a.api.selection.select(["a1"]);
+    aside.selection.activate("b");
+    expect(a.api.selection.getSnapshot().ids).toEqual([]);
+    expect(main.selection.getSnapshot().active).toBeNull();
+    expect(hub.getSnapshot()).toEqual({ pane: "aside", focused: null, active: { pageId: "p2", blockId: "b" } });
   });
 
   it("hands out each pane's controller", () => {

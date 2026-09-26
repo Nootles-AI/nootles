@@ -9,7 +9,7 @@ import {
   migrateLegacyCanvas,
   readCanvasSource,
 } from "../scene/migrate";
-import { bandFloor } from "../scene/band";
+import { bandFloor, reachesMargins } from "../scene/band";
 import { applyOps } from "../scene/ops";
 import { serializeScene } from "../scene/serialize";
 import {
@@ -124,6 +124,8 @@ export function frameReader(frame: { w: number; h: number }): SceneReader {
       : readCanvasSource(source);
 }
 
+const NARROW: SceneOp = { type: "setDiagram", wide: false };
+
 export class SceneStore {
   private scene: Scene;
   /** Id → node for the current scene, built on demand and dropped on change. */
@@ -199,6 +201,9 @@ export class SceneStore {
 
   /** Whether a gesture bracket is open — the presence sampler's cue. */
   gesturing = (): boolean => this.depth > 0;
+
+  /** The open bracket turned Wide on or off, or was the model's — see {@link narrowed}. */
+  private wideHeld = false;
 
   private onEmpty: (() => void) | null = null;
   /** An unguarded edit emptied the scene inside the open bracket; see {@link commit}. */
@@ -337,6 +342,13 @@ export class SceneStore {
         next = applyOps(next, [raise]);
         ops = [...ops, raise];
       }
+      const held = isApplyingAi() || ops.some((o) => o.type === "setDiagram" && o.wide !== undefined);
+      if (this.depth > 0) {
+        if (held) this.wideHeld = true;
+      } else if (!held && this.narrowed(next)) {
+        next = applyOps(next, [NARROW]);
+        ops = [...ops, NARROW];
+      }
     }
     if (this.depth === 0) this.record(before, this.captureSelection());
     this.recordOps(ops);
@@ -388,6 +400,16 @@ export class SceneStore {
     this.setScene(next, true, false);
   };
 
+  /**
+   * A band whose Wide room nothing uses any more: a local edit that leaves the
+   * margins empty folds it back to the column in the same entry. Never on the
+   * edit that turns Wide on — it waits for the next edit — nor on the model's
+   * writes; what arrives from outside never comes through here at all.
+   */
+  private narrowed(scene: Scene): boolean {
+    return this.band && scene.wide === true && !reachesMargins(scene);
+  }
+
   /** Open a gesture: everything until the matching `commit` is one entry. */
   begin = (): void => {
     if (this.depth === 0) {
@@ -435,6 +457,12 @@ export class SceneStore {
       console.error("[canvas] a guarded diagram was emptied inside a bracket, past its last-shape guard");
     }
     this.emptiedOnPurpose = false;
+    const held = this.wideHeld;
+    this.wideHeld = false;
+    if (before && before !== this.scene && !held && this.narrowed(this.scene)) {
+      this.gestureOps.push(NARROW);
+      this.setScene(applyOps(this.scene, [NARROW]), true);
+    }
     if (before && before !== this.scene) this.record(before, selection);
 
     if (this.gestureOps.length) {
@@ -465,6 +493,7 @@ export class SceneStore {
     this.gestureSelection = null;
     this.gestureOps = [];
     this.emptiedOnPurpose = false;
+    this.wideHeld = false;
     if (before && before !== this.scene) this.setScene(before, true, false);
     this.settlePending();
   };

@@ -19,6 +19,7 @@
     "test:canvas:picking": "node tests/canvas-picking.browser.mjs",
     "test:canvas:presence": "node tests/canvas-presence.browser.mjs",
     "test:canvas:page": "node tests/canvas-page.browser.mjs",
+    "test:canvas:rails": "node tests/canvas-rails.browser.mjs",
     "test:presence:return": "node tests/presence-return.browser.mjs",
     "test:drawer:menus": "node tests/sidebar-drawer-menus.browser.mjs",
     "test:projects:hit": "node tests/projects-screen-hit.browser.mjs",

@@ -9,6 +9,12 @@ export interface PageSelectionSnapshot {
   readonly focused: string | null;
   /** The last diagram focused or asked for, kept after its selection is gone. */
   readonly recent: string | null;
+  /**
+   * The diagram the panels speak for: the focused one, or else the one last
+   * pressed or focused, until the page is left. Holds no shapes of its own —
+   * a press on a band's empty canvas is how the diagram itself is chosen.
+   */
+  readonly active: string | null;
   /** Every diagram holding a selection, most recent first. */
   readonly parts: ReadonlyMap<string, SelectionPart>;
 }
@@ -49,6 +55,10 @@ export interface PageSelection {
   /** One diagram's share of a marquee that may cross several. */
   marqueeIn(blockId: string, rect: Rect, opts: { shift: boolean }): void;
   clearAll(except?: string): void;
+  /** This diagram is the one the panels speak for, whether or not it holds shapes. */
+  activate(blockId: string): void;
+  /** Out of every diagram: the selection let go, and no diagram active. */
+  leave(): void;
   /**
    * Runs `fn` with every diagram's selection added to rather than replacing
    * the others' — a command that acts on each diagram holding a share of the
@@ -82,7 +92,12 @@ export function spansDiagrams(parts: ReadonlyMap<string, SelectionPart>): boolea
 
 const NONE: readonly never[] = [];
 const NO_PARTS: ReadonlyMap<string, SelectionPart> = new Map();
-export const EMPTY_PAGE_SELECTION: PageSelectionSnapshot = { focused: null, recent: null, parts: NO_PARTS };
+export const EMPTY_PAGE_SELECTION: PageSelectionSnapshot = {
+  focused: null,
+  recent: null,
+  active: null,
+  parts: NO_PARTS,
+};
 
 function sameParts(a: ReadonlyMap<string, SelectionPart>, b: ReadonlyMap<string, SelectionPart>) {
   if (a.size !== b.size) return false;
@@ -102,6 +117,8 @@ export function createPageSelection(deps: PageSelectionDeps): PageSelection {
   /** Diagrams holding a selection, most recent first. */
   let order: string[] = [];
   let snapshot = EMPTY_PAGE_SELECTION;
+  /** The diagram chosen last — pressed, or given a selection — until the page is left. */
+  let chosen: string | null = null;
   let adding = false;
   const listeners = new Set<() => void>();
 
@@ -112,10 +129,16 @@ export function createPageSelection(deps: PageSelectionDeps): PageSelection {
       parts.set(id, { ids: entry.ids, edgeIds: entry.edgeIds });
     }
     const focused = order[0] ?? null;
-    const next = { focused, recent: asked ?? focused ?? snapshot.recent, parts: parts.size ? parts : NO_PARTS };
+    const next = {
+      focused,
+      recent: asked ?? focused ?? snapshot.recent,
+      active: focused ?? chosen,
+      parts: parts.size ? parts : NO_PARTS,
+    };
     if (
       next.focused === snapshot.focused &&
       next.recent === snapshot.recent &&
+      next.active === snapshot.active &&
       sameParts(next.parts, snapshot.parts)
     ) {
       return;
@@ -144,6 +167,7 @@ export function createPageSelection(deps: PageSelectionDeps): PageSelection {
     order = order.filter((id) => id !== blockId);
     if (ids.length === 0 && edgeIds.length === 0) return publish();
     order.unshift(blockId);
+    chosen = blockId;
     if (adding || deps.quiet?.()) return publish();
     deps.batch(() => {
       clearOthers(blockId);
@@ -236,6 +260,7 @@ export function createPageSelection(deps: PageSelectionDeps): PageSelection {
         if (held.get(blockId) !== entry) return;
         held.delete(blockId);
         order = order.filter((id) => id !== blockId);
+        if (chosen === blockId) chosen = null;
         publish();
       };
     },
@@ -287,6 +312,16 @@ export function createPageSelection(deps: PageSelectionDeps): PageSelection {
       if (entry) additive(blockId, () => entry.raw.marquee(rect, { shift }));
     },
     clearAll,
+    activate: (blockId) => {
+      if (!held.has(blockId) || chosen === blockId) return;
+      chosen = blockId;
+      publish();
+    },
+    leave: () => {
+      chosen = null;
+      clearAll();
+      publish();
+    },
     keep: (fn) => {
       const was = adding;
       adding = true;

@@ -12,6 +12,7 @@ export {
   bandWidth,
   EMPTY_BAND_H,
   EPS,
+  reachesMargins,
   WIDE_MARGIN,
   WIDE_W,
 } from "./bandGeometry";

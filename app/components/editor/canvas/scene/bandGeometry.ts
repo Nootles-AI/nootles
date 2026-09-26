@@ -1,3 +1,4 @@
+import { COLUMN_WIDTH } from "@/app/lib/column";
 import { laidOutScene } from "./autoLayout";
 import { edgePoints } from "./edgePath";
 import { nodeBounds } from "./geometry";
@@ -49,4 +50,23 @@ export function bandFloor(scene: Scene): number {
 /** The height a band is drawn at: what it stores, raised to what it holds. */
 export function bandHeight(scene: Scene): number {
   return Math.max(scene.h, bandFloor(scene));
+}
+
+/**
+ * Whether anything drawn — a visible top-level box (rotation included) or a
+ * connector route — reaches past the column into a wide band's margins. When
+ * nothing does, a wide band is only empty room either side of the text.
+ */
+export function reachesMargins(scene: Scene): boolean {
+  const laid = laidOutScene(scene);
+  const out = (left: number, right: number) => left < -EPS || right > COLUMN_WIDTH + EPS;
+  for (const node of laid.nodes) {
+    if (node.hidden) continue;
+    const box = nodeBounds(node);
+    if (out(box.x, box.x + box.w)) return true;
+  }
+  for (const edge of laid.edges) {
+    for (const point of edgePoints(laid, edge) ?? []) if (out(point.x, point.x)) return true;
+  }
+  return false;
 }

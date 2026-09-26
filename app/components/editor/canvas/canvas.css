@@ -31,6 +31,31 @@
 .nt-canvas-block:has(> .nt-canvas[data-wide]) {
   display: flex;
   justify-content: center;
+  /* A selected block grows to its content's width (blockSelection.css), and
+     this block's content is the band: it grew to 1200 from the text's edge and
+     the band left-aligned in it. Contained, it stays the column's width. */
+  contain: inline-size;
+}
+
+/* So the selection plate is the band's, not the block's: the block is only the
+   column's width, and the band reaches past it on both sides. */
+.nt-editor .bn-block-outer.nt-block-selected:has(> .bn-block > :not(.bn-block-group) .nt-canvas[data-wide])::after {
+  content: none;
+}
+.nt-editor .nt-block-selected > .bn-block > :not(.bn-block-group) .nt-canvas[data-wide]::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline: -8px;
+  border-radius: var(--radius-sm);
+  background: var(--selected);
+  pointer-events: none;
+  animation: nt-block-select-in var(--dur-fast) var(--ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-editor .nt-block-selected > .bn-block > :not(.bn-block-group) .nt-canvas[data-wide]::after {
+    animation: none;
+  }
 }
 
 /* The band's edge, while it is pointed at, holds a selection, or is the

@@ -230,6 +230,8 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
       case "block":
         // A copy of the block reads its prop, which trails the diagram.
         band!.flushMirror();
+        // The diagram is one of the page's blocks now, not the panels' subject.
+        canvas.selection.leave();
         band!.blocks.select([band!.blockId]);
         return true;
       case "pass":
@@ -339,15 +341,14 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
     if (nudgeDelta(e)) endNudges();
   };
 
-  // A caret put into text on the page lets the diagrams' selection go: the
-  // keys are the text's now, and shapes held under them would look as if
-  // they were not.
+  // A caret put into text on the page leaves the diagrams: the keys are the
+  // text's now, and shapes held under them would look as if they were not.
   const onFocusIn = (e: FocusEvent) => {
     // A caret an edit of the keymap's own put there is part of that edit.
     if (batching) return;
     const el = e.target instanceof Element ? e.target : null;
     if (!(isField(el) || isPageText(el)) || bandOf(el)) return;
-    if (canvas.selection.getSnapshot().parts.size > 0) canvas.selection.clearAll();
+    if (canvas.selection.getSnapshot().active) canvas.selection.leave();
   };
 
   // Shapes selected let a block selection go, without taking the keyboard

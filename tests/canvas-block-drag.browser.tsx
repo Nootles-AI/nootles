@@ -11,6 +11,10 @@ import {
   BlockSideMenu,
   editorPortalElements,
 } from "../app/components/editor/BlockSideMenu";
+import {
+  blockSelection,
+  blockSelectionExtension,
+} from "../app/components/editor/blockSelection";
 import { CurrentPageProvider } from "../app/components/OpenPageContext";
 import { WorkspaceHistoryProvider } from "../app/lib/history/useWorkspaceHistory";
 import {
@@ -39,6 +43,23 @@ let root: Root | undefined;
 let editor: Editor;
 let mirror: NmlLegacyMirror | undefined;
 let ydoc: Y.Doc;
+/** A wide diagram in a real column's width, with room on the page past its margins. */
+let wide = false;
+
+const MARGIN_SHAPE = {
+  id: "shape-m",
+  kind: "rect",
+  x: -200,
+  y: 40,
+  w: 120,
+  h: 90,
+  rot: 0,
+  style: { background: "#c3d7f4" },
+  label: "",
+  locked: false,
+  hidden: false,
+  attrs: {},
+} as const;
 
 const source = (): NmlDocument => ({
   schemaVersion: 1,
@@ -59,11 +80,11 @@ const source = (): NmlDocument => ({
       props: {},
       scene: {
         id: "canvas",
-        w: 640,
-        h: 360,
+        ...(wide ? { w: 0, h: 200, wide: true as const } : { w: 640, h: 360 }),
         style: {},
         attrs: {},
         nodes: [
+          ...(wide ? [MARGIN_SHAPE] : []),
           {
             id: "shape-a",
             kind: "rect",
@@ -107,8 +128,8 @@ function Page() {
           isolation: "isolate",
           position: "relative",
           zIndex: 1,
-          width: 760,
-          marginLeft: 220,
+          width: wide ? 832 : 760,
+          marginLeft: wide ? 420 : 220,
           padding: "48px 56px",
           boxSizing: "border-box",
         }}
@@ -129,13 +150,15 @@ function Page() {
   );
 }
 
-function mount() {
+function mount(options: { wide?: boolean } = {}) {
+  wide = options.wide ?? false;
   root?.unmount();
   mirror?.stop();
   ydoc = createNmlYDoc(source());
   editor = BlockNoteEditor.create(
     withCollaboration({
       schema,
+      extensions: [blockSelectionExtension],
       collaboration: {
         fragment: ydoc.getXmlFragment("prosemirror"),
         user: { name: "Local", color: "#3366cc" },
@@ -186,9 +209,9 @@ function rectOf(type: string) {
   };
 }
 
-function handleRect() {
+function handleRect(label = "Block actions") {
   const element = document.querySelector<HTMLElement>(
-    'button[aria-label="Block actions"]',
+    `button[aria-label="${label}"]`,
   );
   if (!element) return null;
   const rect = element.getBoundingClientRect();
@@ -226,8 +249,41 @@ function snapshot() {
   };
 }
 
+function bandRect() {
+  const band = document.querySelector<HTMLElement>(".nt-canvas:not(.nt-canvas-shot)");
+  if (!band) return null;
+  const { left, top, width, height } = band.getBoundingClientRect();
+  return { left, top, width, height, wide: band.hasAttribute("data-wide") };
+}
+
+/**
+ * What a press at the centre of a side-menu control lands on, once the menu
+ * has heard the pointer arrive — and past BlockNote's fade-out, which keeps a
+ * dismissed menu's markup on screen, inert, for a moment after it closes.
+ */
+async function hitAt(label: string) {
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const rect = handleRect(label);
+  if (!rect) return null;
+  const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  return hit?.closest("button")?.getAttribute("aria-label") ?? hit?.className ?? null;
+}
+
+/** The whole diagram block selected, through the document's own block selection. */
+async function selectCanvasBlock(on: boolean) {
+  const store = blockSelection(editor as never);
+  if (on) store.select([block("canvas")!.id]);
+  else store.clear({ focus: false });
+  await new Promise(requestAnimationFrame);
+  const band = document.querySelector(".bn-block-outer.nt-block-selected .nt-canvas");
+  return !!band && getComputedStyle(band, "::after").content !== "none";
+}
+
 const harness = {
   mount,
+  bandRect,
+  hitAt,
+  selectCanvasBlock,
   async settle() {
     await mirror?.settle();
   },

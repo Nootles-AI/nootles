@@ -24,12 +24,13 @@ import { createPageTools, type PageToolControl } from "./tools";
  * The screen's canvas chrome. A press in it is not a press outside the
  * diagrams: the panels speak for them, the menus are portalled to the body but
  * belong to a control or a label being edited, and the rails' edges and resize
- * handles are adjusting the panels, not leaving. The split between two pages
- * (`.is-gap`) is the document's.
+ * handles — or the floating panels standing in for a rail put away — are
+ * adjusting the panels, not leaving. The split between two pages (`.is-gap`)
+ * is the document's.
  */
 export const CANVAS_CHROME =
   ".nt-lyr, .nt-style-panel, .nt-toolbar, .nt-ctx, .nt-mention-anchor, .nt-menu, " +
-  ".nt-rail-slot, .nt-resize:not(.is-gap)";
+  ".nt-rail-slot, .nt-rail-float, .nt-resize:not(.is-gap)";
 
 /** One diagram on the page, as the pane knows it. */
 export type DiagramEntry = {
@@ -102,15 +103,21 @@ export interface PageCanvas {
   attach(pane: HTMLElement): () => void;
 }
 
+type Held = { readonly pageId: string; readonly blockId: string };
+
 export type HubSnapshot = {
   readonly pane: Pane | null;
-  readonly focused: { readonly pageId: string; readonly blockId: string } | null;
+  /** The diagram holding the selection. */
+  readonly focused: Held | null;
+  /** The diagram the panels speak for: the focused one, or one chosen without a selection. */
+  readonly active: Held | null;
 };
 
 /**
  * The workspace's half: the one tool, the panes, and which diagram the screen
  * is speaking for. Its snapshot is coarse on purpose — it moves when focus
- * moves to another diagram or away, never on a click inside the one focused —
+ * or the active diagram moves to another or away, never on a click inside the
+ * one focused —
  * because the whole workspace re-renders on it.
  */
 export interface PageCanvasHub {
@@ -123,6 +130,7 @@ export interface PageCanvasHub {
   setFramed(held: () => boolean): () => void;
   addPane(canvas: PageCanvas): () => void;
   pane(pane: Pane): PageCanvas | null;
+  /** Every pane's diagrams left at once — what taking a storyboard's shot does. */
   clearAll(): void;
   subscribe(listener: () => void): () => void;
   getSnapshot(): HubSnapshot;
@@ -140,7 +148,8 @@ function sameFrame(a: RotatedRect | null, b: RotatedRect | null): boolean {
   if (!a || !b) return false;
   return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h && a.rot === b.rot;
 }
-const NOTHING_HELD: HubSnapshot = { pane: null, focused: null };
+const NOTHING_HELD: HubSnapshot = { pane: null, focused: null, active: null };
+const sameHeld = (a: Held | null, b: Held | null) => a?.blockId === b?.blockId && a?.pageId === b?.pageId;
 
 const byDocument = (a: DiagramEntry, b: DiagramEntry) => {
   const x = a.api.band.current;
@@ -308,21 +317,26 @@ export function createPageCanvas({
     mergeDismissed: (upper, lower) => dismissed.has(`${upper}>${lower}`),
     attach: (paneEl) => {
       // One listener for every diagram in the pane: a press outside all of
-      // them lets the page's selection go, batched, where a listener per
-      // diagram cleared each on its own. A press on one is the diagram's to
-      // read — it may be the start of a drag of shapes in several — and holds
-      // the page's fit still until it lets go, so a rail opening on the
-      // selection it makes cannot rescale the band under the pointer.
+      // them leaves the page's diagrams, batched, where a listener per
+      // diagram cleared each on its own. A press on one makes it the diagram
+      // the panels speak for — on its empty canvas too, which is how its own
+      // fields are reached — and the rest is the diagram's to read: it may be
+      // the start of a drag of shapes in several. It holds the page's fit
+      // still until it lets go, so a rail opening on the selection it makes
+      // cannot rescale the band under the pointer.
       const onDown = (event: PointerEvent) => {
         const target = event.target;
         if (!(target instanceof Element)) return;
-        if ([...registry.values()].some((e) => e.api.band.current?.contains(target))) {
+        const hit = [...registry.values()].find((e) => e.api.band.current?.contains(target));
+        if (hit) {
           pressed = true;
           setFitFrozen(true);
+          // A reader has none of the diagram's own fields to set.
+          if (!hit.readOnly) selection.activate(hit.blockId);
           return;
         }
-        if (selection.getSnapshot().parts.size === 0) return;
-        if (!target.closest(CANVAS_CHROME)) selection.clearAll();
+        if (!selection.getSnapshot().active) return;
+        if (!target.closest(CANVAS_CHROME)) selection.leave();
       };
       const onUp = () => {
         if (!pressed) return;
@@ -352,7 +366,8 @@ export function createPageCanvasHub({ batch, quiet = never }: Deps): PageCanvasH
   let held: () => boolean = never;
   const tools = createPageTools();
   const panes = new Map<Pane, PageCanvas>();
-  const focusedIn = new Map<Pane, string | null>();
+  /** Each pane's focused and active diagram, as last heard. */
+  const heardIn = new Map<Pane, { focused: string | null; active: string | null }>();
   /** The pane whose focus arrived last, which the snapshot names while it lasts. */
   let lead: Pane | null = null;
   let snapshot = NOTHING_HELD;
@@ -360,17 +375,24 @@ export function createPageCanvasHub({ batch, quiet = never }: Deps): PageCanvasH
 
   /** `force`: the same diagram, with an api the screen has not seen. */
   const publish = (force = false) => {
-    const holding = (p: Pane | null) => (p ? (panes.get(p)?.selection.getSnapshot().focused ?? null) : null);
+    const holding = (p: Pane | null) => (p ? (panes.get(p)?.selection.getSnapshot().active ?? null) : null);
     const pane = holding(lead) ? lead : ([...panes.keys()].find((p) => holding(p)) ?? null);
     const canvas = pane ? panes.get(pane)! : null;
-    const blockId = holding(pane);
+    const held = canvas?.selection.getSnapshot();
+    const pageId = canvas?.pageId;
     const next: HubSnapshot =
-      canvas && blockId && canvas.pageId ? { pane, focused: { pageId: canvas.pageId, blockId } } : NOTHING_HELD;
+      held?.active && pageId
+        ? {
+            pane,
+            focused: held.focused ? { pageId, blockId: held.focused } : null,
+            active: { pageId, blockId: held.active },
+          }
+        : NOTHING_HELD;
     if (
       !force &&
       next.pane === snapshot.pane &&
-      next.focused?.blockId === snapshot.focused?.blockId &&
-      next.focused?.pageId === snapshot.focused?.pageId
+      sameHeld(next.focused, snapshot.focused) &&
+      sameHeld(next.active, snapshot.active)
     ) {
       return;
     }
@@ -378,7 +400,7 @@ export function createPageCanvasHub({ batch, quiet = never }: Deps): PageCanvasH
     for (const listener of listeners) listener();
   };
 
-  const clearAll = () => batch(() => panes.forEach((canvas) => canvas.selection.clearAll()));
+  const clearAll = () => batch(() => panes.forEach((canvas) => canvas.selection.leave()));
 
   return {
     tools,
@@ -394,18 +416,18 @@ export function createPageCanvasHub({ batch, quiet = never }: Deps): PageCanvasH
     addPane: (canvas) => {
       const pane = canvas.pane!;
       panes.set(pane, canvas);
-      focusedIn.set(pane, null);
+      heardIn.set(pane, { focused: null, active: null });
       const off = canvas.selection.subscribe(() => {
-        const focused = canvas.selection.getSnapshot().focused;
-        const was = focusedIn.get(pane) ?? null;
-        focusedIn.set(pane, focused);
-        if (focused && focused !== was) {
+        const { focused, active } = canvas.selection.getSnapshot();
+        const was = heardIn.get(pane)!;
+        heardIn.set(pane, { focused, active });
+        if ((focused && focused !== was.focused) || (active && active !== was.active)) {
           lead = pane;
           if (!quiet()) {
             // Inside the batch the selection that caused this is closing, so
             // whatever the other pane records joins its step.
             batch(() => {
-              panes.forEach((other, p) => p !== pane && other.selection.clearAll());
+              panes.forEach((other, p) => p !== pane && other.selection.leave());
               publish();
             });
             return;
@@ -413,10 +435,10 @@ export function createPageCanvasHub({ batch, quiet = never }: Deps): PageCanvasH
         }
         publish();
       });
-      // The panels read the focused diagram's api off the pane, on the
+      // The panels read the active diagram's api off the pane, on the
       // snapshot's say: one back with a new api has to say so.
       const offRegister = canvas.onRegister((blockId) => {
-        if (focusedIn.get(pane) === blockId) publish(true);
+        if (heardIn.get(pane)?.active === blockId) publish(true);
       });
       publish();
       return () => {
@@ -424,7 +446,7 @@ export function createPageCanvasHub({ batch, quiet = never }: Deps): PageCanvasH
         offRegister();
         if (panes.get(pane) !== canvas) return;
         panes.delete(pane);
-        focusedIn.delete(pane);
+        heardIn.delete(pane);
         if (lead === pane) lead = null;
         publish();
       };
@@ -447,6 +469,8 @@ const NO_SELECTION: PageSelection = {
   selectIn: noop,
   marqueeIn: noop,
   clearAll: noop,
+  activate: noop,
+  leave: noop,
   keep: (fn) => fn(),
   focus: noop,
   count: () => 0,
