@@ -701,13 +701,11 @@ export function Timeline(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-/** Three columns of cards, each as long as its list. */
-export function Kanban(props: SVGProps<SVGSVGElement>) {
+/** An empty square: a canvas with nothing on it yet. */
+export function Blank(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>
-      <rect x="3" y="4" width="5" height="9" rx="1" />
-      <rect x="9.5" y="4" width="5" height="15" rx="1" />
-      <rect x="16" y="4" width="5" height="6" rx="1" />
+      <rect x="4.5" y="4.5" width="15" height="15" rx="2.5" />
     </svg>
   );
 }

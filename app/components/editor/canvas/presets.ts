@@ -1,6 +1,5 @@
 import { landFragment } from "./engine/clipboard";
 import { parseScene, type ParseHtml } from "./scene/parse";
-import { canonicalPath } from "./scene/canonicalPaths";
 import type { NodeId, Scene, SceneOp } from "./scene/types";
 
 /**
@@ -9,15 +8,15 @@ import type { NodeId, Scene, SceneOp } from "./scene/types";
  * left edge at x = 0, the first shape a band below the top — so choosing one
  * is a paste of it, through the same ops.
  *
- * The two mockups are each ONE path, a device outline you draw into rather
- * than a kit of parts to keep together. They are filled with `evenodd` rather
- * than stroked: a single path has a single stroke width, and the phone needs a
- * bezel, a battery with charge in it and a clock that reads at 10px, which only
- * filled geometry gives. The rings are an outline and its inset; everything
- * inside the screen is an odd number of outlines deep, and so solid.
+ * Every part is a shape the toolbar could have drawn. The two mockups are
+ * groups, so a device moves and selects as one thing and a double-click goes
+ * inside to restyle the island, retype the clock or drop the toolbar; the
+ * parts that only mean something together (the signal bars, the battery, the
+ * window controls) are groups of their own inside it. None of them lays its
+ * children out: a device is drawn, not flowed.
  */
 
-export type PresetId = "flowchart" | "phone" | "browser" | "matrix" | "timeline" | "board";
+export type PresetId = "flowchart" | "phone" | "browser" | "matrix" | "timeline";
 
 export type Preset = {
   id: PresetId;
@@ -28,119 +27,21 @@ export type Preset = {
 };
 
 const INK = "#2b2b28";
+const RULE = "#d8d8d4";
 
-const BOX =
-  "background: #f2f2f0; border: 1px solid #d8d8d4; border-radius: 10px; " +
-  "display: flex; align-items: center; justify-content: center; " +
-  "text-align: center; color: #2b2b28; font-size: 13px";
+const CENTRED = "display: flex; align-items: center; justify-content: center; text-align: center";
+const BOX = `background: #f2f2f0; border: 1px solid ${RULE}; border-radius: 10px; ${CENTRED}; color: ${INK}; font-size: 13px`;
 const PLAIN = BOX.replace("border-radius: 10px; ", "");
 const PILL = BOX.replace("border-radius: 10px", "border-radius: 24px");
-const SOFT = BOX.replace("background: #f2f2f0; border: 1px solid #d8d8d4", "background: #f7f7f5; border: 1px solid #e4e4e0");
-const CAPTION =
-  "display: flex; align-items: center; justify-content: center; text-align: center; color: #6b6b66; font-size: 12px";
-const LABEL = CAPTION.replace("color: #6b6b66; font-size: 12px", "color: #2b2b28; font-size: 13px");
-const LANE =
-  "background: #f7f7f5; border: 1px solid #e4e4e0; border-radius: 10px; " +
-  "display: flex; align-items: flex-start; justify-content: flex-start; padding: 12px 14px; " +
-  "color: #6b6b66; font-size: 12px; font-weight: 600";
-const CARD =
-  "background: #ffffff; border: 1px solid #d8d8d4; border-radius: 8px; " +
-  "display: flex; align-items: center; padding: 0 14px; color: #2b2b28; font-size: 13px";
-const DEVICE = `fill: ${INK}; fill-rule: evenodd`;
+const SOFT = BOX.replace(`background: #f2f2f0; border: 1px solid ${RULE}`, "background: #f7f7f5; border: 1px solid #e4e4e0");
+const CAPTION = `${CENTRED}; color: #6b6b66; font-size: 12px`;
+const LABEL = `${CENTRED}; color: ${INK}; font-size: 13px`;
 
-// ---- Path geometry -----------------------------------------------------------
-
-/** The cubic that draws a quarter circle. */
-const K = 0.5522847498;
-const n = (v: number) => String(Math.round(v * 1000) / 1000);
-
-/** A rectangle outline, its corners rounded by `r`, clockwise from its top edge. */
-function box(x: number, y: number, w: number, h: number, r = 0): string {
-  if (r === 0) return `M ${n(x)} ${n(y)} L ${n(x + w)} ${n(y)} L ${n(x + w)} ${n(y + h)} L ${n(x)} ${n(y + h)} Z`;
-  const c = r * K;
-  const [l, t, rt, b] = [x, y, x + w, y + h];
-  return [
-    `M ${n(l + r)} ${n(t)}`,
-    `L ${n(rt - r)} ${n(t)}`,
-    `C ${n(rt - r + c)} ${n(t)} ${n(rt)} ${n(t + r - c)} ${n(rt)} ${n(t + r)}`,
-    `L ${n(rt)} ${n(b - r)}`,
-    `C ${n(rt)} ${n(b - r + c)} ${n(rt - r + c)} ${n(b)} ${n(rt - r)} ${n(b)}`,
-    `L ${n(l + r)} ${n(b)}`,
-    `C ${n(l + r - c)} ${n(b)} ${n(l)} ${n(b - r + c)} ${n(l)} ${n(b - r)}`,
-    `L ${n(l)} ${n(t + r)}`,
-    `C ${n(l)} ${n(t + r - c)} ${n(l + r - c)} ${n(t)} ${n(l + r)} ${n(t)}`,
-    "Z",
-  ].join(" ");
-}
-
-/** An outline and its inset by `t`: a frame `t` thick. */
-const ring = (x: number, y: number, w: number, h: number, r: number, t: number) =>
-  `${box(x, y, w, h, r)} ${box(x + t, y + t, w - 2 * t, h - 2 * t, Math.max(0, r - t))}`;
-
-const dot = (cx: number, cy: number, r: number) => box(cx - r, cy - r, 2 * r, 2 * r, r);
-
-/** Seven-segment digits, each segment its own rectangle and none overlapping, so `evenodd` fills every one. */
-function digit(ch: string, x: number, y: number, w: number, h: number, t: number): string {
-  const m = y + (h - t) / 2;
-  const seg: Record<string, string> = {
-    a: box(x, y, w, t),
-    g: box(x, m, w, t),
-    d: box(x, y + h - t, w, t),
-    f: box(x, y + t, t, m - y - t),
-    b: box(x + w - t, y + t, t, m - y - t),
-    e: box(x, m + t, t, y + h - t - m - t),
-    c: box(x + w - t, m + t, t, y + h - t - m - t),
-  };
-  switch (ch) {
-    case "9":
-      return [seg.a, seg.f, seg.b, seg.g, seg.c, seg.d].join(" ");
-    case "4":
-      // No top bar, so the uprights run to the top.
-      return [box(x, y, t, m - y), box(x + w - t, y, t, m - y), seg.g, seg.c].join(" ");
-    case "1":
-      return box(x, y, t, h);
-    case ":":
-      return [box(x, y + 2.2, t, t), box(x, y + h - 2.2 - t, t, t)].join(" ");
-    default:
-      return "";
-  }
-}
-
-/** A clock face's worth of digits, advancing by each glyph's own width. */
-function clock(text: string, x: number, y: number): string {
-  const [w, h, t, gap] = [6, 10, 1.6, 1.6];
-  const out: string[] = [];
-  for (const ch of text) {
-    out.push(digit(ch, x, y, w, h, t));
-    x += (ch === ":" || ch === "1" ? t : w) + gap;
-  }
-  return out.join(" ");
-}
-
-const path = (...parts: string[]) => canonicalPath(parts.join(" "));
-
-const PHONE_D = path(
-  ring(0, 0, 200, 420, 34, 4),
-  box(72, 14, 56, 18, 9),
-  clock("9:41", 28, 18),
-  box(140, 24, 3, 4),
-  box(144.5, 22, 3, 6),
-  box(149, 20, 3, 8),
-  box(153.5, 18, 3, 10),
-  ring(161.5, 18.5, 20, 9, 2.5, 1.2),
-  box(164, 21, 11, 4),
-  box(182.3, 21.2, 1.5, 3.6),
-  box(66, 402, 68, 5, 2.5),
-);
-
-const BROWSER_D = path(
-  ring(0, 0, 520, 320, 10, 1.5),
-  box(1.5, 34, 517, 1.5),
-  dot(20, 18, 5),
-  dot(36, 18, 5),
-  dot(52, 18, 5),
-  ring(150, 9, 220, 18, 9, 1.5),
-);
+const SOLID = `background: ${INK}`;
+/** Where a page's words and pictures would go. */
+const FILLER = "background: #ececea; border-radius: 4px";
+/** A browser's own marks: its buttons, its lock. */
+const GLYPH = "background: #8a8a85";
 
 // ---- The presets ---------------------------------------------------------------
 
@@ -155,11 +56,52 @@ const FLOWCHART = `<nt-diagram h="336">
 </nt-diagram>`;
 
 const PHONE = `<nt-diagram h="468">
-  <nt-path id="phone" x="260" y="24" w="200" h="420" d="${PHONE_D}" style="${DEVICE}"></nt-path>
+  <nt-group id="phone" x="260" y="24" w="200" h="420" name="iPhone">
+    <nt-rect id="phone-frame" x="0" y="0" w="200" h="420" name="Frame" style="background: #ffffff; border: 3px solid ${INK}; border-radius: 34px"></nt-rect>
+    <nt-rect id="phone-island" x="72" y="14" w="56" h="18" name="Island" style="${SOLID}; border-radius: 9px"></nt-rect>
+    <nt-text id="phone-time" x="20" y="14" w="44" h="18" name="Time" style="${CENTRED}; color: ${INK}; font-size: 12px; font-weight: 600">9:41</nt-text>
+    <nt-group id="phone-signal" x="138" y="18" w="15" h="10" name="Signal">
+      <nt-rect id="phone-bar-1" x="0" y="6" w="3" h="4" name="Bar" style="${SOLID}; border-radius: 1px"></nt-rect>
+      <nt-rect id="phone-bar-2" x="4" y="4" w="3" h="6" name="Bar" style="${SOLID}; border-radius: 1px"></nt-rect>
+      <nt-rect id="phone-bar-3" x="8" y="2" w="3" h="8" name="Bar" style="${SOLID}; border-radius: 1px"></nt-rect>
+      <nt-rect id="phone-bar-4" x="12" y="0" w="3" h="10" name="Bar" style="${SOLID}; border-radius: 1px"></nt-rect>
+    </nt-group>
+    <nt-group id="phone-battery" x="159" y="18" w="23" h="10" name="Battery">
+      <nt-rect id="phone-battery-body" x="0" y="0" w="20" h="10" name="Body" style="border: 1px solid ${INK}; border-radius: 3px"></nt-rect>
+      <nt-rect id="phone-battery-charge" x="2" y="2" w="12" h="6" name="Charge" style="${SOLID}; border-radius: 1.5px"></nt-rect>
+      <nt-rect id="phone-battery-cap" x="21" y="3" w="2" h="4" name="Cap" style="${SOLID}; border-radius: 1px"></nt-rect>
+    </nt-group>
+    <nt-rect id="phone-home" x="66" y="406" w="68" h="5" name="Home indicator" style="${SOLID}; border-radius: 2.5px"></nt-rect>
+  </nt-group>
 </nt-diagram>`;
 
 const BROWSER = `<nt-diagram h="368">
-  <nt-path id="browser" x="100" y="24" w="520" h="320" d="${BROWSER_D}" style="${DEVICE}"></nt-path>
+  <nt-group id="browser" x="100" y="24" w="520" h="320" name="Browser">
+    <nt-rect id="browser-window" x="0" y="0" w="520" h="320" name="Window" style="background: #ffffff; border: 1px solid ${RULE}; border-radius: 10px"></nt-rect>
+    <nt-rect id="browser-tabs" x="1" y="1" w="518" h="37" name="Tab strip" style="background: #f2f2f0; border-radius: 9px 9px 0 0"></nt-rect>
+    <nt-group id="browser-controls" x="14" y="15" w="42" h="10" name="Window controls">
+      <nt-ellipse id="browser-close" x="0" y="0" w="10" h="10" name="Close" style="background: ${RULE}"></nt-ellipse>
+      <nt-ellipse id="browser-minimize" x="16" y="0" w="10" h="10" name="Minimize" style="background: ${RULE}"></nt-ellipse>
+      <nt-ellipse id="browser-zoom" x="32" y="0" w="10" h="10" name="Zoom" style="background: ${RULE}"></nt-ellipse>
+    </nt-group>
+    <nt-rect id="browser-tab" x="72" y="7" w="168" h="31" name="Tab" style="background: #ffffff; border-radius: 8px 8px 0 0; display: flex; align-items: center; padding: 0 12px; color: ${INK}; font-size: 11px">Nootles</nt-rect>
+    <nt-rect id="browser-toolbar" x="1" y="38" w="518" h="36" name="Toolbar" style="background: #ffffff; border-bottom: 1px solid #ececea"></nt-rect>
+    <nt-group id="browser-nav" x="16" y="51" w="50" h="10" name="Navigation">
+      <nt-polygon id="browser-back" x="0" y="0" w="10" h="10" rot="-90" name="Back" sides="3" style="${GLYPH}"></nt-polygon>
+      <nt-polygon id="browser-forward" x="20" y="0" w="10" h="10" rot="90" name="Forward" sides="3" style="background: ${RULE}"></nt-polygon>
+      <nt-ellipse id="browser-reload" x="40" y="0" w="10" h="10" name="Reload" start="45" sweep="300" inner="0.6" style="${GLYPH}"></nt-ellipse>
+    </nt-group>
+    <nt-rect id="browser-address" x="80" y="44" w="424" h="24" name="Address bar" style="background: #f2f2f0; border-radius: 12px; display: flex; align-items: center; padding: 0 12px 0 28px; color: #6b6b66; font-size: 11px">nootles.app</nt-rect>
+    <nt-group id="browser-lock" x="92" y="51" w="8" h="10" name="Lock">
+      <nt-ellipse id="browser-shackle" x="1" y="0" w="6" h="8" name="Shackle" start="270" sweep="180" inner="0.6" style="${GLYPH}"></nt-ellipse>
+      <nt-rect id="browser-lock-body" x="0" y="4" w="8" h="6" name="Body" style="${GLYPH}; border-radius: 1.5px"></nt-rect>
+    </nt-group>
+    <nt-rect id="browser-heading" x="32" y="102" w="180" h="14" name="Heading" style="${FILLER}"></nt-rect>
+    <nt-rect id="browser-line-1" x="32" y="132" w="456" h="8" name="Text" style="${FILLER}"></nt-rect>
+    <nt-rect id="browser-line-2" x="32" y="148" w="420" h="8" name="Text" style="${FILLER}"></nt-rect>
+    <nt-rect id="browser-line-3" x="32" y="164" w="280" h="8" name="Text" style="${FILLER}"></nt-rect>
+    <nt-rect id="browser-image" x="32" y="192" w="456" h="104" name="Image" style="background: #f5f5f3; border-radius: 6px"></nt-rect>
+  </nt-group>
 </nt-diagram>`;
 
 const MATRIX = `<nt-diagram h="328">
@@ -172,33 +114,23 @@ const MATRIX = `<nt-diagram h="328">
 </nt-diagram>`;
 
 const TIMELINE = `<nt-diagram h="96">
-  <nt-rect id="rail" x="100" y="31" w="520" h="2" style="background: #d8d8d4"></nt-rect>
-  <nt-ellipse id="m1" x="92" y="24" w="16" h="16" style="background: ${INK}"></nt-ellipse>
-  <nt-ellipse id="m2" x="265" y="24" w="16" h="16" style="background: ${INK}"></nt-ellipse>
-  <nt-ellipse id="m3" x="439" y="24" w="16" h="16" style="background: ${INK}"></nt-ellipse>
-  <nt-ellipse id="m4" x="612" y="24" w="16" h="16" style="background: ${INK}"></nt-ellipse>
+  <nt-rect id="rail" x="100" y="31" w="520" h="2" name="Rail" style="background: ${RULE}"></nt-rect>
+  <nt-ellipse id="m1" x="92" y="24" w="16" h="16" name="Milestone" style="${SOLID}"></nt-ellipse>
+  <nt-ellipse id="m2" x="265" y="24" w="16" h="16" name="Milestone" style="${SOLID}"></nt-ellipse>
+  <nt-ellipse id="m3" x="439" y="24" w="16" h="16" name="Milestone" style="${SOLID}"></nt-ellipse>
+  <nt-ellipse id="m4" x="612" y="24" w="16" h="16" name="Milestone" style="${SOLID}"></nt-ellipse>
   <nt-text id="t1" x="30" y="52" w="140" h="20" style="${LABEL}">Kickoff</nt-text>
   <nt-text id="t2" x="203" y="52" w="140" h="20" style="${LABEL}">Prototype</nt-text>
   <nt-text id="t3" x="377" y="52" w="140" h="20" style="${LABEL}">Beta</nt-text>
   <nt-text id="t4" x="550" y="52" w="140" h="20" style="${LABEL}">Launch</nt-text>
 </nt-diagram>`;
 
-const BOARD = `<nt-diagram h="244">
-  <nt-rect id="todo" x="24" y="24" w="216" h="196" style="${LANE}">To do</nt-rect>
-  <nt-rect id="doing" x="252" y="24" w="216" h="196" style="${LANE}">Doing</nt-rect>
-  <nt-rect id="done" x="480" y="24" w="216" h="196" style="${LANE}">Done</nt-rect>
-  <nt-rect id="card-1" x="36" y="64" w="192" h="56" style="${CARD}">Next up</nt-rect>
-  <nt-rect id="card-2" x="264" y="64" w="192" h="56" style="${CARD}">In progress</nt-rect>
-  <nt-rect id="card-3" x="492" y="64" w="192" h="56" style="${CARD}">Shipped</nt-rect>
-</nt-diagram>`;
-
 export const PRESETS: readonly Preset[] = [
   { id: "flowchart", label: "Flowchart", title: "A process, a condition and two end states", html: FLOWCHART },
-  { id: "phone", label: "iPhone", title: "An iPhone screen to draw into", html: PHONE },
-  { id: "browser", label: "Browser", title: "A browser window to draw into", html: BROWSER },
+  { id: "phone", label: "iPhone", title: "An iPhone wireframe, every part editable", html: PHONE },
+  { id: "browser", label: "Browser", title: "A browser window wireframe, every part editable", html: BROWSER },
   { id: "matrix", label: "Matrix", title: "A two-by-two of impact against effort", html: MATRIX },
   { id: "timeline", label: "Timeline", title: "Four milestones on a line", html: TIMELINE },
-  { id: "board", label: "Board", title: "To do, Doing and Done, a card in each", html: BOARD },
 ];
 
 /**

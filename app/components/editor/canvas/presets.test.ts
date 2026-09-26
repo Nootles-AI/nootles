@@ -5,11 +5,11 @@ import { BAND, bandFloor, fitToBand } from "./scene/band";
 import { nodeBounds } from "./scene/geometry";
 import { emptyScene } from "./scene/migrate";
 import { applyOps } from "./scene/ops";
-import { canonicalPath } from "./scene/canonicalPaths";
 import { parseScene, type ParseHtml } from "./scene/parse";
 import { serializeScene } from "./scene/serialize";
-import { walk, type Scene } from "./scene/types";
+import { walk, type Scene, type SceneNode } from "./scene/types";
 import { WIDE_DIAGRAM_SOURCE } from "./scene/bandSpan";
+import { isAutoLayout } from "./scene/autoLayout";
 import { SceneStore, type SceneHistoryEvent } from "./engine/useScene";
 import { PRESETS, presetOps } from "./presets";
 
@@ -51,12 +51,6 @@ describe.each(PRESETS.map((preset) => [preset.id, preset] as const))("%s", (_, p
     ids.push(...scene.edges.map((edge) => edge.id));
     expect(new Set(ids).size).toBe(ids.length);
   });
-
-  it("writes its paths the way the pen does, so opening one rewrites nothing", () => {
-    walk(scene.nodes, (node) => {
-      if (node.kind === "path") expect(canonicalPath(node.d)).toBe(node.d);
-    });
-  });
 });
 
 describe("the presets", () => {
@@ -78,10 +72,81 @@ describe("the presets", () => {
     ]);
   });
 
-  it("draw each mockup as one flattened shape", () => {
+  it("draw everything from shapes the toolbar makes: nothing flattened into a path", () => {
+    for (const preset of PRESETS) {
+      walk(parse(preset.html).nodes, (node) => expect(node.kind, `${preset.id} ${node.id}`).not.toBe("path"));
+    }
+  });
+
+  /** A group's children as `name:kind`, nested groups as `[name, …children]`. */
+  const outline = (nodes: readonly SceneNode[]): unknown[] =>
+    nodes.map((node) =>
+      node.kind === "group" ? [node.name, ...outline(node.children)] : `${node.name}:${node.kind}`,
+    );
+
+  it.each([
+    [
+      "phone",
+      [
+        "iPhone",
+        "Frame:rect",
+        "Island:rect",
+        "Time:text",
+        ["Signal", "Bar:rect", "Bar:rect", "Bar:rect", "Bar:rect"],
+        ["Battery", "Body:rect", "Charge:rect", "Cap:rect"],
+        "Home indicator:rect",
+      ],
+    ],
+    [
+      "browser",
+      [
+        "Browser",
+        "Window:rect",
+        "Tab strip:rect",
+        ["Window controls", "Close:ellipse", "Minimize:ellipse", "Zoom:ellipse"],
+        "Tab:rect",
+        "Toolbar:rect",
+        ["Navigation", "Back:polygon", "Forward:polygon", "Reload:ellipse"],
+        "Address bar:rect",
+        ["Lock", "Shackle:ellipse", "Body:rect"],
+        "Heading:rect",
+        "Text:rect",
+        "Text:rect",
+        "Text:rect",
+        "Image:rect",
+      ],
+    ],
+  ])("draw the %s as one group of named, editable parts", (id, parts) => {
+    const scene = parse(PRESETS.find((p) => p.id === id)!.html);
+    expect(scene.nodes).toHaveLength(1);
+    expect(outline(scene.nodes)).toEqual([parts]);
+    walk(scene.nodes, (node) => {
+      if (node.kind === "group") expect(isAutoLayout(node), node.id).toBe(false);
+    });
+  });
+
+  it("write the words a mockup shows as text you can retype", () => {
+    const find = (id: string, name: string) => {
+      let hit: SceneNode | undefined;
+      walk(parse(PRESETS.find((p) => p.id === id)!.html).nodes, (node) => void (node.name === name && (hit = node)));
+      return hit;
+    };
+    expect(find("phone", "Time")).toMatchObject({ kind: "text", label: "9:41" });
+    expect(find("browser", "Address bar")).toMatchObject({ kind: "rect", label: "nootles.app" });
+    expect(find("browser", "Tab")).toMatchObject({ kind: "rect", label: "Nootles" });
+  });
+
+  it("keep every part inside the device it belongs to", () => {
     for (const id of ["phone", "browser"]) {
-      const scene = parse(PRESETS.find((p) => p.id === id)!.html);
-      expect(scene.nodes.map((node) => node.kind)).toEqual(["path"]);
+      walk(parse(PRESETS.find((p) => p.id === id)!.html).nodes, (node) => {
+        if (node.kind !== "group") return;
+        for (const child of node.children) {
+          expect(child.x, child.id).toBeGreaterThanOrEqual(0);
+          expect(child.y, child.id).toBeGreaterThanOrEqual(0);
+          expect(child.x + child.w, child.id).toBeLessThanOrEqual(node.w);
+          expect(child.y + child.h, child.id).toBeLessThanOrEqual(node.h);
+        }
+      });
     }
   });
 });

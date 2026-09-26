@@ -9,7 +9,7 @@
  */
 import { build } from "esbuild";
 import { createServer } from "node:http";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { checker, launch, openPage, repo, writeAppStylesheet } from "./canvas-harness.mjs";
@@ -183,9 +183,9 @@ try {
   check("a diagram from the slash menu offers presets", await barShown(flow), true);
   check("in place of its Add shapes line", await page.locator(`[data-id="${flow}"] .nt-canvas-placeholder`).count(), 0);
   check(
-    "six of them and a close",
-    await bar(flow).locator("button").evaluateAll((buttons) => buttons.map((b) => b.textContent || b.getAttribute("aria-label"))),
-    ["Flowchart", "iPhone", "Browser", "Matrix", "Timeline", "Board", "Close presets"],
+    "Blank, or five of them",
+    await bar(flow).evaluate((el) => [...el.children].map((child) => child.textContent)),
+    ["Blank", "or", "Flowchart", "iPhone", "Browser", "Matrix", "Timeline"],
   );
   await bar(flow).locator('[data-preset="flowchart"]').click();
   await frame();
@@ -209,10 +209,17 @@ try {
   const closed = await at("slash", "diagram", line);
   await mounted(closed);
   await frame();
-  await bar(closed).locator(".nt-canvas-presets-no").click();
+  const shots = path.join(repo, "tests/.artifacts/presets");
+  await mkdir(shots, { recursive: true });
+  await page.mouse.move(0, 0);
   await frame();
-  check("× closes the bar", await barShown(closed), false);
+  await page.locator(`[data-id="${closed}"] .nt-canvas`).first().screenshot({ path: path.join(shots, "bar.png") });
+  await bar(closed).locator('[data-preset="blank"]').click();
+  await frame();
+  check("Blank closes the bar", await barShown(closed), false);
   check("and Add shapes is back", await page.locator(`[data-id="${closed}"] .nt-canvas-placeholder`).count(), 1);
+  check("the diagram left empty, ready to draw", await at("shapes", closed), []);
+  check("with the band holding the keyboard", await page.evaluate((id) => !!document.activeElement?.closest(`[data-id="${id}"]`), closed), true);
 
   [intro, line] = await at("seed");
   await frame();
@@ -238,12 +245,39 @@ try {
   await frame();
   check("a wide canvas offers them too", await barShown(wideBar), true);
   await bar(wideBar).locator("button").first().focus();
+  check("Blank comes first on the keyboard", await page.evaluate(() => document.activeElement?.getAttribute("data-preset")), "blank");
   await page.keyboard.press("ArrowRight");
-  check("the arrows walk the bar", await page.evaluate(() => document.activeElement?.getAttribute("data-preset")), "phone");
+  await page.keyboard.press("ArrowRight");
+  check("the arrows walk the bar, past the or", await page.evaluate(() => document.activeElement?.getAttribute("data-preset")), "phone");
   await page.keyboard.press("Enter");
   await frame();
-  check("Enter chooses: the iPhone is one flattened shape", kinds(await at("shapes", wideBar)), ["path"]);
+  check("Enter chooses: the iPhone lands as one group", kinds(await at("shapes", wideBar)), ["group"]);
   check("and the canvas stays wide", (await at("scene", wideBar)).wide, "pinned");
+  check("selected whole", await at("selection", wideBar), { ids: ["iPhone"], entered: [] });
+  const time = page.locator(`[data-id="${wideBar}"] [data-id="${await at("named", wideBar, "Time")}"]`);
+  await time.dblclick();
+  await frame();
+  check("a double-click goes inside it, onto the part under the pointer", await at("selection", wideBar), {
+    ids: ["Time"],
+    entered: ["iPhone"],
+  });
+  await page.keyboard.press("Escape");
+  await frame();
+  check("and Escape steps back out onto the phone", await at("selection", wideBar), { ids: ["iPhone"], entered: [] });
+
+  // Each preset as it lands, for the eye.
+  for (const preset of ["flowchart", "phone", "browser", "matrix", "timeline"]) {
+    [intro, line] = await at("seed");
+    await frame();
+    const shown = await at("slash", "diagram", line);
+    await mounted(shown);
+    await frame();
+    await bar(shown).locator(`[data-preset="${preset}"]`).click();
+    await at("clear", shown);
+    await page.mouse.move(0, 0);
+    await frame();
+    await page.locator(`[data-id="${shown}"] .nt-canvas`).first().screenshot({ path: path.join(shots, `${preset}.png`) });
+  }
 
   [intro, line] = await at("seed");
   await frame();

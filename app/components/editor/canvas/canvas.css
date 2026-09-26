@@ -364,9 +364,10 @@
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
-.nt-canvas-presets > .nt-canvas-presets-no {
-  margin-left: 4px;
+.nt-canvas-presets-or {
   padding: 0 6px;
+  font-style: italic;
+  color: var(--bn-colors-side-menu, var(--faint));
 }
 .nt-canvas-presets > button:hover,
 .nt-canvas-presets > button:focus-visible {

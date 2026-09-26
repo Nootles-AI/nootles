@@ -1,7 +1,7 @@
 "use client";
 
 import type { ComponentType, KeyboardEvent, SVGProps } from "react";
-import { Browser, Flowchart, Kanban, Matrix, Phone, Timeline, X } from "@/app/components/Icons";
+import { Blank, Browser, Flowchart, Matrix, Phone, Timeline } from "@/app/components/Icons";
 import { PRESETS, type Preset, type PresetId } from "../presets";
 
 const GLYPH: Record<PresetId, ComponentType<SVGProps<SVGSVGElement>>> = {
@@ -10,14 +10,14 @@ const GLYPH: Record<PresetId, ComponentType<SVGProps<SVGSVGElement>>> = {
   browser: Browser,
   matrix: Matrix,
   timeline: Timeline,
-  board: Kanban,
 };
 
 const STEP: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
 
 /**
  * A new diagram's starting points, in the empty band where "Add shapes" would
- * be. It speaks for itself on the keyboard — the page's keymap stands aside
+ * be: Blank, or one of the presets. Blank is the offer declined — the band is
+ * left empty with its "Add shapes" line, as Escape leaves it. It speaks for itself on the keyboard — the page's keymap stands aside
  * for it (`pageKeymap.ts`) — so the arrows walk it and Escape closes it.
  */
 export function PresetBar({ onPick, onClose }: { onPick: (preset: Preset) => void; onClose: () => void }) {
@@ -52,6 +52,13 @@ export function PresetBar({ onPick, onClose }: { onPick: (preset: Preset) => voi
       onDoubleClick={(event) => event.stopPropagation()}
       onKeyDown={onKeyDown}
     >
+      <button type="button" className="nt-canvas-preset" data-preset="blank" title="Start from nothing" onClick={onClose}>
+        <Blank width={14} height={14} strokeWidth={1.8} aria-hidden />
+        Blank
+      </button>
+      <span className="nt-canvas-presets-or" aria-hidden>
+        or
+      </span>
       {PRESETS.map((preset) => {
         const Glyph = GLYPH[preset.id];
         return (
@@ -68,15 +75,6 @@ export function PresetBar({ onPick, onClose }: { onPick: (preset: Preset) => voi
           </button>
         );
       })}
-      <button
-        type="button"
-        className="nt-canvas-presets-no"
-        aria-label="Close presets"
-        title="Close"
-        onClick={onClose}
-      >
-        <X width={12} height={12} />
-      </button>
     </div>
   );
 }

@@ -30,7 +30,7 @@ import { bearFromSlash, type BirthEditor } from "../app/components/editor/canvas
 import { presetsOffered } from "../app/components/editor/canvas/page/presetOffer";
 import { deleteDiagramBlock, type LifecycleEditor } from "../app/components/editor/canvas/page/lifecycle";
 import { WIDE_DIAGRAM_SOURCE } from "../app/components/editor/canvas/scene/bandSpan";
-import type { SceneNode } from "../app/components/editor/canvas/scene/types";
+import { walk, type SceneNode } from "../app/components/editor/canvas/scene/types";
 import { PagePane } from "../app/components/PagePane";
 import "@blocknote/mantine/style.css";
 import "../app/components/editor/editor.css";
@@ -157,6 +157,26 @@ const harness = {
   shapes: (blockId: string) =>
     entry(blockId)?.api.store.getScene().nodes.map((node) => ({ kind: node.kind, label: node.label })) ?? null,
   selected: (blockId: string) => entry(blockId)?.api.ownSelection.getSnapshot().ids.length ?? 0,
+  /** What is selected, by name, and the names of the groups entered to reach it. */
+  selection: (blockId: string) => {
+    const api = entry(blockId)?.api;
+    if (!api) return null;
+    const { ids, enteredPath } = api.ownSelection.getSnapshot();
+    const name = (id: string) => {
+      let found: string | undefined;
+      walk(api.store.getScene().nodes, (node) => void (node.id === id && (found = node.name ?? node.kind)));
+      return found;
+    };
+    return { ids: ids.map(name), entered: enteredPath.map(name) };
+  },
+  clear: (blockId: string) => entry(blockId)?.api.ownSelection.clear(),
+  /** The id a named shape landed under, at any depth. */
+  named: (blockId: string, name: string) => {
+    let found: string | null = null;
+    const scene = entry(blockId)?.api.store.getScene();
+    if (scene) walk(scene.nodes, (node) => void (node.name === name && !found && (found = node.id)));
+    return found;
+  },
   /** Whether the block still offers presets, drawn or not. */
   offered: (blockId: string) => presetsOffered(blockId),
   setTool: (tool: "move" | "rect") => page?.tools?.set(tool),
