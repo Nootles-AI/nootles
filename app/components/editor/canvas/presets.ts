@@ -78,29 +78,29 @@ const PHONE = `<nt-diagram h="468">
 const BROWSER = `<nt-diagram h="368">
   <nt-group id="browser" x="100" y="24" w="520" h="320" name="Browser">
     <nt-rect id="browser-window" x="0" y="0" w="520" h="320" name="Window" style="background: #ffffff; border: 1px solid ${RULE}; border-radius: 10px"></nt-rect>
-    <nt-rect id="browser-tabs" x="1" y="1" w="518" h="37" name="Tab strip" style="background: #f2f2f0; border-radius: 9px 9px 0 0"></nt-rect>
-    <nt-group id="browser-controls" x="14" y="15" w="42" h="10" name="Window controls">
-      <nt-ellipse id="browser-close" x="0" y="0" w="10" h="10" name="Close" style="background: ${RULE}"></nt-ellipse>
-      <nt-ellipse id="browser-minimize" x="16" y="0" w="10" h="10" name="Minimize" style="background: ${RULE}"></nt-ellipse>
-      <nt-ellipse id="browser-zoom" x="32" y="0" w="10" h="10" name="Zoom" style="background: ${RULE}"></nt-ellipse>
+    <nt-rect id="browser-toolbar" x="1" y="1" w="518" h="43" name="Toolbar" style="background: #f5f5f3; border-bottom: 1px solid #ececea; border-radius: 9px 9px 0 0"></nt-rect>
+    <nt-group id="browser-controls" x="14" y="17" w="42" h="10" name="Window controls">
+      <nt-ellipse id="browser-close" x="0" y="0" w="10" h="10" name="Close" style="background: #ee6a5f"></nt-ellipse>
+      <nt-ellipse id="browser-minimize" x="16" y="0" w="10" h="10" name="Minimize" style="background: #f5be4f"></nt-ellipse>
+      <nt-ellipse id="browser-zoom" x="32" y="0" w="10" h="10" name="Zoom" style="background: #62c554"></nt-ellipse>
     </nt-group>
-    <nt-rect id="browser-tab" x="72" y="7" w="168" h="31" name="Tab" style="background: #ffffff; border-radius: 8px 8px 0 0; display: flex; align-items: center; padding: 0 12px; color: ${INK}; font-size: 11px">Nootles</nt-rect>
-    <nt-rect id="browser-toolbar" x="1" y="38" w="518" h="36" name="Toolbar" style="background: #ffffff; border-bottom: 1px solid #ececea"></nt-rect>
-    <nt-group id="browser-nav" x="16" y="51" w="50" h="10" name="Navigation">
+    <nt-group id="browser-nav" x="74" y="17" w="30" h="10" name="Navigation">
       <nt-polygon id="browser-back" x="0" y="0" w="10" h="10" rot="-90" name="Back" sides="3" style="${GLYPH}"></nt-polygon>
       <nt-polygon id="browser-forward" x="20" y="0" w="10" h="10" rot="90" name="Forward" sides="3" style="background: ${RULE}"></nt-polygon>
-      <nt-ellipse id="browser-reload" x="40" y="0" w="10" h="10" name="Reload" start="45" sweep="300" inner="0.6" style="${GLYPH}"></nt-ellipse>
     </nt-group>
-    <nt-rect id="browser-address" x="80" y="44" w="424" h="24" name="Address bar" style="background: #f2f2f0; border-radius: 12px; display: flex; align-items: center; padding: 0 12px 0 28px; color: #6b6b66; font-size: 11px">nootles.app</nt-rect>
-    <nt-group id="browser-lock" x="92" y="51" w="8" h="10" name="Lock">
+    <nt-rect id="browser-address" x="150" y="10" w="220" h="24" name="Address bar" style="background: #ffffff; border: 1px solid #ececea; border-radius: 7px; display: flex; align-items: center; justify-content: center; padding: 0 12px; color: #6b6b66; font-size: 11px">nootles.app</nt-rect>
+    <nt-group id="browser-lock" x="200" y="17" w="8" h="10" name="Lock">
       <nt-ellipse id="browser-shackle" x="1" y="0" w="6" h="8" name="Shackle" start="270" sweep="180" inner="0.6" style="${GLYPH}"></nt-ellipse>
       <nt-rect id="browser-lock-body" x="0" y="4" w="8" h="6" name="Body" style="${GLYPH}; border-radius: 1.5px"></nt-rect>
     </nt-group>
-    <nt-rect id="browser-heading" x="32" y="102" w="180" h="14" name="Heading" style="${FILLER}"></nt-rect>
-    <nt-rect id="browser-line-1" x="32" y="132" w="456" h="8" name="Text" style="${FILLER}"></nt-rect>
-    <nt-rect id="browser-line-2" x="32" y="148" w="420" h="8" name="Text" style="${FILLER}"></nt-rect>
-    <nt-rect id="browser-line-3" x="32" y="164" w="280" h="8" name="Text" style="${FILLER}"></nt-rect>
-    <nt-rect id="browser-image" x="32" y="192" w="456" h="104" name="Image" style="background: #f5f5f3; border-radius: 6px"></nt-rect>
+    <nt-ellipse id="browser-reload" x="354" y="17" w="10" h="10" name="Reload" start="45" sweep="300" inner="0.6" style="${GLYPH}"></nt-ellipse>
+    <nt-group id="browser-skeleton" x="32" y="72" w="456" h="224" name="Skeleton">
+      <nt-rect id="browser-heading" x="0" y="0" w="180" h="14" name="Heading" style="${FILLER}"></nt-rect>
+      <nt-rect id="browser-line-1" x="0" y="30" w="456" h="8" name="Text" style="${FILLER}"></nt-rect>
+      <nt-rect id="browser-line-2" x="0" y="46" w="420" h="8" name="Text" style="${FILLER}"></nt-rect>
+      <nt-rect id="browser-line-3" x="0" y="62" w="280" h="8" name="Text" style="${FILLER}"></nt-rect>
+      <nt-rect id="browser-image" x="0" y="90" w="456" h="134" name="Image" style="background: #f5f5f3; border-radius: 6px"></nt-rect>
+    </nt-group>
   </nt-group>
 </nt-diagram>`;
 

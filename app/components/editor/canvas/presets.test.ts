@@ -102,18 +102,13 @@ describe("the presets", () => {
       [
         "Browser",
         "Window:rect",
-        "Tab strip:rect",
-        ["Window controls", "Close:ellipse", "Minimize:ellipse", "Zoom:ellipse"],
-        "Tab:rect",
         "Toolbar:rect",
-        ["Navigation", "Back:polygon", "Forward:polygon", "Reload:ellipse"],
+        ["Window controls", "Close:ellipse", "Minimize:ellipse", "Zoom:ellipse"],
+        ["Navigation", "Back:polygon", "Forward:polygon"],
         "Address bar:rect",
         ["Lock", "Shackle:ellipse", "Body:rect"],
-        "Heading:rect",
-        "Text:rect",
-        "Text:rect",
-        "Text:rect",
-        "Image:rect",
+        "Reload:ellipse",
+        ["Skeleton", "Heading:rect", "Text:rect", "Text:rect", "Text:rect", "Image:rect"],
       ],
     ],
   ])("draw the %s as one group of named, editable parts", (id, parts) => {
@@ -133,7 +128,6 @@ describe("the presets", () => {
     };
     expect(find("phone", "Time")).toMatchObject({ kind: "text", label: "9:41" });
     expect(find("browser", "Address bar")).toMatchObject({ kind: "rect", label: "nootles.app" });
-    expect(find("browser", "Tab")).toMatchObject({ kind: "rect", label: "Nootles" });
   });
 
   it("keep every part inside the device it belongs to", () => {
