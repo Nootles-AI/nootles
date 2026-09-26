@@ -87,11 +87,48 @@ describe("TOOLS table invariants", () => {
       prepareParse: async () => {},
     };
     const result = await runCanvasTool(
-      "move",
-      { pageId: "p1", blockId: "b1", ids: ["s1"], dx: 1, dy: 0 },
+      "canvas_edit",
+      { pageId: "p1", blockId: "b1", ops: [{ op: "move", ids: ["s1"], dx: 1, dy: 0 }] },
       zeroHost,
     );
     expect(result).toBe("Nothing to do — the diagram already reads that way.");
+  });
+
+  it("a canvas_edit of many ops is one write, and a refused one is none", async () => {
+    const scene = f1();
+    const writes: CanvasRead["scene"][] = [];
+    const host: CanvasHost = {
+      readScene: async () => ({ pageId: "p1", blockId: "b1", scene }) satisfies CanvasRead,
+      writeScene: async (_read, next): Promise<WriteReceipt> => {
+        writes.push(next);
+        return { added: 0, removed: 0, changed: 3, hunks: 1 };
+      },
+      prepareParse: async () => {},
+    };
+    const done = await runCanvasTool(
+      "canvas_edit",
+      {
+        blockId: "b1",
+        ops: [
+          { op: "set_text", id: "s1", text: "Paid" },
+          { op: "set_text", id: "s2", text: "Packed" },
+          { op: "set_text", id: "e1", text: "and then" },
+          { op: "move", ids: ["p1"], dx: -20 },
+        ],
+      },
+      host,
+    );
+    expect(writes).toHaveLength(1);
+    expect(done).toMatch(/^Done: 4 edits, as one change\.\n/);
+    expect(done).toMatch(/The user reviews this and may discard it\.$/);
+
+    const refused = await runCanvasTool(
+      "canvas_edit",
+      { blockId: "b1", ops: [{ op: "set_text", id: "s1", text: "x" }, { op: "delete", ids: ["zz"] }] },
+      host,
+    );
+    expect(writes).toHaveLength(1);
+    expect(refused).toContain("Edit 2 (delete) was refused");
   });
 
   it("read tools never call writeScene", async () => {
@@ -123,21 +160,7 @@ function minimalInput(name: CanvasToolName): Record<string, unknown> {
       return { ...base, html: "<nt-rect></nt-rect>" };
     case "update_styles":
       return { ...base, patches: [{ ids: ["s1"], style: { background: "#000" } }] };
-    case "set_text":
-      return { ...base, id: "s1", text: "x" };
-    case "rename":
-      return { ...base, id: "s1", name: "x" };
-    case "duplicate":
-      return { ...base, ids: ["s1"] };
-    case "move":
-      return { ...base, ids: ["s1"], dx: 1 };
-    case "delete":
-      return { ...base, ids: ["s1"] };
-    case "reorder":
-      return { ...base, ids: ["s1"], to: "front" };
-    case "group":
-      return { ...base, ids: ["s1", "s2"] };
-    case "ungroup":
-      return { ...base, ids: ["g1"] };
+    case "canvas_edit":
+      return { ...base, ops: [{ op: "move", ids: ["s1"], dx: 1 }] };
   }
 }

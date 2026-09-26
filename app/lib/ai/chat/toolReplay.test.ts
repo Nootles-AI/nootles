@@ -16,13 +16,11 @@ const move = (
   input: Record<string, unknown> = {
     pageId: "page-1",
     blockId: "canvas-1",
-    ids: ["shape-1"],
-    dx: 20,
-    dy: 10,
+    ops: [{ op: "move", ids: ["shape-1"], dx: 20, dy: 10 }],
   },
 ): AbMessage["parts"][number] =>
   ({
-    type: "tool-move",
+    type: "tool-canvas_edit",
     toolCallId,
     state,
     input,
@@ -35,13 +33,11 @@ const assistant = (...parts: AbMessage["parts"]): AbMessage =>
   ({ id: crypto.randomUUID(), role: "assistant", parts }) as AbMessage;
 
 const currentMove = {
-  toolName: "move",
+  toolName: "canvas_edit",
   toolCallId: "move-2",
   input: {
-    dy: 10,
-    ids: ["shape-1"],
+    ops: [{ dy: 10, ids: ["shape-1"], op: "move", dx: 20 }],
     blockId: "canvas-1",
-    dx: 20,
     pageId: "page-1",
   },
 };
@@ -96,7 +92,7 @@ describe("turn-scoped mutation replay guard", () => {
     expect(
       isRepeatedMutation([user("u1"), assistant(move("move-1"))], {
         ...currentMove,
-        input: { ...currentMove.input, dx: 40 },
+        input: { ...currentMove.input, ops: [{ op: "move", ids: ["shape-1"], dx: 40, dy: 10 }] },
       }),
     ).toBe(false);
   });
@@ -109,7 +105,7 @@ describe("turn-scoped mutation replay guard", () => {
         { pageId: "page-1", blockId: "album-1", ops: [{ op: "grid", cols: 3 }] },
         "same ops",
       ],
-      ["move", currentMove.input, "same arguments"],
+      ["canvas_edit", currentMove.input, "same arguments"],
     ] as const) {
       const previous = {
         type: `tool-${toolName}`,
@@ -130,7 +126,7 @@ describe("turn-scoped mutation replay guard", () => {
 
   it("does not infer retryability from unmarked instructions", () => {
     const previous = {
-      type: "tool-move",
+      type: "tool-canvas_edit",
       toolCallId: "move-1",
       state: "output-available",
       input: currentMove.input,

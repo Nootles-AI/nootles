@@ -1,10 +1,11 @@
+import type { z } from "zod";
 import { parseFragment } from "@/app/components/editor/canvas/scene/parse";
 import type { NodeId, Scene } from "@/app/components/editor/canvas/scene/types";
 import { geometryReport } from "./geometry";
 import { isRefusal, type CanvasHost, type CanvasRead, type WriteReceipt } from "./host";
 import { stylesReport } from "./styles";
 import { planUpdateStyles, type StylePatchInput } from "./updateStyles";
-import { planVerb, type Verb } from "./verbs";
+import { planEdits, type Verb } from "./verbs";
 import { planWriteNodes, summarize, type Anchor } from "./writeNodes";
 import { compileToHtml } from "../html/toHtml";
 import { AI } from "../aiConfig";
@@ -13,16 +14,16 @@ import { TOOLS, type CanvasToolName } from "../chat/tools";
 export type { CanvasToolName };
 
 /**
- * The one executor behind all 13 node-level diagram tools (TOOLS.md §4.3).
+ * The one executor behind all six node-level diagram tools (TOOLS.md §4.3).
  *
  * Parses `input` against the tool's own zod schema, resolves the diagram
  * through {@link CanvasHost}, calls the matching pure planner, and — for a
  * mutating tool — lands the plan through `host.writeScene` and formats the
  * result in `edit_page`'s voice. Read tools return plain objects; write
- * tools and verbs return strings.
+ * tools return strings.
  *
  * This is the ONE place the "nothing to do" / "no such diagram" / "storyboard
- * shot" sentences are written, so every one of the 13 tools says the same
+ * shot" sentences are written, so every one of the six tools says the same
  * thing the same way instead of each carrying its own copy.
  */
 export async function runCanvasTool(
@@ -110,20 +111,18 @@ export async function runCanvasTool(
       );
     }
 
-    default: {
-      const verb = verbFrom(name, parsed);
-      const plan = planVerb(read.scene, verb);
+    case "canvas_edit": {
+      const { ops } = parsed as z.infer<(typeof TOOLS)["canvas_edit"]["inputSchema"]>;
+      const plan = planEdits(read.scene, ops satisfies Verb[]);
       if (isRefusal(plan)) return plan.refused;
-      return landWrite(host, read, plan.next, () => {
-        const lines = [plan.summary, ...(plan.notes ?? [])];
-        const extra = Object.keys(plan.result).length ? JSON.stringify(plan.result) : "";
-        return [lines.join("\n"), extra].filter(Boolean).join("\n");
-      });
+      return landWrite(host, read, plan.next, () =>
+        [plan.summary, ...(plan.notes ?? []), "The user reviews this and may discard it."].join("\n"),
+      );
     }
   }
 }
 
-/** Shared by `write_nodes`, `update_styles` and every verb: the identity
+/** Shared by `write_nodes`, `update_styles` and `canvas_edit`: the identity
  *  no-op check, the real write, and the zero-receipt safety net that catches
  *  a plan whose `next` differs by object identity but serializes
  *  byte-identically to what is already there (§4.3 of TOOLS.md). */
@@ -146,52 +145,4 @@ async function landWrite(
 
 function isZeroReceipt(receipt: WriteReceipt): boolean {
   return receipt.added === 0 && receipt.removed === 0 && receipt.changed === 0 && receipt.hunks === 0;
-}
-
-function verbFrom(name: CanvasToolName, parsed: Record<string, unknown>): Verb {
-  switch (name) {
-    case "set_text":
-      return {
-        verb: "set_text",
-        id: parsed.id as string,
-        text: parsed.text as string,
-        markup: parsed.markup as boolean | undefined,
-      };
-    case "rename":
-      return { verb: "rename", id: parsed.id as string, name: parsed.name as string | null };
-    case "duplicate":
-      return {
-        verb: "duplicate",
-        ids: parsed.ids as string[],
-        offset: parsed.offset as number | undefined,
-      };
-    case "move":
-      return {
-        verb: "move",
-        ids: parsed.ids as string[],
-        dx: parsed.dx as number | undefined,
-        dy: parsed.dy as number | undefined,
-        x: parsed.x as number | undefined,
-        y: parsed.y as number | undefined,
-      };
-    case "delete":
-      return { verb: "delete", ids: parsed.ids as string[] };
-    case "reorder":
-      return {
-        verb: "reorder",
-        ids: parsed.ids as string[],
-        to: parsed.to as Extract<Verb, { verb: "reorder" }>["to"],
-      };
-    case "group":
-      return {
-        verb: "group",
-        ids: parsed.ids as string[],
-        name: parsed.name as string | undefined,
-        op: parsed.op as Extract<Verb, { verb: "group" }>["op"],
-      };
-    case "ungroup":
-      return { verb: "ungroup", ids: parsed.ids as string[] };
-    default:
-      throw new Error(`${name} is not a verb`);
-  }
 }

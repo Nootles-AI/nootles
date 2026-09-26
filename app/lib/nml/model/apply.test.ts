@@ -269,8 +269,8 @@ describe("canonical NML CanvasHost", () => {
     });
 
     const result = await runCanvasTool(
-      "move",
-      { pageId: "page-1", blockId: "canvas", ids: ["shape"], dx: 25, dy: -5 },
+      "canvas_edit",
+      { pageId: "page-1", blockId: "canvas", ops: [{ op: "move", ids: ["shape"], dx: 25, dy: -5 }] },
       host,
     );
     expect(String(result)).toContain("moved 1 shape");

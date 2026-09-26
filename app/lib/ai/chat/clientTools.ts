@@ -147,7 +147,7 @@ type Executor = (input: unknown, ctx: ToolContext, call: ToolCallInfo) => Promis
  * (`app/lib/ai/canvas/tools.test.ts`) is a type error, not a runtime one, the
  * moment a name is added to `CLIENT_TOOLS` without an executor here.
  *
- * The 13 canvas tools share one shape: parse nothing themselves (their own
+ * The six canvas tools share one shape: parse nothing themselves (their own
  * zod schema is `TOOLS[name].inputSchema`, and `runCanvasTool` parses it),
  * build a {@link CanvasHost} from this same `ctx`, and hand both to the one
  * executor behind all of them (`app/lib/ai/canvas/execute.ts`).

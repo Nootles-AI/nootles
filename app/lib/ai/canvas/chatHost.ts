@@ -21,7 +21,7 @@ import { refused, type CanvasHost, type CanvasRead, type Refusal, type WriteRece
  * is shaped the way it is.
  */
 
-/** `"<storyboard-id>:<n>"` — a shot's own address, which none of the 13
+/** `"<storyboard-id>:<n>"` — a shot's own address, which none of the six
  *  tools can act on today (TOOLS.md §4.2/§0.3). */
 const SHOT_ADDRESS = /^(.+):(\d+)$/;
 

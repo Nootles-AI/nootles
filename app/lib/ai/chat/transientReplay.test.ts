@@ -98,16 +98,14 @@ describe("transient client-tool retries", () => {
     const input = {
       pageId,
       blockId: block.id,
-      ids: ["s1"],
-      dx: 20,
-      dy: 10,
+      ops: [{ op: "move", ids: ["s1"], dx: 20, dy: 10 }],
     };
 
-    const output = await runClientTool("move", input, ctx);
+    const output = await runClientTool("canvas_edit", input, ctx);
 
     expect(stage).toHaveBeenCalledOnce();
     expect(output).toEqual(expect.stringMatching(`^${NOTHING_WAS_WRITTEN}`));
-    expect(retried("move", input, output)).toBe(false);
+    expect(retried("canvas_edit", input, output)).toBe(false);
   });
 
   it("lets the exact album call run after staging wrote nothing", async () => {
