@@ -33,6 +33,8 @@ import {
   type CommentsScope,
   type Person,
 } from "./commentTools";
+import type { LookAtResult } from "./lookAt";
+import { pictureFor } from "./lookAtPicture";
 import { CANVAS_TOOLS, noSuchPage, TOOLS, type CanvasToolName, type ClientToolName } from "./tools";
 import { lastContentBlock } from "@/app/lib/documentTail";
 import { retryableMutationResult } from "./mutationResult";
@@ -380,18 +382,15 @@ async function albumEdit(
 }
 
 /**
- * The last tier of seeing: a few of an album's pictures, at full size.
+ * The last tier of seeing: a few of an album's pictures, at a size a model
+ * reads them at.
  *
  * Fetched here rather than named for the model to fetch, because a storage URL
  * is a bearer and this browser is the only place holding a session that can
  * derive one. What goes back is inline data, which the tool's `toModelOutput`
  * on the server turns into media parts.
  */
-async function lookAt(
-  ctx: ToolContext,
-  blockId: string,
-  items: string[],
-): Promise<{ images: { handle: string; dataUri: string; mediaType: string }[]; error?: string }> {
+async function lookAt(ctx: ToolContext, blockId: string, items: string[]): Promise<LookAtResult> {
   const pageId = ctx.openPageId();
   if (!pageId) throw new Error("No page is open. Call list_pages, then open_page.");
   const editor = await ctx.editorFor(pageId);
@@ -401,27 +400,19 @@ async function lookAt(
   const album = parseAlbum(String(block.props.data ?? ""));
   const handles = handlesFor(album.items);
   const wanted = items.slice(0, AI.album.lookAtMost);
-  const images: { handle: string; dataUri: string; mediaType: string }[] = [];
 
-  for (const handle of wanted) {
-    const at = handles.indexOf(handle);
-    const item = at === -1 ? null : album.items[at];
-    // A video's poster is the frame its tile shows, so looking at a film means
-    // looking at that — there is nothing else a still request could mean.
-    const src = item?.kind === "video" ? item.poster : item?.src;
-    if (!src) continue;
-    const blob = await fetch(src)
-      .then((r) => (r.ok ? r.blob() : null))
-      .catch(() => null);
-    if (!blob) continue;
-    const dataUri = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(new Error("unreadable"));
-      reader.readAsDataURL(blob);
-    }).catch(() => "");
-    if (dataUri) images.push({ handle, dataUri, mediaType: blob.type || "image/webp" });
-  }
+  const seen = await Promise.all(
+    wanted.map(async (handle) => {
+      const at = handles.indexOf(handle);
+      const item = at === -1 ? null : album.items[at];
+      // A video's poster is the frame its tile shows, so looking at a film means
+      // looking at that — there is nothing else a still request could mean.
+      const src = item?.kind === "video" ? item.poster : item?.src;
+      const picture = src ? await pictureFor(src) : null;
+      return picture ? { handle, ...picture } : null;
+    }),
+  );
+  const images = seen.filter((image) => image !== null);
 
   return images.length
     ? { images }

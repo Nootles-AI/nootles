@@ -1,5 +1,7 @@
-import type { ModelMessage, ToolResultPart } from "ai";
+import { getToolName, isToolUIPart, type ModelMessage, type ToolResultPart } from "ai";
 import { AI } from "../aiConfig";
+import { lookAtOutput, PICTURES_MOVED_ON, withoutPictures } from "./lookAt";
+import type { AbMessage } from "./types";
 
 // Derived from what `ai` re-exports rather than imported from
 // `@ai-sdk/provider-utils`, which is only here as one of its dependencies.
@@ -52,6 +54,10 @@ const PAGE_SNAPSHOTS: ReadonlySet<string> = new Set([
   // A page's threads, read at one moment: collaborators reply and resolve
   // between turns just as they type.
   "read_comments",
+  // Pictures, not a page, but spent the same way: a look answers the question
+  // that asked for it, and resent they cost their image tokens again with every
+  // step of every later turn (NT-91). A later question looks again.
+  "look_at",
 ]);
 
 /**
@@ -296,9 +302,12 @@ const REPORT_MOVED_ON =
 
 function clip(output: ToolResultOutput): ToolResultOutput {
   if (output.type === "json") return clipReport(output);
+  if (output.type === "content") return clipMedia(output);
   if (output.type !== "text") return output;
   const { value } = output;
   if (value.length <= AI.chat.staleReadChars) return output;
+  // Shortened already — by the browser, before it sent the thread.
+  if (NOTICES.some((notice) => value.endsWith(notice))) return output;
   // At a line break, because a page is serialised one block per line: cutting
   // mid-element would leave a half-written tag for the model to make sense of.
   const cut = value.lastIndexOf("\n", AI.chat.staleReadChars);
@@ -318,6 +327,60 @@ function clipReport(output: Extract<ToolResultOutput, { type: "json" }>): ToolRe
   if (json.length <= AI.chat.staleReadChars) return output;
   const cut = json.lastIndexOf(",", AI.chat.staleReadChars);
   return { type: "text", value: `${json.slice(0, cut > 0 ? cut : AI.chat.staleReadChars)}${REPORT_MOVED_ON}` };
+}
+
+/** A result that carried pictures, as its words alone. */
+function clipMedia(output: Extract<ToolResultOutput, { type: "content" }>): ToolResultOutput {
+  return output.value.every((part) => part.type === "text") ? output : withoutPictures(output.value);
+}
+
+const NOTICES = [MOVED_ON, REPORT_MOVED_ON, PICTURES_MOVED_ON];
+
+/**
+ * The same shortening, done by the browser to the thread it is about to send.
+ *
+ * The route shortens what it is sent, but it is sent the whole thread every
+ * time: every page read and every picture the thread ever held, re-POSTed with
+ * each step of each turn — a few `look_at`s from Vercel's 4.5 MB request limit,
+ * past which the thread cannot be answered at all (NT-91). Shortened here,
+ * earlier turns travel as what the model will read of them. A result comes out
+ * as the text the route would have made of it, so the route's own pass finds
+ * nothing left to do and the model reads the same words either way.
+ *
+ * Only the request: the panel shows, and the thread keeps, what happened.
+ */
+export function shortenStaleParts(messages: AbMessage[]): AbMessage[] {
+  const turn = lastIndexOf(messages, (message) => message.role === "user");
+  return messages.map((message, i) => {
+    if (message.role !== "assistant") return message;
+    let shortened = false;
+    const parts = message.parts.map((part) => {
+      if (!isToolUIPart(part) || part.state !== "output-available") return part;
+      const name = getToolName(part);
+      // Whatever the turn: the route strips a drawing's markup from every one
+      // (`stripDrawings`), and the browser places it from its own copy.
+      if (name === "draw" && isRecord(part.output) && "html" in part.output) {
+        const { html: _html, ...rest } = part.output;
+        shortened = true;
+        return { ...part, output: rest };
+      }
+      if (i > turn || !PAGE_SNAPSHOTS.has(name)) return part;
+      const output = modelOutput(name, part.output);
+      const clipped = clip(output);
+      if (clipped === output || clipped.type !== "text") return part;
+      shortened = true;
+      return { ...part, output: clipped.value };
+    });
+    return shortened ? { ...message, parts: parts as AbMessage["parts"] } : message;
+  });
+}
+
+/** What the route's conversion makes of a browser's answer. */
+function modelOutput(tool: string, output: unknown): ToolResultOutput {
+  if (tool === "look_at") return lookAtOutput(output);
+  return typeof output === "string"
+    ? { type: "text", value: output }
+    : { type: "json", value: JSON.parse(JSON.stringify(output ?? null)) };
 }
 
 function lastIndexOf<T>(items: readonly T[], match: (item: T) => boolean): number {

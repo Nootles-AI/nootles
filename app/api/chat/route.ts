@@ -101,23 +101,6 @@ export async function POST(req: Request) {
     console.warn(`[chat] comments digest ignored: ${digest.reason}`);
   }
 
-  // A call whose result never arrived — an abandoned turn, a closed tab — is
-  // dropped rather than sent. Providers reject an unanswered call, which would
-  // otherwise fail every later message in the thread and not just that one.
-  //
-  // `convertDataPart` is where a mention and an attached text file become
-  // something the model reads; without it they are UI and nothing more.
-  // Named explicitly: inference reads `Omit<UI_MESSAGE, "id">` and falls back to
-  // the base message, which has no data parts for `convertDataPart` to convert.
-  const history = stripDrawings(
-    shortenStaleReads(
-      await convertToModelMessages<AbMessage>(messages, {
-        ignoreIncompleteToolCalls: true,
-        convertDataPart,
-      }),
-    ),
-  );
-
   // A turn that has spent its budget gets one last step with no tools, which is
   // what ends it: an answer from what it has, rather than another call it cannot
   // afford. Never on the request carrying an answered approval, though: the
@@ -158,6 +141,37 @@ export async function POST(req: Request) {
     .catch(() => null);
   // Only a digest of the page the note names: "this page" has to mean one page.
   const offered = digest?.ok && note && digest.digest.pageId === pageId ? digest.digest : null;
+
+  // A call whose result never arrived — an abandoned turn, a closed tab — is
+  // dropped rather than sent. Providers reject an unanswered call, which would
+  // otherwise fail every later message in the thread and not just that one.
+  //
+  // `convertDataPart` is where a mention and an attached text file become
+  // something the model reads; without it they are UI and nothing more.
+  // Named explicitly: inference reads `Omit<UI_MESSAGE, "id">` and falls back to
+  // the base message, which has no data parts for `convertDataPart` to convert.
+  //
+  // The tools go in too: a tool's `toModelOutput` runs here, on the result the
+  // browser answered with, and nowhere else — `look_at`'s pictures otherwise
+  // reached the model as a JSON string of base64 (NT-91).
+  const tools = chatTools(
+    projectId,
+    convex,
+    caller.userId,
+    // The user's style for this turn's drawings, set by the picker that
+    // answered the draw approvals. Absent or malformed reads as the
+    // default — a request hand-rolled without a choice still draws.
+    drawChoiceSchema.safeParse(drawStyle).data,
+  );
+  const history = stripDrawings(
+    shortenStaleReads(
+      await convertToModelMessages<AbMessage>(messages, {
+        ignoreIncompleteToolCalls: true,
+        convertDataPart,
+        tools,
+      }),
+    ),
+  );
 
   // Every request that will reach the model spends one `agentGeneration` — and
   // a turn is several such requests as client tools are answered, which is why
@@ -269,15 +283,7 @@ export async function POST(req: Request) {
     // only at the request's start, those reads were paid for in full every step —
     // a research-heavy turn ran at 22% cached.
     prepareStep: ({ messages }) => ({ messages: markCachePoints(foldResearch(messages)) }),
-    tools: chatTools(
-      projectId,
-      convex,
-      caller.userId,
-      // The user's style for this turn's drawings, set by the picker that
-      // answered the draw approvals. Absent or malformed reads as the
-      // default — a request hand-rolled without a choice still draws.
-      drawChoiceSchema.safeParse(drawStyle).data,
-    ),
+    tools,
     // The tools that could change something are not merely discouraged, they are
     // absent from the request.
     activeTools: spent ? [] : undefined,

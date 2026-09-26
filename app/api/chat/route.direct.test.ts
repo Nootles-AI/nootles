@@ -451,3 +451,40 @@ describe("a board read in an earlier turn (NT-90)", () => {
     expect(liveSize).toBeGreaterThan(20 * staleSize);
   });
 });
+
+describe("a picture looked at (NT-91)", () => {
+  const PICTURE = Buffer.alloc(3_000, 5).toString("base64");
+
+  test("reaches OpenAI as an image while its turn runs, and as a notice in a later one", async () => {
+    browserTools = {
+      look_at: async () => ({
+        images: [{ handle: "a1", dataUri: `data:image/webp;base64,${PICTURE}`, mediaType: "image/webp" }],
+      }),
+    };
+    script = [
+      { thought: "Looking closely.", call: { name: "look_at", args: { blockId: "al1", items: ["a1"] } } },
+      { thought: "It is a sign.", text: "The sign reads LAUNCH." },
+    ];
+
+    const first = panel();
+    await first.chat.sendMessage({ text: "What does the sign in a1 say?" });
+    await settled(first.chat);
+    expect(first.chat.store.getSnapshot().error).toBeUndefined();
+    expect(sent.map((s) => s.refused)).toEqual([undefined, undefined]);
+
+    const [look] = ofType(inputOf(1), "function_call_output");
+    expect(look.output).toEqual([
+      { type: "input_text", text: "a1:" },
+      { type: "input_image", image_url: `data:image/webp;base64,${PICTURE}` },
+    ]);
+
+    script = [{ thought: "From the thread.", text: "LAUNCH." }];
+    const later = panel(first.chat.messages.map(saved));
+    await later.chat.sendMessage({ text: "Say it again?" });
+    await settled(later.chat);
+    expect(later.chat.store.getSnapshot().error).toBeUndefined();
+    const [stale] = ofType(inputOf(2), "function_call_output");
+    expect(stale.output).toMatch(/^a1: \(picture not sent\)\n\(These pictures are from an earlier turn/);
+    expect(JSON.stringify(inputOf(2))).not.toContain(PICTURE.slice(0, 64));
+  });
+});
