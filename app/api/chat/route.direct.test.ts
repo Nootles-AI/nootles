@@ -40,6 +40,9 @@ vi.mock("server-only", () => ({}));
 import { BrowserChat, ChatStore } from "@/app/lib/ai/chat/BrowserChat";
 import { retryNotice } from "@/app/lib/ai/chat/retryNotice";
 import { forStorage } from "@/app/lib/ai/chat/storedParts";
+import { runCanvasTool } from "@/app/lib/ai/canvas/execute";
+import { parse } from "@/app/lib/ai/canvas/fixtures";
+import type { CanvasHost, CanvasRead } from "@/app/lib/ai/canvas/host";
 import { POST } from "./route";
 
 const PROJECT = "p57abcdefghijklmnopqrstu";
@@ -68,6 +71,8 @@ type Step = { thought: string } & ({ call: { name: string; args: object } } | { 
 
 let script: Step[] = [];
 let sent: Sent[] = [];
+/** Browser tools this test answers beyond reading the open page, by name. */
+let browserTools: Record<string, (input: unknown) => Promise<unknown>> = {};
 let server: Server;
 let serial = 0;
 
@@ -210,13 +215,14 @@ function panel(initial: AbMessage[] = []) {
     }),
     // The page is the browser's to read; the editor that would is not here, so
     // it answers with what the editor would have serialised.
-    onToolCall: ({ toolCall }) => {
-      if (toolCall.toolName !== "read_open_page") return;
+    onToolCall: async ({ toolCall }) => {
+      const run = toolCall.toolName === "read_open_page" ? async () => PAGE_HTML : browserTools[toolCall.toolName];
+      if (!run) return;
       answered.push(toolCall.toolCallId);
       void chat.addToolOutput({
-        tool: "read_open_page",
+        tool: toolCall.toolName,
         toolCallId: toolCall.toolCallId,
-        output: PAGE_HTML,
+        output: await run(toolCall.input),
       } as Parameters<BrowserChat["addToolOutput"]>[0]);
     },
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
@@ -258,6 +264,7 @@ beforeEach(() => {
   );
   sent = [];
   script = [];
+  browserTools = {};
 });
 
 afterEach(() => {
@@ -375,5 +382,72 @@ describe("USE_OPENROUTER off: the chat answers on OpenAI's own API", () => {
     expect(sent).toEqual([]);
     expect(String(quiet.mock.calls[0]?.[1])).toContain("OPENAI_API_KEY is not set");
     quiet.mockRestore();
+  });
+});
+
+describe("a board read in an earlier turn (NT-90)", () => {
+  // 120 labelled shapes chained by connectors: a board someone has worked on.
+  const board = parse(
+    `<nt-diagram w="4000" h="3000">${Array.from(
+      { length: 120 },
+      (_, i) => `<nt-rect id="r${i}" x="${(i % 12) * 300}" y="${Math.floor(i / 12) * 200}" w="200" h="80">Step ${i}</nt-rect>`,
+    ).join("")}${Array.from({ length: 119 }, (_, i) => `<nt-edge id="e${i}" from="r${i}" to="r${i + 1}"></nt-edge>`).join("")}</nt-diagram>`,
+  );
+  const host: CanvasHost = {
+    readScene: async () => ({ scene: board }) as unknown as CanvasRead,
+    writeScene: async () => {
+      throw new Error("a report never writes");
+    },
+    prepareParse: async () => {},
+  };
+  const REPORTS = ["get_geometry", "get_styles", "get_html"] as const;
+
+  test("is sent whole while its turn runs, and as a stale head in every later one", async () => {
+    browserTools = Object.fromEntries(
+      REPORTS.map((name) => [name, (input: unknown) => runCanvasTool(name, input, host)]),
+    );
+    script = [
+      ...REPORTS.map((name, i) => ({
+        thought: `Reading the board (${i}).`,
+        call: { name, args: { blockId: "d1" } },
+      })),
+      { thought: "Laid out in a grid.", text: "The board is a 12-wide grid of 120 steps." },
+    ];
+
+    const first = panel();
+    await first.chat.sendMessage({ text: "How is the board laid out?" });
+    await settled(first.chat);
+    expect(first.chat.store.getSnapshot().error).toBeUndefined();
+    expect(first.answered).toHaveLength(3);
+    expect(sent).toHaveLength(4);
+
+    // Within the turn, the step after each read gets the report in full.
+    const liveOutputs = ofType(inputOf(3), "function_call_output").map((o) => String(o.output));
+    expect(liveOutputs).toHaveLength(3);
+    const liveGeometry = JSON.parse(liveOutputs[0]) as { nodes: unknown[]; edges: unknown[] };
+    expect(liveGeometry.nodes).toHaveLength(120);
+    expect(liveGeometry.edges).toHaveLength(119);
+    const liveSize = liveOutputs.reduce((n, o) => n + o.length, 0);
+
+    // A later question, on the thread as Convex hands it back.
+    script = [{ thought: "Answering.", text: "Twelve across." }];
+    const later = panel(first.chat.messages.map(saved));
+    await later.chat.sendMessage({ text: "And how many columns?" });
+    await settled(later.chat);
+    expect(later.chat.store.getSnapshot().error).toBeUndefined();
+    expect(sent).toHaveLength(5);
+    expect(sent[4].refused).toBeUndefined();
+
+    const staleOutputs = ofType(inputOf(4), "function_call_output").map((o) => String(o.output));
+    expect(staleOutputs).toHaveLength(3);
+    for (const output of staleOutputs) {
+      expect(output).toMatch(/from an earlier turn, and the diagram has changed since\. Ask for it again/);
+      expect(output.length).toBeLessThan(500);
+    }
+    expect(staleOutputs[0].startsWith('{"diagram":{"w":4000,"h":3000},"nodes":[{"id":"r0"')).toBe(true);
+    // The calls themselves still stand, so the model can see it read the board.
+    expect(ofType(inputOf(4), "function_call").map((c) => c.name)).toEqual([...REPORTS]);
+    const staleSize = staleOutputs.reduce((n, o) => n + o.length, 0);
+    expect(liveSize).toBeGreaterThan(20 * staleSize);
   });
 });

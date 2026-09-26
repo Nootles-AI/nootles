@@ -287,7 +287,15 @@ export function cached(existing?: ProviderOptions): ProviderOptions {
 const MOVED_ON =
   "<!-- The rest of this result is not shown: it is from an earlier turn, and the page has changed since. Read the page again for what it says now. -->";
 
+/**
+ * The same notice for a canvas report, which is JSON rather than the page's
+ * HTML, and is had again by asking for it rather than by reading the page.
+ */
+const REPORT_MOVED_ON =
+  "… (The rest of this report is not shown: it is from an earlier turn, and the diagram has changed since. Ask for it again for what it says now.)";
+
 function clip(output: ToolResultOutput): ToolResultOutput {
+  if (output.type === "json") return clipReport(output);
   if (output.type !== "text") return output;
   const { value } = output;
   if (value.length <= AI.chat.staleReadChars) return output;
@@ -296,6 +304,20 @@ function clip(output: ToolResultOutput): ToolResultOutput {
   const cut = value.lastIndexOf("\n", AI.chat.staleReadChars);
   const head = value.slice(0, cut > 0 ? cut : AI.chat.staleReadChars).trimEnd();
   return { ...output, value: `${head}\n${MOVED_ON}` };
+}
+
+/**
+ * `get_geometry`, `get_styles` and `get_html` answer with objects, which the SDK
+ * hands on as JSON: every coordinate of an 800-shape board, re-sent with each
+ * later request, and wrong by then. What survives is text — the report's head
+ * cut at a field boundary, so it opens on the diagram's size or the first ids
+ * rather than half a number — since a cut-off JSON value is not JSON any more.
+ */
+function clipReport(output: Extract<ToolResultOutput, { type: "json" }>): ToolResultOutput {
+  const json = JSON.stringify(output.value);
+  if (json.length <= AI.chat.staleReadChars) return output;
+  const cut = json.lastIndexOf(",", AI.chat.staleReadChars);
+  return { type: "text", value: `${json.slice(0, cut > 0 ? cut : AI.chat.staleReadChars)}${REPORT_MOVED_ON}` };
 }
 
 function lastIndexOf<T>(items: readonly T[], match: (item: T) => boolean): number {
