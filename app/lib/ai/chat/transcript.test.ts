@@ -192,7 +192,7 @@ describe("shortenStaleReads on canvas reports", () => {
     }
     // Cut at a field boundary: the head is the report's own opening, whole values only.
     const geometry = (stale[0].output as { value: string }).value;
-    expect(geometry.startsWith('{"diagram":{"w":4000,"h":3000},"nodes":[{"id":"r0"')).toBe(true);
+    expect(geometry.startsWith('{"diagram":{"x":0,"w":720,"h":3000},"nodes":[{"id":"r0"')).toBe(true);
     expect(geometry).toMatch(/[\w\]}"]… \(The rest/);
 
     // The turn in flight reads the board in full.

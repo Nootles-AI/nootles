@@ -444,7 +444,7 @@ describe("a board read in an earlier turn (NT-90)", () => {
       expect(output).toMatch(/from an earlier turn, and the diagram has changed since\. Ask for it again/);
       expect(output.length).toBeLessThan(500);
     }
-    expect(staleOutputs[0].startsWith('{"diagram":{"w":4000,"h":3000},"nodes":[{"id":"r0"')).toBe(true);
+    expect(staleOutputs[0].startsWith('{"diagram":{"x":0,"w":720,"h":3000},"nodes":[{"id":"r0"')).toBe(true);
     // The calls themselves still stand, so the model can see it read the board.
     expect(ofType(inputOf(4), "function_call").map((c) => c.name)).toEqual([...REPORTS]);
     const staleSize = staleOutputs.reduce((n, o) => n + o.length, 0);
