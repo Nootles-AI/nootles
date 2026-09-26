@@ -61,6 +61,14 @@ const skippedDoc = v.object({
   message: v.optional(v.string()),
 });
 
+const migrateResult = v.object({
+  seen: v.number(),
+  changed: v.array(changedDoc),
+  skipped: v.array(skippedDoc),
+  done: v.boolean(),
+  cursor: v.union(v.string(), v.null()),
+});
+
 type Outcome =
   | { changed: Infer<typeof changedDoc> }
   | { skipped: Infer<typeof skippedDoc> }
@@ -72,15 +80,10 @@ export const migrate = internalAction({
     dryRun: v.boolean(),
     numItems: v.optional(v.number()),
   },
-  returns: v.object({
-    seen: v.number(),
-    changed: v.array(changedDoc),
-    skipped: v.array(skippedDoc),
-    done: v.boolean(),
-    cursor: v.union(v.string(), v.null()),
-  }),
-  handler: async (ctx, args) => {
-    const batch = await ctx.runQuery(internal.migrations.diagramBandPages, {
+  returns: migrateResult,
+  // Annotated: the handler calls through `internal`, which includes this module.
+  handler: async (ctx, args): Promise<Infer<typeof migrateResult>> => {
+    const batch: { docIds: string[]; done: boolean; cursor: string | null } = await ctx.runQuery(internal.migrations.diagramBandPages, {
       cursor: args.cursor ?? null,
       numItems: args.numItems ?? BATCH,
     });
