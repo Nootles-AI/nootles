@@ -246,7 +246,9 @@ at the shape, by its id from an expanded read:
     an <nt-edge> can name it.
   update_styles — recolour or restyle many shapes at once: ids and declarations, null to remove
     one. "Make these all blue" is one call.
-  set_text, rename, duplicate, move, delete, reorder, group, ungroup — one verb, one thing.
+  canvas_edit — relabel (set_text), rename, duplicate, move, delete, reorder, group, ungroup.
+    Every such change to one diagram is ONE call with a list of ops, applied in order: "relabel
+    these three and nudge the logo left" is one canvas_edit with four ops, not four calls.
 Each call is one change the user keeps or discards, as an edit_page is; say what you did. They
 act on the diagram's block id — the at="…" on its stub — on the open page unless you pass pageId.
 Positions you write are in the parent's space; ask get_geometry for canvas coordinates.

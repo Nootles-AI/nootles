@@ -72,6 +72,22 @@ describe("the lines", () => {
     expect(stepLine(call("get_geometry", {}, "…") as ToolPart)).toBe("Measured the diagram");
   });
 
+  test("a batch of diagram edits names what it did, and a refused one says nothing changed", () => {
+    const ops = [{ op: "set_text" }, { op: "set_text" }, { op: "move" }, { op: "group" }];
+    expect(stepLine(call("canvas_edit", { ops }, "Done: 4 edits, as one change.") as ToolPart)).toBe(
+      "Relabelled, moved and grouped shapes",
+    );
+    expect(stepLine(call("canvas_edit", { ops: [{ op: "delete" }] }, "Done: removed 1 shape.") as ToolPart)).toBe(
+      "Deleted shapes",
+    );
+    expect(stepLine(call("canvas_edit", { ops }, "None of these 4 edits was applied…") as ToolPart)).toBe(
+      "Left the diagram as it was",
+    );
+    expect(stepLine(call("canvas_edit", { ops }, undefined, "input-available") as ToolPart)).toBe("Editing the diagram…");
+    // Saved before the verbs were folded in.
+    expect(stepLine(call("set_text", {}, "Done: …") as ToolPart)).toBe("Relabelled a shape");
+  });
+
   test("a batch reads as one act, with its progress while it runs", () => {
     const parts = [
       call("write", { brief: "a" }, { headings: ["A"] }),

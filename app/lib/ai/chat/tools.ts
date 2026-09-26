@@ -14,7 +14,7 @@ import { z } from "zod";
  * hand-kept parallel list, so a new client tool can never forget to add
  * itself there. `surfaces` is what lets an MCP adapter (later) offer a
  * filtered subset of this same table without a second tool definition —
- * `CANVAS_TOOLS`, the 13 node-level diagram tools, and the three context
+ * `CANVAS_TOOLS`, the six node-level diagram tools, and the three context
  * tools carry `"mcp"`.
  */
 const pageIdArg = z.string().optional().describe("A page id from list_pages. The open page if left out.");
@@ -560,7 +560,7 @@ export const TOOLS = {
   },
 
   // -------------------------------------------------------------------
-  // The node-level diagram tools (TOOLS.md §5). All 13 act on the diagram's
+  // The node-level diagram tools (TOOLS.md §5). All six act on the diagram's
   // block id — the `at` on its <nt-diagram> stub — on the open page unless
   // `pageId` says otherwise. Every one goes through the same validate+apply
   // gate `edit_page` does and lands as one reviewable change; the shared
@@ -685,7 +685,7 @@ export const TOOLS = {
       'blue" or "round every card". Each patch names ids and the declarations ' +
       "to set; null removes a declaration. Ids may be shapes, connectors, or " +
       '"diagram" for the surface itself, which is where a token like --brand ' +
-      "lives. Geometry is not style: to move or resize, use move or write_nodes.",
+      "lives. Geometry is not style: to move or resize, use canvas_edit or write_nodes.",
     inputSchema: z.object({
       pageId: pageIdArg,
       blockId: blockIdArg,
@@ -700,142 +700,110 @@ export const TOOLS = {
     }),
   },
 
-  set_text: {
+  canvas_edit: {
     side: "client",
     mutates: true,
     surfaces: ["chat", "mcp"],
     description:
-      "The words on one shape or connector, replaced. Plain text; with markup " +
-      "the text is read as a label in the canvas grammar (<b>, <span style>, " +
-      "<p>, lists, <nt-ref>). A path, image or group holds no words.",
+      "Relabel, rename, duplicate, move, delete, reorder, group or ungroup " +
+      "shapes on a diagram, by id. Send every such change to one diagram as " +
+      "ONE call: the ops apply in the order you write them, each to the " +
+      "diagram the ones before it left, and land as one change the user keeps " +
+      "or discards. If any op is refused, none is applied. A shape's box or " +
+      "style is rewritten with write_nodes or update_styles instead.",
     inputSchema: z.object({
       pageId: pageIdArg,
       blockId: blockIdArg,
-      id: z.string(),
-      text: z.string(),
-      markup: z.boolean().optional(),
-    }),
-  },
-
-  rename: {
-    side: "client",
-    mutates: true,
-    surfaces: ["chat", "mcp"],
-    description:
-      "A shape's layers-panel name. Null clears it, so the name follows the " +
-      "label again. Never changes what the shape shows.",
-    inputSchema: z.object({
-      pageId: pageIdArg,
-      blockId: blockIdArg,
-      id: z.string(),
-      name: z.string().nullable(),
-    }),
-  },
-
-  duplicate: {
-    side: "client",
-    mutates: true,
-    surfaces: ["chat", "mcp"],
-    description:
-      "Copies of shapes, offset 10px like Figma, landed in front of their " +
-      "originals — placed by its group's layout instead, inside a flex or " +
-      "grid group. Returns the new ids.",
-    inputSchema: z.object({
-      pageId: pageIdArg,
-      blockId: blockIdArg,
-      ids: z.array(z.string()).min(1),
-      offset: z.number().optional(),
-    }),
-  },
-
-  move: {
-    side: "client",
-    mutates: true,
-    surfaces: ["chat", "mcp"],
-    description:
-      "Move shapes by a distance, or put one at a position. Positions are in " +
-      "the PARENT's space, as x/y in the HTML are. A child of a flex or grid " +
-      "group cannot be moved — its group places it; reorder it instead.",
-    inputSchema: z.object({
-      pageId: pageIdArg,
-      blockId: blockIdArg,
-      ids: z.array(z.string()).min(1),
-      dx: z.number().optional(),
-      dy: z.number().optional(),
-      x: z.number().optional(),
-      y: z.number().optional(),
-    }),
-  },
-
-  delete: {
-    side: "client",
-    mutates: true,
-    surfaces: ["chat", "mcp"],
-    description:
-      "Remove shapes and connectors from a diagram. A group goes with " +
-      "everything in it; connectors into a removed shape go too.",
-    inputSchema: z.object({
-      pageId: pageIdArg,
-      blockId: blockIdArg,
-      ids: z.array(z.string()).min(1),
-    }),
-  },
-
-  reorder: {
-    side: "client",
-    mutates: true,
-    surfaces: ["chat", "mcp"],
-    description:
-      "Change what is in front: front, back, forward, backward — within the " +
-      "shape's own group, as in Figma — or a place in a group: parent (null " +
-      "for the canvas) and index counting from the back, 0 being furthest " +
-      "back. Putting a shape in another group keeps it where it is on screen " +
-      "— unless that group has a layout (flex or grid), which places it by " +
-      "flow instead; result.notes says so when it happens.",
-    inputSchema: z.object({
-      pageId: pageIdArg,
-      blockId: blockIdArg,
-      ids: z.array(z.string()).min(1),
-      to: z.union([
-        z.enum(["front", "back", "forward", "backward"]),
-        z.object({ parent: z.string().nullable(), index: z.number().int().min(0) }),
-      ]),
-    }),
-  },
-
-  group: {
-    side: "client",
-    mutates: true,
-    surfaces: ["chat", "mcp"],
-    description:
-      "Wrap shapes in a new group, keeping every one where it is on screen. " +
-      "An empty, unlabelled, unrotated rectangle that is the ONLY member " +
-      "enclosing every other member becomes the group's own box and paint " +
-      "instead of a child, like Figma's frame selection — a labelled rect, a " +
-      "rotated one, or two candidates that both qualify all fall back to " +
-      "plain grouping, with the candidate(s) kept as ordinary children. With " +
-      "op the group is a boolean: union, subtract, intersect, exclude. " +
-      "Returns the group's id.",
-    inputSchema: z.object({
-      pageId: pageIdArg,
-      blockId: blockIdArg,
-      ids: z.array(z.string()).min(1),
-      name: z.string().optional(),
-      op: z.enum(["union", "subtract", "intersect", "exclude"]).optional(),
-    }),
-  },
-
-  ungroup: {
-    side: "client",
-    mutates: true,
-    surfaces: ["chat", "mcp"],
-    description:
-      "Dissolve groups, splicing their children into their place with " +
-      "positions preserved.",
-    inputSchema: z.object({
-      pageId: pageIdArg,
-      blockId: blockIdArg,
-      ids: z.array(z.string()).min(1),
+      ops: z
+        .array(
+          z.union([
+            z
+              .object({
+                op: z.literal("set_text"),
+                id: z.string(),
+                text: z.string(),
+                markup: z.boolean().optional(),
+              })
+              .describe(
+                "The words on one shape or connector, replaced. Plain text; with " +
+                  "markup the text is read as a label in the canvas grammar (<b>, " +
+                  "<span style>, <p>, lists, <nt-ref>). A path, image or group " +
+                  "holds no words.",
+              ),
+            z
+              .object({ op: z.literal("rename"), id: z.string(), name: z.string().nullable() })
+              .describe(
+                "A shape's layers-panel name. Null clears it, so the name follows " +
+                  "the label again. Never changes what the shape shows.",
+              ),
+            z
+              .object({
+                op: z.literal("duplicate"),
+                ids: z.array(z.string()).min(1),
+                offset: z.number().optional(),
+              })
+              .describe(
+                "Copies, offset 10px like Figma, in front of their originals — " +
+                  "placed by its group's layout instead, inside a flex or grid " +
+                  "group. The result names the new ids.",
+              ),
+            z
+              .object({
+                op: z.literal("move"),
+                ids: z.array(z.string()).min(1),
+                dx: z.number().optional(),
+                dy: z.number().optional(),
+                x: z.number().optional(),
+                y: z.number().optional(),
+              })
+              .describe(
+                "By a distance (dx, dy), or to a position (x, y) in the PARENT's " +
+                  "space, as x/y in the HTML are. A child of a flex or grid group " +
+                  "cannot be moved — its group places it; reorder it instead.",
+              ),
+            z
+              .object({ op: z.literal("delete"), ids: z.array(z.string()).min(1) })
+              .describe(
+                "Shapes and connectors. A group goes with everything in it; " +
+                  "connectors into a removed shape go too.",
+              ),
+            z
+              .object({
+                op: z.literal("reorder"),
+                ids: z.array(z.string()).min(1),
+                to: z.union([
+                  z.enum(["front", "back", "forward", "backward"]),
+                  z.object({ parent: z.string().nullable(), index: z.number().int().min(0) }),
+                ]),
+              })
+              .describe(
+                "What is in front: front, back, forward, backward — within the " +
+                  "shape's own group, as in Figma — or a place in a group: parent " +
+                  "(null for the canvas) and index counting from the back, 0 " +
+                  "furthest back. Moving a shape into another group keeps it where " +
+                  "it is on screen, unless that group has a layout (flex or grid), " +
+                  "which places it by flow; the result says so.",
+              ),
+            z
+              .object({
+                op: z.literal("group"),
+                ids: z.array(z.string()).min(1),
+                name: z.string().optional(),
+                boolean: z.enum(["union", "subtract", "intersect", "exclude"]).optional(),
+              })
+              .describe(
+                "Wrap shapes in a new group, each kept where it is on screen. An " +
+                  "empty, unlabelled, unrotated rectangle that is the ONLY member " +
+                  "enclosing all the others becomes the group's own box and paint, " +
+                  "like Figma's frame selection. With boolean the group is a " +
+                  "boolean shape. The result names the group's id.",
+              ),
+            z
+              .object({ op: z.literal("ungroup"), ids: z.array(z.string()).min(1) })
+              .describe("Dissolve groups, their children kept where they are on screen."),
+          ]),
+        )
+        .min(1),
     }),
   },
 } satisfies Record<
@@ -883,7 +851,7 @@ export const noSuchPage = (pageId: string) =>
  * `edit_page`, `album_edit` and `look_at` could only ever run here too: two
  * move or read what is on screen, and `edit_page` runs the applier, which
  * needs the live editor — there is one applier and it is the one a human
- * edit goes through. The 13 node-level diagram tools join them for the same
+ * edit goes through. The six node-level diagram tools join them for the same
  * reason `edit_page` is client-side: they act on the live `SceneStore` or the
  * live editor, neither of which a route handler has.
  *
@@ -903,10 +871,10 @@ export function isClientTool(name: string): name is ClientToolName {
 }
 
 /**
- * The 13 node-level diagram tools (TOOLS.md §5) — every `write_nodes`-and-
+ * The six node-level diagram tools (TOOLS.md §5) — every `write_nodes`-and-
  * beyond tool that acts on a diagram by shape id rather than rewriting the
  * whole block. `app/lib/ai/canvas/execute.ts`'s `runCanvasTool` is the one
- * executor behind all 13; `clientTools.ts` registers each name against it.
+ * executor behind all six; `clientTools.ts` registers each name against it.
  */
 export const CANVAS_TOOLS = [
   "get_geometry",
@@ -914,14 +882,7 @@ export const CANVAS_TOOLS = [
   "get_html",
   "write_nodes",
   "update_styles",
-  "set_text",
-  "rename",
-  "duplicate",
-  "move",
-  "delete",
-  "reorder",
-  "group",
-  "ungroup",
+  "canvas_edit",
 ] as const satisfies readonly ClientToolName[];
 
 export type CanvasToolName = (typeof CANVAS_TOOLS)[number];

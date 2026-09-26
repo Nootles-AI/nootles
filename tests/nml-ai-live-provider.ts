@@ -384,7 +384,8 @@ const chat = await generateText({
     "In its existing c-main diagram, change shape s-box's visible label to PARITY_BOX_NEW",
     "and move that shape right 20 and down 10.",
     'First call read_open_page with expand ["c-main"]. After that read returns,',
-    "make exactly one edit_page, one set_text, and one move call; the three edits may run in parallel.",
+    "make exactly one edit_page call and one canvas_edit call holding a set_text op and a move op;",
+    "the two edits may run in parallel.",
     "Do not replace the whole diagram.",
   ].join("\n"),
   tools: {
@@ -399,8 +400,7 @@ const chat = await generateText({
       },
     }),
     edit_page: tool({ ...TOOLS.edit_page, execute: receipt("edit_page") }),
-    set_text: tool({ ...TOOLS.set_text, execute: receipt("set_text") }),
-    move: tool({ ...TOOLS.move, execute: receipt("move") }),
+    canvas_edit: tool({ ...TOOLS.canvas_edit, execute: receipt("canvas_edit") }),
   },
   // Production leaves tool choice at the provider's default (auto). Muse's
   // current Meta endpoint rejects "required", so this deliberately mirrors
@@ -429,10 +429,10 @@ await writeFile(
 );
 assert.deepEqual(
   names,
-  new Set(["read_open_page", "edit_page", "set_text", "move"]),
-  "chat must read first and call all three requested edit tools",
+  new Set(["read_open_page", "edit_page", "canvas_edit"]),
+  "chat must read first and call both requested edit tools",
 );
-for (const name of ["read_open_page", "edit_page", "set_text", "move"]) {
+for (const name of ["read_open_page", "edit_page", "canvas_edit"]) {
   assert.equal(
     chatCalls.filter((call) => call.toolName === name).length,
     1,
@@ -487,10 +487,10 @@ const legacyHost: CanvasHost = {
   prepareParse: async () => {},
   parseHtml,
 };
-for (const name of ["set_text", "move"] as const) {
-  const input = chatCalls.find((call) => call.toolName === name)!.input;
-  await runCanvasTool(name, input, legacyHost);
-  await runCanvasTool(name, input, nmlHost);
+{
+  const input = chatCalls.find((call) => call.toolName === "canvas_edit")!.input;
+  await runCanvasTool("canvas_edit", input, legacyHost);
+  await runCanvasTool("canvas_edit", input, nmlHost);
 }
 const chatDocument = decodeNmlDocument(chatDoc);
 assert.match(projectNmlDocument(chatDocument).text, /PARITY_TEXT_NEW/);
