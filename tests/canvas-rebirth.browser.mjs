@@ -290,6 +290,127 @@ try {
   check("Escape closes the bar", await barShown(escaped), false);
   check("without taking the diagram", await at("blocks"), ["paragraph", "canvas"]);
 
+  // ---- The arrows through a new diagram's presets ------------------------
+  const focused = () => page.evaluate(() => document.activeElement?.getAttribute("data-preset") ?? null);
+  const press = async (...keys) => {
+    for (const key of keys) await page.keyboard.press(key);
+    await frame();
+  };
+  /** A diagram placed as the slash menu places one — selected whole — with a line of text after it. */
+  const placed = async () => {
+    [intro, line] = await at("seed");
+    await frame();
+    const id = await at("slash", "diagram", line);
+    const after = await at("addText", id, "After the diagram.");
+    await mounted(id);
+    await at("selectBlocks", [id]);
+    await frame();
+    return { id, after };
+  };
+
+  let arrowed = await placed();
+  check("placed, the diagram is selected whole", await at("blockSelection"), [arrowed.id]);
+  await press("ArrowRight");
+  check("→ goes onto the bar's first option", await focused(), "blank");
+  check("in its focus wash", await page.evaluate(() => document.activeElement?.matches(":focus-visible")), true);
+  const walk = [];
+  for (let i = 0; i < 5; i++) {
+    await press("ArrowRight");
+    walk.push(await focused());
+  }
+  check("→ walks each option in turn, past the or", walk, ["flowchart", "phone", "browser", "matrix", "timeline"]);
+  await press("ArrowRight");
+  check("→ off the last goes on into the text after the diagram", await at("caret"), { block: arrowed.after, offset: 0 });
+  check("leaving the offer standing", [await barShown(arrowed.id), await at("shapes", arrowed.id)], [true, []]);
+
+  arrowed = await placed();
+  await press("ArrowRight", "ArrowRight", "ArrowRight", "ArrowLeft");
+  check("← walks back", await focused(), "flowchart");
+  await press("ArrowLeft");
+  check("to the first option", await focused(), "blank");
+  await press("ArrowLeft");
+  check("← off the first goes back to the diagram's plate", [await focused(), await at("blockSelection")], [null, [arrowed.id]]);
+  await press("ArrowLeft");
+  check("and a further ← does what ← on a plate does", await at("caret"), {
+    block: intro,
+    offset: "A diagram goes below.".length,
+  });
+
+  arrowed = await placed();
+  await press("ArrowRight", "ArrowRight", "Enter");
+  check("→ → Enter chooses Flowchart", (await at("shapes", arrowed.id))[0], { kind: "rect", label: "Process" });
+  check("and the bar goes", await barShown(arrowed.id), false);
+
+  arrowed = await placed();
+  await press("ArrowRight", "ArrowRight", "ArrowRight", "Space");
+  check("Space chooses too: → → → Space is the iPhone", kinds(await at("shapes", arrowed.id)), ["group"]);
+
+  arrowed = await placed();
+  await press("Enter");
+  check("Enter on the placed diagram still goes onto the first option", await focused(), "blank");
+  await press("ArrowRight", "Escape");
+  check("Escape closes the bar", await barShown(arrowed.id), false);
+  check("back onto the diagram's plate", [await at("blockSelection"), await at("shapes", arrowed.id)], [[arrowed.id], []]);
+  await press("ArrowRight");
+  check("where → with no offer steps into the text, as before", await at("caret"), { block: arrowed.after, offset: 0 });
+
+  // ---- A chosen preset arrives -------------------------------------------
+  /** What of this diagram is mid-entrance: the band opening, shapes and connectors arriving. */
+  const arriving = (id) =>
+    page.evaluate((id) => {
+      const band = document.querySelector(`[data-id="${id}"] .nt-canvas`);
+      return {
+        opening: band?.hasAttribute("data-opening") ?? false,
+        shapes: band?.querySelectorAll(".nt-canvas-scene > [data-arriving]").length ?? 0,
+        edges: band?.querySelectorAll(".nt-edge[data-arriving]").length ?? 0,
+      };
+    }, id);
+  arrowed = await placed();
+  await bar(arrowed.id).locator('[data-preset="flowchart"]').click();
+  await frame();
+  const landing = await arriving(arrowed.id);
+  check("a chosen preset lands whole at once", (await at("shapes", arrowed.id)).length, 4);
+  check("and plays its entrance: the band opening, every shape and connector arriving", landing, {
+    opening: true,
+    shapes: 4,
+    edges: await at("edgeCount", arrowed.id),
+  });
+  check(
+    "staggered in order",
+    await page.evaluate(
+      (id) =>
+        [...document.querySelectorAll(`[data-id="${id}"] .nt-canvas-scene > [data-arriving]`)].map((el) =>
+          el.style.getPropertyValue("--nt-arrive-delay"),
+        ),
+      arrowed.id,
+    ),
+    ["0ms", "30ms", "60ms", "90ms"],
+  );
+  await page.evaluate(() =>
+    document.getAnimations().forEach((animation) => {
+      animation.pause();
+      animation.currentTime = 110;
+    }),
+  );
+  await page.mouse.move(0, 0);
+  await page.locator(`[data-id="${arrowed.id}"] .nt-canvas`).first().screenshot({ path: path.join(shots, "insert-1.png") });
+  await page.evaluate(() => document.getAnimations().forEach((animation) => animation.play()));
+  await page.waitForTimeout(700);
+  check("and lets go of it once played", await arriving(arrowed.id), { opening: false, shapes: 0, edges: 0 });
+  await page.locator(`[data-id="${arrowed.id}"] .nt-canvas`).first().screenshot({ path: path.join(shots, "insert-2.png") });
+  await at("undo");
+  await frame();
+  await at("redo");
+  await frame();
+  check("a redo of it arrives as any redo does", await arriving(arrowed.id), { opening: false, shapes: 0, edges: 0 });
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  arrowed = await placed();
+  await bar(arrowed.id).locator('[data-preset="flowchart"]').click();
+  await frame();
+  check("under reduced motion it simply lands", await arriving(arrowed.id), { opening: false, shapes: 0, edges: 0 });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+
   [intro, line] = await at("seed");
   await frame();
   const removed = await at("slash", "diagram", line);

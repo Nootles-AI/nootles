@@ -438,12 +438,15 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
     band.api.focus();
   };
 
+  const firstPreset = (entry: DiagramEntry) =>
+    entry.api.band.current?.querySelector<HTMLElement>(".nt-canvas-presets button") ?? null;
+
   const offDiagrams = registerPaneDiagrams(pane, {
     enter: (blockId) => {
       const entry = canvas.get(blockId);
       if (!entry || entry.readOnly) return false;
       const front = pickable(entry).at(-1);
-      const preset = entry.api.band.current?.querySelector<HTMLElement>(".nt-canvas-presets button");
+      const preset = firstPreset(entry);
       if (front) {
         entry.api.selection.select([front.id]);
         entry.api.focus();
@@ -453,6 +456,12 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
         tools.set("rect");
       }
       return true;
+    },
+    presets: (blockId) => {
+      const entry = canvas.get(blockId);
+      const preset = entry && !entry.readOnly ? firstPreset(entry) : null;
+      preset?.focus();
+      return !!preset;
     },
     pasted: (blockId) => {
       void canvas.whenRegistered(blockId).then((entry) => {

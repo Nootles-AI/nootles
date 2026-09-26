@@ -3,6 +3,7 @@
 import type { ComponentType, KeyboardEvent, SVGProps } from "react";
 import { Blank, Browser, Flowchart, Matrix, Phone, Timeline } from "@/app/components/Icons";
 import { PRESETS, type Preset, type PresetId } from "../presets";
+import { presetStep } from "./presetWalk";
 
 const GLYPH: Record<PresetId, ComponentType<SVGProps<SVGSVGElement>>> = {
   flowchart: Flowchart,
@@ -12,34 +13,37 @@ const GLYPH: Record<PresetId, ComponentType<SVGProps<SVGSVGElement>>> = {
   timeline: Timeline,
 };
 
-const STEP: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
-
 /**
  * A new diagram's starting points, in the empty band where "Add shapes" would
  * be: Blank, or one of the presets. Blank is the offer declined — the band is
- * left empty with its "Add shapes" line, as Escape leaves it. It speaks for itself on the keyboard — the page's keymap stands aside
- * for it (`pageKeymap.ts`) — so the arrows walk it and Escape closes it.
+ * left empty with its "Add shapes" line, as Escape leaves it. It speaks for
+ * itself on the keyboard — the page's keymap stands aside for it
+ * (`pageKeymap.ts`): the arrows walk it (`presetStep`), ← off its first option
+ * and → off its last `onLeave` it, and Escape `onEscape`s it.
  */
-export function PresetBar({ onPick, onClose }: { onPick: (preset: Preset) => void; onClose: () => void }) {
+export function PresetBar({
+  onPick,
+  onClose,
+  onEscape,
+  onLeave,
+}: {
+  onPick: (preset: Preset) => void;
+  onClose: () => void;
+  onEscape: () => void;
+  onLeave: (dir: -1 | 1) => void;
+}) {
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") {
       event.preventDefault();
-      onClose();
+      onEscape();
       return;
     }
     const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button")];
-    const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
-    const to =
-      event.key in STEP
-        ? (at + STEP[event.key] + buttons.length) % buttons.length
-        : event.key === "Home"
-          ? 0
-          : event.key === "End"
-            ? buttons.length - 1
-            : -1;
-    if (to < 0) return;
+    const step = presetStep(event.key, buttons.indexOf(document.activeElement as HTMLButtonElement), buttons.length);
+    if (!step) return;
     event.preventDefault();
-    buttons[to].focus();
+    if ("leave" in step) onLeave(step.leave);
+    else buttons[step.focus].focus();
   };
 
   return (

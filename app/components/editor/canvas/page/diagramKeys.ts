@@ -11,6 +11,11 @@ export interface PaneDiagrams {
    * when the block is not one of this pane's.
    */
   enter(blockId: string): boolean;
+  /**
+   * → on a selected diagram block: onto the first of the presets it offers.
+   * False when it offers none.
+   */
+  presets(blockId: string): boolean;
   /** A diagram the page's paste just made: its shapes selected, once it is up. */
   pasted(blockId: string): void;
 }
@@ -31,6 +36,10 @@ const paneOf = (from: Element) => {
 
 export function diagramEnter(from: Element, blockId: string): boolean {
   return paneOf(from)?.enter(blockId) ?? false;
+}
+
+export function diagramPresets(from: Element, blockId: string): boolean {
+  return paneOf(from)?.presets(blockId) ?? false;
 }
 
 export function diagramPasted(from: Element, blockId: string): void {

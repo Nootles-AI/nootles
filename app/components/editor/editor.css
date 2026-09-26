@@ -943,17 +943,12 @@ body:has(.nt-pane[data-drawing]) .nt-side-menu-anchor {
 .nt-diagram-ghost .nt-canvas-scene {
   opacity: 0.5;
 }
-/* Only what a chunk brought: everything already drawn keeps its element. */
-@keyframes nt-ghost-arrive {
-  from {
-    opacity: 0;
-    filter: blur(4px);
-  }
-}
+/* Only what a chunk brought: everything already drawn keeps its element. The
+   entrance is the canvas's own (`canvas.css`), which a chosen preset plays too. */
 .nt-diagram-ghost .nt-canvas-scene > [data-id],
 .nt-diagram-ghost .nt-edge,
 .nt-diagram-ghost .nt-edge-label {
-  animation: nt-ghost-arrive 520ms var(--ease) both;
+  animation: nt-shape-arrive 520ms var(--ease) both;
 }
 .nt-diagram-ghost-grid {
   position: absolute;

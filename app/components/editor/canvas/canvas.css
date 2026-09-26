@@ -376,6 +376,35 @@
   outline: none;
 }
 
+/* A chosen preset arrives (`presetArrival.ts`): the band slides open from its
+   empty height under a clip on its growing edge alone — above and to the sides
+   it draws past itself as ever — and what the preset brought comes in from a blur, piece by piece.
+   A suggested diagram's shapes arrive the same way (`editor.css`). */
+@keyframes nt-shape-arrive {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+  }
+}
+@keyframes nt-band-open {
+  from {
+    height: var(--nt-open-from);
+  }
+}
+.nt-canvas[data-opening] {
+  clip-path: inset(-100vmax -100vmax 0);
+  animation: nt-band-open 240ms var(--ease);
+}
+.nt-canvas-scene [data-arriving] {
+  animation: nt-shape-arrive 200ms var(--ease) var(--nt-arrive-delay, 0ms) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-canvas[data-opening],
+  .nt-canvas-scene [data-arriving] {
+    animation: none;
+  }
+}
+
 /* Two diagrams that touch can be one. The offer sits at their seam, in the
    right margin, only while the block below is a diagram too (read off the
    page's own structure) and until its × is pressed. Quiet: the page's muted

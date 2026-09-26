@@ -13,7 +13,8 @@ import { BlockNoteView } from "@blocknote/mantine";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import type { Id } from "../convex/_generated/dataModel";
 import { schema } from "../app/components/editor/schema";
-import { blockSelectionExtension } from "../app/components/editor/blockSelection";
+import { blockSelection, blockSelectionExtension } from "../app/components/editor/blockSelection";
+import { blockKeysExtension } from "../app/components/editor/blockKeys";
 import { CurrentPageProvider } from "../app/components/OpenPageContext";
 import { undoScope, useWorkspaceHistory, WorkspaceHistoryProvider } from "../app/lib/history/useWorkspaceHistory";
 import type { WorkspaceHistory } from "../app/lib/history/spine";
@@ -89,7 +90,7 @@ function mount() {
   editor = BlockNoteEditor.create(
     withCollaboration({
       schema,
-      extensions: [blockSelectionExtension, textStepsExtension],
+      extensions: [blockSelectionExtension, blockKeysExtension, textStepsExtension],
       collaboration: {
         fragment: ydoc.getXmlFragment("prosemirror"),
         user: { name: "Local", color: "#3366cc" },
@@ -123,6 +124,19 @@ const harness = {
   /** A diagram of this kind at the caret's line, as the slash menu makes one; its id. */
   slash: (kind: "diagram" | "wide", lineId: string) =>
     bearFromSlash(editor as unknown as BirthEditor, lineId, kind === "wide" ? WIDE_DIAGRAM_SOURCE : ""),
+  /** Blocks selected whole, as the slash menu leaves a diagram it made. */
+  selectBlocks: (ids: string[]) => blockSelection(editor).select(ids),
+  blockSelection: () => [...blockSelection(editor).getSnapshot().ids],
+  /** Where the caret is writing, while the document has the keyboard and no block is selected. */
+  caret: () => {
+    const view = editor.prosemirrorView;
+    if (!view?.hasFocus() || blockSelection(editor).getSnapshot().ids.length) return null;
+    const { block } = editor.getTextCursorPosition();
+    return { block: block.id, offset: view.state.selection.$head.parentOffset };
+  },
+  /** A line of text after a block; its id. */
+  addText: (after: string, text: string) =>
+    editor.insertBlocks([{ type: "paragraph", content: text }], after, "after")[0].id,
   /** A new empty line after a block; its id. */
   addLine: (after: string) => editor.insertBlocks([{ type: "paragraph" }], after, "after")[0].id,
   /** A diagram taken out as its last shape going takes it. */
@@ -153,6 +167,7 @@ const harness = {
     const scene = entry(blockId)?.api.store.getScene();
     return scene ? { wide: scene.wide ?? false, nodes: scene.nodes.map((node) => node.id) } : null;
   },
+  edgeCount: (blockId: string) => entry(blockId)?.api.store.getScene().edges.length ?? 0,
   /** Each shape's kind and label, in order. */
   shapes: (blockId: string) =>
     entry(blockId)?.api.store.getScene().nodes.map((node) => ({ kind: node.kind, label: node.label })) ?? null,

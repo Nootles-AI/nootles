@@ -28,9 +28,11 @@ import {
   caretBesidePlate,
   ownTextRange,
 } from "./blockNav";
-import { diagramEnter } from "./canvas/page/diagramKeys";
+import { diagramEnter, diagramPresets } from "./canvas/page/diagramKeys";
 
 type Editor = Parameters<NonNullable<Extension["keyboardShortcuts"]>[string]>[0]["editor"];
+/** As much of an editor as the view's keys need. */
+export type KeyedEditor = Pick<Editor, "prosemirrorView" | "isEditable">;
 
 type BlockLike = { id?: string; children?: BlockLike[] };
 
@@ -69,7 +71,7 @@ export function duplicateAndSelect(editor: Editor, ids: readonly string[]) {
  * focusable island inside it, and a key the diagram declines still bubbles
  * through this keymap — it is not a key typed at the page.
  */
-function keyboardView(editor: Editor): EditorView | null {
+function keyboardView(editor: KeyedEditor): EditorView | null {
   const view = editor.prosemirrorView;
   return view && editor.isEditable && view.hasFocus() ? view : null;
 }
@@ -180,7 +182,7 @@ function stepBlocks(editor: Editor, dir: -1 | 1, stretch: boolean): boolean {
 }
 
 /** ←/→ on one void block's plate: into the text beside it, as ↑/↓ do. */
-function leavePlate(editor: Editor, dir: -1 | 1): boolean {
+export function leavePlate(editor: KeyedEditor, dir: -1 | 1): boolean {
   const view = keyboardView(editor);
   if (!view) return false;
   const { selection, doc } = view.state;
@@ -189,6 +191,19 @@ function leavePlate(editor: Editor, dir: -1 | 1): boolean {
   if (caret === null) return false;
   setSelection(view, TextSelection.create(doc, caret));
   return true;
+}
+
+/** → on a diagram offering its presets: onto them, ahead of the text beyond. */
+function intoPresets(editor: Editor): boolean {
+  const view = keyboardView(editor);
+  if (!view) return false;
+  const { selection } = view.state;
+  return (
+    selection instanceof BlockRangeSelection &&
+    selection.nodes.length === 1 &&
+    selection.nodes[0].firstChild?.type.name === "canvas" &&
+    diagramPresets(view.dom, selection.blockIds[0])
+  );
 }
 
 const ARROWS = { up: -1, left: -1, down: 1, right: 1 } as const;
@@ -296,7 +311,8 @@ export const blockKeysExtension = createExtension({
     ArrowUp: ({ editor }) => stepBlocks(editor, -1, false) || arrowIntoVoid(editor, "up"),
     ArrowDown: ({ editor }) => stepBlocks(editor, 1, false) || arrowIntoVoid(editor, "down"),
     ArrowLeft: ({ editor }) => leavePlate(editor, -1) || arrowIntoVoid(editor, "left"),
-    ArrowRight: ({ editor }) => leavePlate(editor, 1) || arrowIntoVoid(editor, "right"),
+    ArrowRight: ({ editor }) =>
+      intoPresets(editor) || leavePlate(editor, 1) || arrowIntoVoid(editor, "right"),
     "Shift-ArrowUp": ({ editor }) => stepBlocks(editor, -1, true),
     "Shift-ArrowDown": ({ editor }) => stepBlocks(editor, 1, true),
     Enter: ({ editor }) => enterBlocks(editor),

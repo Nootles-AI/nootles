@@ -46,8 +46,10 @@ import { usePageCanvas } from "../canvas/page/PageCanvas";
 import { deleteDiagramBlock, mergeOps, type LifecycleEditor } from "../canvas/page/lifecycle";
 import { PresetBar } from "../canvas/page/PresetBar";
 import { usePresetOffer, withdrawPresets } from "../canvas/page/presetOffer";
+import { playArrival } from "../canvas/page/presetArrival";
 import { presetOps, type Preset } from "../canvas/presets";
 import { blockSelection, type BlockSelectionEditor } from "../blockSelection";
+import { leavePlate, type KeyedEditor } from "../blockKeys";
 
 /** How many preceding blocks of page text to hand the canvas for context. */
 const CONTEXT_BLOCKS = 4;
@@ -66,7 +68,7 @@ const CONTEXT_BLOCKS = 4;
 const MIRROR_MS = 5000;
 
 /** The editor members this block needs beyond what the spec hands over. */
-type HostEditor = LifecycleEditor & {
+type HostEditor = LifecycleEditor & KeyedEditor & {
   prosemirrorState: unknown;
   getExtension: (key: string) => unknown;
   getBlock: (id: string) => { props?: unknown } | undefined;
@@ -573,13 +575,24 @@ function CanvasBlockView({
   }, [offered, liveApi, blockId]);
   const pickPreset = (preset: Preset) => {
     if (!liveApi) return;
-    const { ops, ids } = presetOps(liveApi.store.getScene(), preset);
+    const before = liveApi.store.getScene();
+    const { ops, ids } = presetOps(before, preset);
+    const had = new Set(before.edges.map((edge) => edge.id));
+    const fromHeight = liveApi.band.current?.offsetHeight ?? 0;
     withdrawPresets(blockId);
     page.batch(() => {
       liveApi.store.dispatch(ops);
       liveApi.selection.select(ids);
     });
     liveApi.focus();
+    const edges = liveApi.store.getScene().edges.flatMap((edge) => (had.has(edge.id) ? [] : [edge.id]));
+    // Drawn by now — the pick's render flushes ahead of the next frame — and
+    // not yet painted.
+    requestAnimationFrame(() => {
+      const band = liveApi.band.current;
+      const scene = liveApi.viewport.sceneRef.current;
+      if (band && scene) playArrival(band, scene, fromHeight, ids, edges);
+    });
   };
   const closePresets = () => {
     withdrawPresets(blockId);
@@ -587,6 +600,16 @@ function CanvasBlockView({
   };
 
   const blocks = useMemo(() => blockSelection(editor as unknown as BlockSelectionEditor), [editor]);
+  // Off the bar by the keyboard is back onto the diagram's plate, where the
+  // keys found it — and on through the plate, for a → off its last option.
+  const escapePresets = () => {
+    withdrawPresets(blockId);
+    blocks.select([blockId]);
+  };
+  const leavePresets = (dir: -1 | 1) => {
+    blocks.select([blockId]);
+    if (dir > 0) leavePlate(editor, dir);
+  };
   const onPage = useMemo(() => (page.pane ? { canvas: page, blockId } : undefined), [page, blockId]);
   useEffect(() => {
     if (!liveApi) return;
@@ -635,7 +658,11 @@ function CanvasBlockView({
           page={onPage}
           keymap={page.pane ? "page" : "container"}
           onEmpty={onEmpty}
-          placeholder={offered && liveApi ? <PresetBar onPick={pickPreset} onClose={closePresets} /> : undefined}
+          placeholder={
+            offered && liveApi ? (
+              <PresetBar onPick={pickPreset} onClose={closePresets} onEscape={escapePresets} onLeave={leavePresets} />
+            ) : undefined
+          }
           onApi={(next) => {
             api.current = next;
             setLiveApi(next);
