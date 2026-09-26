@@ -21,7 +21,7 @@ import {
   type StylePatch,
   isBoolean,
 } from "../scene/types";
-import { bandFloor, bandHeight, hasSlack } from "../scene/band";
+import { bandFloor, bandHeight, contentBottom, unfitted } from "../scene/band";
 import { canBoolean } from "../scene/boolean";
 import {
   ColorVariablesContext,
@@ -332,15 +332,15 @@ function DiagramFields({
               label="H"
               name="Diagram height"
               value={bandHeight(scene)}
-              min={bandFloor(scene)}
-              onChange={(h) => onChange({ h: Math.max(bandFloor(scene), h) })}
+              min={contentBottom(scene)}
+              onChange={(h) => onChange({ h: Math.max(contentBottom(scene), h) })}
               onPreview={onPreviewSize}
             />
             <Tooltip label="Fit to content" className="nt-ctl-slot">
               <button
                 className="nt-icon-btn is-sm"
                 aria-label="Fit to content"
-                disabled={!hasSlack(scene)}
+                disabled={!unfitted(scene)}
                 onClick={() => onChange({ h: bandFloor(scene) })}
               >
                 <AutoHeight />

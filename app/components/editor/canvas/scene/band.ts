@@ -11,6 +11,7 @@ export {
   bandHeight,
   bandLeft,
   bandWidth,
+  contentBottom,
   EMPTY_BAND_H,
   EPS,
   reachesMargins,
@@ -220,15 +221,17 @@ export function wideOps(scene: Scene, wide: boolean, fold: Fold | null): SceneOp
   return fold?.folded === scene ? unfoldOps(scene, fold.before) : [{ type: "setDiagram", wide: "pinned" }];
 }
 
-/** Room under the drawing too small to be worth offering back. */
+/** A difference from the fitted height too small to be worth offering to undo. */
 const SLACK = 8;
 
 /**
- * Whether a band stands taller than its content needs by more than a hair —
- * the room Auto height would take back. Nothing takes it back on its own.
+ * Whether a band stands off the height Auto height gives it by more than a
+ * hair: taller, with room it would take back, or pulled up tighter to its
+ * shapes than the room under them, which it would give back. Nothing refits
+ * a band on its own.
  */
-export function hasSlack(scene: Scene): boolean {
-  return scene.h > bandFloor(scene) + SLACK;
+export function unfitted(scene: Scene): boolean {
+  return Math.abs(scene.h - bandFloor(scene)) > SLACK;
 }
 
 /**

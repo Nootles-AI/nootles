@@ -1,7 +1,7 @@
 import { DOMParser } from "linkedom";
 import { duringAiApply } from "@/app/lib/debugRing";
 import { describe, expect, it } from "vitest";
-import { BAND, bandFloor, bandHeight, EMPTY_BAND_H, wideOps } from "../scene/band";
+import { BAND, bandFloor, bandHeight, contentBottom, EMPTY_BAND_H, wideOps } from "../scene/band";
 import { WIDE_DIAGRAM_SOURCE } from "../scene/bandSpan";
 import type { SceneNode } from "../scene/types";
 import { laidOutScene } from "../scene/autoLayout";
@@ -70,8 +70,25 @@ describe("a band's store raises its height to hold a local edit", () => {
     const tall = `<nt-diagram h="200"><nt-rect id="a" x="40" y="500" w="100" h="60"></nt-rect></nt-diagram>`;
     store.adoptRemote(tall);
     expect(store.getScene().h).toBe(200);
-    expect(bandHeight(store.getScene())).toBe(bandFloor(store.getScene()));
+    expect(bandHeight(store.getScene())).toBe(contentBottom(store.getScene()));
     expect(store.canUndo()).toBe(false);
+  });
+
+  it("with room under its drawing, keeps that room: content moved into it raises the band", () => {
+    // Fitted: `a` ends at 100, with 24 under it.
+    const store = new SceneStore(band.replace('h="200"', 'h="124"'), undefined, true);
+    store.dispatch({ type: "move", ids: ["a"], dx: 0, dy: 10 });
+    expect(store.getScene().h).toBe(134);
+  });
+
+  it("pulled up tight to its shapes, only content past the edge raises it — to the room under it again", () => {
+    // Tight: `a` ends at 40 + 60.
+    const store = new SceneStore(band.replace('h="200"', 'h="100"'), undefined, true);
+    store.dispatch({ type: "move", ids: ["a"], dx: 0, dy: -10 });
+    store.dispatch({ type: "move", ids: ["a"], dx: 0, dy: 10 });
+    expect(store.getScene().h).toBe(100);
+    store.dispatch({ type: "move", ids: ["a"], dx: 0, dy: 1 });
+    expect(store.getScene().h).toBe(41 + 60 + BAND);
   });
 
   it("never shrinks on its own: content moved up leaves the height it raised", () => {

@@ -55,7 +55,6 @@ import {
 
 import { X } from "@/app/components/Icons";
 import { useContextMenu } from "../ContextMenu";
-import { AutoHeight } from "../panels/controls/glyphs";
 import { CANVAS_CHROME, type PageCanvas } from "../page/PageCanvas";
 import type { GestureHost } from "../page/pageGesture";
 import { spansDiagrams } from "../page/pageSelection";
@@ -122,7 +121,7 @@ import {
   type SceneOp,
   type StylePatch,
 } from "../scene/types";
-import { BAND, bandFloor, hasSlack, WIDE_MARGIN, wideOps, type Fold } from "../scene/band";
+import { BAND, bandFloor, contentBottom, unfitted, WIDE_MARGIN, wideOps, type Fold } from "../scene/band";
 import { sceneBlockHeight } from "../types";
 import { defaultBox, newNode, type DrawKind } from "./newShape";
 import { Overlay, type OverlayApi } from "./Overlay";
@@ -281,6 +280,21 @@ function placementOf(ops: readonly SceneOp[]): Placement | null {
 /** The same map read the other way — an unfold is its fold undone. */
 function inverse({ a, b }: Placement): Placement {
   return { a: 1 / a, b: { x: -b.x / a, y: -b.y / a } };
+}
+
+/**
+ * The room under a band before whatever the page puts next — the following
+ * block, or the end of what the pane scrolls — in client px.
+ */
+function roomBelow(band: HTMLElement): number {
+  const bottom = band.getBoundingClientRect().bottom;
+  let block = band.closest(".bn-block-outer");
+  while (block && !block.nextElementSibling) block = block.parentElement?.closest(".bn-block-outer") ?? null;
+  const next = block?.nextElementSibling;
+  if (next) return next.getBoundingClientRect().top - bottom;
+  const pane = band.closest(".nt-pane") ?? scrollParent(band);
+  if (!pane) return Infinity;
+  return pane.getBoundingClientRect().top - pane.scrollTop + pane.scrollHeight - bottom;
 }
 
 /**
@@ -779,7 +793,7 @@ export function CanvasSurface({
     (h: number) => {
       const el = wrap.current;
       if (!el || inFrame) return;
-      el.style.height = `${Math.max(bandFloor(store.getScene()), h)}px`;
+      el.style.height = `${Math.max(contentBottom(store.getScene()), h)}px`;
     },
     [store, inFrame],
   );
@@ -1734,14 +1748,27 @@ export function CanvasSurface({
   const holding = active || sel.ids.length > 0 || sel.edges.length > 0;
 
   /**
-   * A band taller than it needs offers to fit its content again — the only
-   * way, besides the grip and the panel, it ever gets shorter — until its × is
-   * pressed. The offer is back after the next resize, or once the diagram has
-   * been edited and let go; never stored.
+   * A band off the height its content needs — taller, or pulled up tight to
+   * its shapes — offers to fit it again, until its × is pressed. The offer is
+   * back after the next resize, or once the diagram has been edited and let
+   * go; never stored.
    */
   const [declined, setDeclined] = useState<Scene | null>(null);
   if (declined && declined !== scene && !holding) setDeclined(null);
-  const offersAuto = !readOnly && !frame && hasSlack(scene) && !declined;
+  const offersAuto = !readOnly && !frame && unfitted(scene) && !declined;
+  /**
+   * The offer rides the grip: under the band where the page leaves room for
+   * it before what comes next, else just above the grip, inside. Placed on
+   * the element, since the room is the page's layout and not this render's.
+   */
+  const offer = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = offer.current;
+    const band = wrap.current;
+    if (!el || !band) return;
+    const k = band.getBoundingClientRect().height / (band.offsetHeight || 1);
+    el.dataset.at = roomBelow(band) >= (el.offsetHeight + 8) * k ? "below" : "above";
+  }, [offersAuto, height]);
 
   const onGripDown = (event: ReactPointerEvent) => {
     const el = wrap.current;
@@ -1750,7 +1777,8 @@ export function CanvasSurface({
     const startY = event.clientY;
     const startH = el.offsetHeight;
     const scale = effectiveScale(el);
-    const floor = bandFloor(store.getScene());
+    // Up to where the drawing ends — past the room Auto height would leave.
+    const floor = contentBottom(store.getScene());
     let next = startH;
     drag(
       (move) => {
@@ -1809,7 +1837,12 @@ export function CanvasSurface({
       }
     >
       {/* Under the viewport: a shape dragged into a margin is drawn over its wash. */}
-      {!readOnly && !frame && !wide && <div className="nt-canvas-margins" aria-hidden />}
+      {!readOnly && !frame && !wide && (
+        <div className="nt-canvas-margins" aria-hidden>
+          <span data-side="left" />
+          <span data-side="right" />
+        </div>
+      )}
       <div
         ref={containerRef}
         className="nt-canvas-viewport"
@@ -1931,9 +1964,8 @@ export function CanvasSurface({
       </div>
 
       {offersAuto && (
-        <div className="nt-canvas-autoh">
+        <div ref={offer} className="nt-canvas-autoh">
           <button type="button" className="nt-canvas-autoh-go" onClick={fit}>
-            <AutoHeight width={12} height={12} />
             Auto height
           </button>
           <button

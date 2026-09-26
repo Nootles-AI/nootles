@@ -302,11 +302,11 @@ describe("selection (§2.5, B26/B27)", () => {
 });
 
 describe("root sizing (§3.12)", () => {
-  it("a band is the column's width and as tall as it is drawn — its floor, past a lower h", () => {
+  it("a band is the column's width and as tall as it is drawn — its h, past where the drawing ends", () => {
     const { code, notes } = compileScene(fixture("band"));
     expect(notes).toEqual([]);
-    // The lowest box ends at 90; the floor adds the 24px band below it.
-    expect(code.split("\n")[0]).toContain("width: 720px; height: 114px");
+    // The lowest box ends at 90, above the stated 96: drawn at 96, as the page draws it.
+    expect(code.split("\n")[0]).toContain("width: 720px; height: 96px");
   });
 
   it("a band's stated h wins when it is taller than the content", () => {
@@ -318,7 +318,7 @@ describe("root sizing (§3.12)", () => {
     const scene: Scene = { ...fixture("band"), wide: true };
     scene.nodes = scene.nodes.map((node) => (node.id === "a" ? { ...node, x: -200 } : node));
     const code = compileScene(scene).code;
-    expect(code.split("\n")[0]).toContain("width: 1200px; height: 114px");
+    expect(code.split("\n")[0]).toContain("width: 1200px; height: 96px");
     expect(code).toMatch(/data-nt-id="a"[^>]*left: 40px; top: 10px/);
     expect(code).toMatch(/data-nt-id="b"[^>]*left: 360px; top: 60px/);
   });

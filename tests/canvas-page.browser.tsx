@@ -184,6 +184,13 @@ function mount() {
 
 const entry = (blockId: string) => page?.get(blockId) ?? null;
 const bandOf = (blockId: string) => entry(blockId)?.api.band.current ?? null;
+/** How much of a margin its deep layer covers, measured outward from the column's edge. */
+const coveredBy = (span: HTMLElement) => {
+  const layer = getComputedStyle(span, "::before");
+  const toward = span.dataset.side === "left" ? -1 : 1;
+  const tx = new DOMMatrixReadOnly(layer.transform === "none" ? undefined : layer.transform).m41;
+  return Math.round((1 + (toward * tx) / parseFloat(layer.width)) * 100) / 100;
+};
 
 function box(el: Element | null | undefined) {
   if (!el) return null;
@@ -389,7 +396,26 @@ const harness = {
   autoOffer: (blockId: string) => {
     const offer = bandOf(blockId)?.querySelector(".nt-canvas-autoh");
     if (!offer) return null;
-    return { go: box(offer.querySelector(".nt-canvas-autoh-go")), dismiss: box(offer.querySelector(".nt-canvas-autoh-no")) };
+    return {
+      go: box(offer.querySelector(".nt-canvas-autoh-go")),
+      dismiss: box(offer.querySelector(".nt-canvas-autoh-no")),
+      whole: box(offer),
+      at: (offer as HTMLElement).dataset.at ?? null,
+      text: offer.textContent,
+      glyphs: offer.querySelectorAll(".nt-canvas-autoh-go svg").length,
+    };
+  },
+  /** Room between a band and the block after it, in px; null takes it away. */
+  roomUnder: (blockId: string, px: number | null) => {
+    // A rule, not an inline style: the editor redraws its blocks' own elements.
+    const next = bandOf(blockId)?.closest(".bn-block-outer")?.nextElementSibling as HTMLElement | null | undefined;
+    const id = next?.dataset.id;
+    document.getElementById("nt-room-under")?.remove();
+    if (px === null || !id) return;
+    const rule = document.createElement("style");
+    rule.id = "nt-room-under";
+    rule.textContent = `.bn-block-outer[data-id="${CSS.escape(id)}"] { margin-top: ${px}px !important; }`;
+    document.head.append(rule);
   },
   /** Whether a diagram is wide, how (`true` or `"pinned"`), and whether its margins are washed in. */
   wide: (blockId: string) => !!entry(blockId)?.api.store.getScene().wide,
@@ -401,11 +427,48 @@ const harness = {
     if (!band?.hasAttribute("data-edge")) return null;
     return band.getAttribute("data-widen") ?? "held";
   },
-  /** The animation each margin's wash takes, left and right — the deep wash's arrival pulse, or none. */
-  pulse: (blockId: string) => {
-    const tint = bandOf(blockId)?.querySelector(".nt-canvas-margins");
-    if (!tint) return null;
-    return [getComputedStyle(tint, "::before").animationName, getComputedStyle(tint, "::after").animationName];
+  /**
+   * How far each margin's deep layer covers it, left and right: 0 tucked under
+   * the column, 1 all the way out. Past 1 or under 0 is a layer on the wrong side.
+   */
+  deep: (blockId: string) => {
+    const spans = [...(bandOf(blockId)?.querySelectorAll<HTMLElement>(".nt-canvas-margins > [data-side]") ?? [])];
+    return spans.length ? spans.map(coveredBy) : null;
+  },
+  /**
+   * The deep layer's wipe on one side, sampled at its start, middle and end:
+   * how far it covers the margin at each, and how long it takes — into the
+   * deep wash (`in`) or back out of it. Toggles the band's own attributes, so
+   * only while nothing holds the band.
+   */
+  wipe: (blockId: string, side: "left" | "right", way: "in" | "out") => {
+    const band = bandOf(blockId);
+    const span = band?.querySelector<HTMLElement>(`.nt-canvas-margins > [data-side="${side}"]`);
+    if (!band || !span) return null;
+    const set = (deep: boolean) => {
+      band.setAttribute("data-edge", "");
+      if (deep) band.setAttribute("data-widen", side);
+      else band.removeAttribute("data-widen");
+      coveredBy(span); // flushes style, so the next change transitions from this one
+    };
+    set(way === "out");
+    for (const a of span.getAnimations({ subtree: true })) a.finish();
+    set(way === "in");
+    const run = span.getAnimations({ subtree: true }).find((a) => a instanceof CSSTransition && a.transitionProperty === "transform");
+    let result = null;
+    if (run) {
+      run.pause();
+      const ms = Number(run.effect?.getComputedTiming().duration);
+      const at = (t: number) => {
+        run.currentTime = t * ms;
+        return coveredBy(span);
+      };
+      result = { ms, covered: [at(0), at(0.5), at(1)] };
+      run.cancel();
+    }
+    band.removeAttribute("data-edge");
+    band.removeAttribute("data-widen");
+    return result;
   },
   /** Every shape's box on screen, by id. */
   rects: (blockId: string) =>

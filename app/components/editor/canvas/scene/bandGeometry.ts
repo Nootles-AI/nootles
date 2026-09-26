@@ -21,16 +21,15 @@ export const EMPTY_BAND_H = 26 + 2 * BAND;
 /** Below this, two coordinates are the same place — fitting must not chase float error. */
 export const EPS = 1e-6;
 
-const FLOORS = new WeakMap<Scene, number>();
+const BOTTOMS = new WeakMap<Scene, number>();
 
 /**
- * The least height that still holds the whole drawing: the lowest visible
- * top-level box (rotation included) or connector route, plus {@link BAND}.
- * Connectors count because a loop-back routed under the shapes would otherwise
- * paint over the block below.
+ * The lowest visible top-level box (rotation included) or connector route;
+ * -Infinity with nothing drawn. Connectors count because a loop-back routed
+ * under the shapes would otherwise paint over the block below.
  */
-export function bandFloor(scene: Scene): number {
-  const cached = FLOORS.get(scene);
+function drawnBottom(scene: Scene): number {
+  const cached = BOTTOMS.get(scene);
   if (cached !== undefined) return cached;
   const laid = laidOutScene(scene);
   let bottom = -Infinity;
@@ -42,18 +41,33 @@ export function bandFloor(scene: Scene): number {
   for (const edge of laid.edges) {
     for (const point of edgePoints(laid, edge) ?? []) bottom = Math.max(bottom, point.y);
   }
-  const floor = bottom === -Infinity ? EMPTY_BAND_H : Math.ceil(bottom + BAND - EPS);
-  FLOORS.set(scene, floor);
-  return floor;
+  BOTTOMS.set(scene, bottom);
+  return bottom;
 }
 
 /**
- * The height a band is drawn at: what it stores, raised to what it holds — so
- * content that arrived from elsewhere taller than the stored height is shown
- * whole without anything being written.
+ * Where the drawing ends, with no room under it: as far up as a grip may pull
+ * the band. An empty band's is {@link EMPTY_BAND_H}.
+ */
+export function contentBottom(scene: Scene): number {
+  const bottom = drawnBottom(scene);
+  return bottom === -Infinity ? EMPTY_BAND_H : Math.ceil(bottom - EPS);
+}
+
+/** The height that holds the whole drawing with {@link BAND} under it: what Auto height sets. */
+export function bandFloor(scene: Scene): number {
+  const bottom = drawnBottom(scene);
+  return bottom === -Infinity ? EMPTY_BAND_H : Math.ceil(bottom + BAND - EPS);
+}
+
+/**
+ * The height a band is drawn at: what it stores, raised to where its drawing
+ * ends — so content that arrived from elsewhere taller than the stored height
+ * is shown whole without anything being written, and a band pulled up tight
+ * to its shapes stays tight. One with no height stated fits its content.
  */
 export function bandHeight(scene: Scene): number {
-  return Math.max(scene.h, bandFloor(scene));
+  return scene.h > 0 ? Math.max(scene.h, contentBottom(scene)) : bandFloor(scene);
 }
 
 /**

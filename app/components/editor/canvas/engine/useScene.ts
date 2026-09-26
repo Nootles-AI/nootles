@@ -9,7 +9,7 @@ import {
   migrateLegacyCanvas,
   readCanvasSource,
 } from "../scene/migrate";
-import { bandFloor, reachesMargins } from "../scene/band";
+import { bandFloor, contentBottom, reachesMargins } from "../scene/band";
 import { applyOps } from "../scene/ops";
 import { serializeScene } from "../scene/serialize";
 import {
@@ -336,8 +336,13 @@ export class SceneStore {
       if (this.depth > 0) this.emptiedOnPurpose = true;
     }
     if (this.band) {
+      // A band that kept the room under its drawing keeps it; one sized tight
+      // to its shapes — or being sized so, now — stays tight until content
+      // passes its edge, and then gets the room under it again.
       const floor = bandFloor(next);
-      if (floor > next.h) {
+      const sized = ops.some((o) => o.type === "setDiagram" && o.h !== undefined);
+      const roomy = !sized && bandFloor(before) <= before.h;
+      if (floor > next.h && (roomy || contentBottom(next) > next.h)) {
         const raise: SceneOp = { type: "setDiagram", h: floor };
         next = applyOps(next, [raise]);
         ops = [...ops, raise];

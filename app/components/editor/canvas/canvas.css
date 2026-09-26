@@ -97,33 +97,48 @@
   pointer-events: none;
   transition: opacity var(--dur) var(--ease);
 }
-.nt-canvas-margins::before,
-.nt-canvas-margins::after {
-  content: "";
+.nt-canvas-margins > span {
   position: absolute;
   inset-block: 0;
   width: var(--nt-margin, 240px);
+  overflow: hidden;
   background: color-mix(in oklab, var(--nt-select) 7%, transparent);
 }
-/* Deep on the side a drop would take the band wide into, flat, arriving with
-   one quick pulse past its depth — the drop will widen. No pulse leaving it. */
-.nt-canvas:is([data-widen="left"], [data-widen="both"]) > .nt-canvas-margins::before,
-.nt-canvas:is([data-widen="right"], [data-widen="both"]) > .nt-canvas-margins::after {
-  background: color-mix(in oklab, var(--nt-select) 16%, transparent);
-  animation: nt-widen-pulse 220ms var(--ease);
-}
-@keyframes nt-widen-pulse {
-  40% {
-    background-color: color-mix(in oklab, var(--nt-select) 26%, transparent);
-  }
-}
-.nt-canvas-margins::before {
+.nt-canvas-margins > [data-side="left"] {
   right: 100%;
   border-radius: var(--radius-sm) 0 0 var(--radius-sm);
 }
-.nt-canvas-margins::after {
+.nt-canvas-margins > [data-side="right"] {
   left: 100%;
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+/* Deep on the side a drop would take the band wide into: a darker layer wipes
+   out from the column's edge on a feathered front, and back to it leaving.
+   9.7% over the 7% beneath it is the 16% deep wash. Tucked under the column
+   at rest — the span clips it — and slid, never resized, so the compositor
+   plays it. The front's feather overhangs the far edge once it is all in. */
+.nt-canvas-margins > span::before {
+  --feather: 32px;
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  width: calc(100% + var(--feather));
+  transition: transform 160ms var(--ease);
+}
+.nt-canvas-margins > [data-side="left"]::before {
+  right: 0;
+  background: linear-gradient(to left, color-mix(in oklab, var(--nt-select) 9.7%, transparent) calc(100% - var(--feather)), transparent);
+  transform: translateX(100%);
+}
+.nt-canvas-margins > [data-side="right"]::before {
+  left: 0;
+  background: linear-gradient(to right, color-mix(in oklab, var(--nt-select) 9.7%, transparent) calc(100% - var(--feather)), transparent);
+  transform: translateX(-100%);
+}
+.nt-canvas:is([data-widen="left"], [data-widen="both"]) > .nt-canvas-margins > [data-side="left"]::before,
+.nt-canvas:is([data-widen="right"], [data-widen="both"]) > .nt-canvas-margins > [data-side="right"]::before {
+  transform: none;
+  transition-duration: 220ms;
 }
 .nt-canvas[data-edge] > .nt-canvas-margins {
   opacity: 1;
@@ -139,10 +154,10 @@
   .nt-canvas-margins {
     transition: none;
   }
-  /* Straight to the deep wash: as specific as the rule it quiets, and after it. */
-  .nt-canvas[data-widen] > .nt-canvas-margins::before,
-  .nt-canvas[data-widen] > .nt-canvas-margins::after {
-    animation: none;
+  /* A swap, not a wipe: the second as specific as the deep rule, and after it. */
+  .nt-canvas-margins > span::before,
+  .nt-canvas[data-widen] > .nt-canvas-margins > [data-side]::before {
+    transition: none;
   }
 }
 
@@ -376,19 +391,24 @@
   color: var(--foreground);
 }
 
-/* A band pinned taller than it needs offers to follow its content again: on
-   its bottom edge beside the grip, in the Merge offer's quiet voice. */
+/* A band off the height its content needs offers to fit it again, in the Merge
+   offer's quiet voice: centred on the grip, under the band where the page has
+   room (`data-at="below"`), else just above the grip. */
 .nt-canvas-autoh {
   position: absolute;
-  bottom: 0;
-  left: calc(50% + 28px);
+  bottom: 10px;
+  left: 50%;
   z-index: 3;
   display: flex;
   align-items: center;
   gap: 1px;
-  transform: translateY(50%);
+  transform: translateX(-50%);
   font-size: var(--text-meta-lg);
   color: var(--muted);
+}
+.nt-canvas-autoh[data-at="below"] {
+  top: calc(100% + 2px);
+  bottom: auto;
 }
 .nt-canvas-autoh > button {
   display: inline-flex;
@@ -400,9 +420,6 @@
   transition:
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
-}
-.nt-canvas-autoh > .nt-canvas-autoh-go {
-  gap: 4px;
 }
 .nt-canvas-autoh > .nt-canvas-autoh-no {
   padding: 0 4px;

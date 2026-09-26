@@ -21,7 +21,7 @@
  *    places that look random.
  */
 
-import { BAND, bandHeight, bandLeft, bandWidth } from "./bandGeometry";
+import { BAND, bandFloor, bandHeight, bandLeft, bandWidth } from "./bandGeometry";
 import { nodeBounds, unionBounds } from "./geometry";
 import { findParent, selectedNodes } from "./types";
 import type {
@@ -124,7 +124,9 @@ export function alignTarget(
           x: bandLeft(scene),
           y: BAND,
           w: bandWidth(scene),
-          h: Math.max(0, bandHeight(scene) - 2 * BAND),
+          // Padded even in a band pulled up tight: its margins are where the
+          // drawing would sit fitted, so aligning to them never moves the edge.
+          h: Math.max(0, Math.max(bandHeight(scene), bandFloor(scene)) - 2 * BAND),
         };
   if (ids.length === 0) return surface;
 

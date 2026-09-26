@@ -234,6 +234,42 @@ try {
     await drag(centre(await at("heightGrip", "bottom")), 0, 20);
     check("the next resize brings it back", !!(await at("autoOffer", "bottom")), true);
 
+    // The offer is just its words and its ×, and rides the grip: centred on
+    // it, above it with the next block close under the band, below it given
+    // room — following it live through a drag.
+    const rides = async () => {
+      const o = await at("autoOffer", "bottom");
+      const g = await at("heightGrip", "bottom");
+      const b = await at("band", "bottom");
+      const onGrip = Math.abs(o.whole.left + o.whole.width / 2 - (g.left + g.width / 2)) <= 1;
+      const side = o.at === "below" ? o.whole.top >= b.top + b.height - 0.5 : o.whole.top + o.whole.height <= g.top + 0.5;
+      return { at: o.at, onGrip, side, near: o.at === "below" ? o.whole.top - (b.top + b.height) < 6 : g.top - (o.whole.top + o.whole.height) < 6 };
+    };
+    const words = await at("autoOffer", "bottom");
+    check("the offer is its words alone, no glyph", [words.text, words.glyphs], ["Auto height", 0]);
+    check("with the next block close under the band, it sits just above the grip", await rides(), { at: "above", onGrip: true, side: true, near: true });
+    await at("roomUnder", "bottom", 60);
+    await drag(centre(await at("heightGrip", "bottom")), 0, 10);
+    check("given room under the band, just below it", await rides(), { at: "below", onGrip: true, side: true, near: true });
+    const live = await drag(centre(await at("heightGrip", "bottom")), 0, 40, { hold: rides });
+    check("and it follows the grip through the drag", live, { at: "below", onGrip: true, side: true, near: true });
+    await at("roomUnder", "bottom", null);
+
+    // Dragged up, the grip goes right to the shapes, past the room Auto height
+    // leaves under them — and Auto height gives that room back.
+    await drag(centre(await at("heightGrip", "bottom")), 0, -400);
+    check("the grip pulls the band up to where its shapes end, no further", [await at("height", "bottom"), (await at("band", "bottom")).height], [40 + 70, 40 + 70]);
+    const tight = await at("autoOffer", "bottom");
+    check("tighter than the room under the shapes, the band offers auto height", !!tight, true);
+    await page.mouse.click(...Object.values(centre(tight.go)));
+    await frame();
+    check("which puts the room back", [await at("height", "bottom"), await at("autoOffer", "bottom")], [40 + 70 + 24, null]);
+    await at("undo");
+    await frame();
+    check("one undo pulls it tight again", await at("height", "bottom"), 40 + 70);
+    await at("redo");
+    await frame();
+
     // A shape dragged down grows the band under it, and the page does not move.
     const grab = await at("shape", "bottom", "b1");
     await drag(centre(grab), 0, 150);
@@ -279,7 +315,9 @@ try {
         // A spring out past the side plays out before the shape is measured.
         await page.waitForFunction(() => document.getAnimations().every((a) => a.id !== "nt-snap"));
         const shape = await at("shape", "top", "a2");
-        seen.push({ wash: await at("wash", "top"), wide: await at("wide", "top"), pulse: await at("pulse", "top"), left: shape.left, right: shape.left + shape.width });
+        // So does the deep wash's wipe, before its layers are read.
+        await page.waitForFunction(() => document.getAnimations().every((a) => !a.effect?.target?.closest?.(".nt-canvas-margins")));
+        seen.push({ wash: await at("wash", "top"), wide: await at("wide", "top"), deep: await at("deep", "top"), left: shape.left, right: shape.left + shape.width });
       }
       if (escape) await page.keyboard.press("Escape");
       await page.mouse.up();
@@ -296,6 +334,25 @@ try {
     check("held at the column's side, the margins wash in faintly", [seen[0].wash, seen[0].wide], ["held", false]);
     check("and let go inside the column, it moves no further than the side", [await at("wide", "top"), (await at("model", "top", "a2")).x], [false, 600]);
     check("and the wash goes", await at("wash", "top"), null);
+    // Deepening, a darker layer wipes out from the column's edge; easing out,
+    // it is past halfway at half time. Back, it wipes home a touch quicker.
+    const wiped = async (side, way) => {
+      const w = await at("wipe", "top", side, way);
+      return w && { ms: w.ms, ends: [w.covered[0], w.covered[2]], early: way === "in" ? w.covered[1] > 0.5 && w.covered[1] < 1 : w.covered[1] > 0 && w.covered[1] < 0.5 };
+    };
+    check(
+      "a side deepening wipes out from the column's edge, and back to it leaving — either side",
+      [await wiped("right", "in"), await wiped("right", "out"), await wiped("left", "in"), await wiped("left", "out")],
+      [
+        { ms: 220, ends: [0, 1], early: true },
+        { ms: 160, ends: [1, 0], early: true },
+        { ms: 220, ends: [0, 1], early: true },
+        { ms: 160, ends: [1, 0], early: true },
+      ],
+    );
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    check("with reduced motion it swaps, no wipe", [await at("wipe", "top", "right", "in"), await at("wipe", "top", "left", "out")], [null, null]);
+    await page.emulateMedia({ reducedMotion: "no-preference" });
     await at("undo");
     await frame();
 
@@ -319,7 +376,7 @@ try {
     seen = await pushTo([200, 300, 330]);
     check("pushed well past, the side it goes into deepens — and the band stays in the column", seen.map((s) => [s.wash, s.wide]), [["held", false], ["right", false], ["right", false]]);
     check("and the shape follows the pointer into the margin", within(seen[2].left, a2.left + 330, 1), true);
-    check("the side turning deep pulses once as it does; the faint one does not", [seen[0].pulse, seen[2].pulse], [["none", "none"], ["none", "nt-widen-pulse"]]);
+    check("the side turning deep is covered by its dark layer; the faint one is not", [seen[0].deep, seen[2].deep], [[0, 0], [0, 1]]);
     const landed = await at("frameOf", "top", "a2");
     check("let go in the margin, the band turns wide", [await at("wideKind", "top"), landed.x + landed.w > 720], [true, true]);
     const framesShape = async () => {

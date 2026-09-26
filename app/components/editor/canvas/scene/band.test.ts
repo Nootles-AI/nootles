@@ -6,13 +6,14 @@ import {
   bandHeight,
   bandLeft,
   bandWidth,
+  contentBottom,
   EMPTY_BAND_H,
   fitOps,
   fitToBand,
-  hasSlack,
   isLegacyRoot,
   narrowOps,
   normalizeDiagram,
+  unfitted,
   unfoldOps,
   WIDE_MARGIN,
   WIDE_W,
@@ -91,9 +92,9 @@ describe("the band's geometry", () => {
     expect(routed).toBe(218 + BAND);
   });
 
-  test("the height drawn is what is stored, raised to what is held", () => {
+  test("the height drawn is what is stored, raised to where the drawing ends", () => {
     expect(bandHeight(band([rect("a", 0, 24)], { h: 300 }))).toBe(300);
-    expect(bandHeight(band([rect("a", 0, 24)], { h: 40 }))).toBe(108);
+    expect(bandHeight(band([rect("a", 0, 24)], { h: 40 }))).toBe(84);
     expect(bandHeight(band([rect("a", 0, 24)]))).toBe(108);
     expect(bandHeight(band([]))).toBe(74);
   });
@@ -110,7 +111,7 @@ describe("normalizeDiagram", () => {
     // is drawn whole by `bandHeight`, and nothing is written for reading it.
     const short = band([rect("a", 900, 24)], { h: 40 });
     expect(normalizeDiagram(short)).toBe(short);
-    expect(bandHeight(short)).toBe(108);
+    expect(bandHeight(short)).toBe(84);
   });
 
   test("a band root stating no height is given its floor, and nothing else moves", () => {
@@ -277,11 +278,20 @@ describe("fitToBand", () => {
     expect(fitToBand(band([rect("a", 0, 300)])).h).toBe(384);
   });
 
-  test("slack is room under the drawing past a hair, never what the content needs", () => {
-    expect(hasSlack(band([rect("a", 0, 24)], { h: 108 }))).toBe(false);
-    expect(hasSlack(band([rect("a", 0, 24)], { h: 116 }))).toBe(false);
-    expect(hasSlack(band([rect("a", 0, 24)], { h: 117 }))).toBe(true);
-    expect(hasSlack(band([rect("a", 0, 400)], { h: 117 }))).toBe(false);
+  test("off the fitted height past a hair, either way, is what Auto height would undo", () => {
+    // Fitted: 24 + 60 + 24.
+    expect(unfitted(band([rect("a", 0, 24)], { h: 108 }))).toBe(false);
+    expect(unfitted(band([rect("a", 0, 24)], { h: 116 }))).toBe(false);
+    expect(unfitted(band([rect("a", 0, 24)], { h: 117 }))).toBe(true);
+    // Pulled up tighter than the room under the shapes: Auto height gives it back.
+    expect(unfitted(band([rect("a", 0, 24)], { h: 100 }))).toBe(false);
+    expect(unfitted(band([rect("a", 0, 24)], { h: 84 }))).toBe(true);
+  });
+
+  test("a band pulled up to its shapes is drawn there, never over them", () => {
+    const tight = band([rect("a", 0, 24)], { h: 84 });
+    expect([contentBottom(tight), bandFloor(tight), bandHeight(tight)]).toEqual([84, 108, 84]);
+    expect(contentBottom(band([]))).toBe(74);
   });
 
   test("a hugging group is measured at the size it hugs to, so the fit is idempotent", () => {
