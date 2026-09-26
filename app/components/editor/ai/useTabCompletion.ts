@@ -926,7 +926,7 @@ export function useTabCompletion(
      * So the title is read once per turn, into the turn's own projection.
      */
     const lens = {
-      window: AI.projection.window,
+      ...AI.projection,
       collapseDrawn: true,
       // Diagrams appear as the <nt-build-diagram> macro, never as shapes: shown
       // a finished <nt-diagram>, the FIM model imitated it — connectors as
@@ -984,6 +984,14 @@ export function useTabCompletion(
         cursorBlockId,
         blocks,
         visible,
+        // The page's words as the model was shown them, both sides of the
+        // caret, as the wire cuts them: what a grounded completion may reuse.
+        // A series continuation borrows from the items above AND the ones
+        // after an insertion point (NT-101).
+        seen: `${split.prefix.slice(-AI.fim.maxBefore)} ${split.suffix.slice(0, AI.fim.maxAfter)}`.replace(
+          /<[^>]*>/g,
+          " ",
+        ),
         midWord: /\w$/.test(bare),
         cell,
         projection,
@@ -1474,7 +1482,7 @@ export function useTabCompletion(
         const shown = displayText(acc);
         if (!shown.trim()) return clear();
         const finishesAWord = !/\s/.test(shown.trim());
-        if (!finishesAWord && grounding(ctx.visible, shown) < limits.minGrounding) {
+        if (!finishesAWord && grounding(ctx.seen, shown) < limits.minGrounding) {
           return clear();
         }
       }
