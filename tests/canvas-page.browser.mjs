@@ -417,15 +417,44 @@ try {
 
   // ⌫ on a diagram's last shape takes the diagram with it, and one undo
   // brings back both. Undo is the text's, so the page stops being served
-  // from NML here (see `unserve`).
+  // from NML here (see `unserve`). The shape is moved first, as a person
+  // would: the selection its going lets go of is then a stop of its own in
+  // the diagram's history, which must not be the step's to take first — the
+  // diagram is not there to take it until the text brings its block back.
   await at("unserve");
+  const lastShape = (await at("nodes", drawnOn))[0];
+  await drag(centre(await at("shape", drawnOn, lastShape.id)), 30, 20);
   await page.keyboard.press("Backspace");
   await page.waitForFunction((id) => !window.canvasPage.blocks().includes(`${id}:canvas`), drawnOn);
   check("⌫ on a diagram's last shape takes its block out", (await at("blocks")).includes(`${drawnOn}:canvas`), false);
   check("with the caret in the text beside it", await at("keyboard"), "text");
-  await at("undo");
-  await page.waitForFunction((id) => window.canvasPage.count(id) === 1, drawnOn);
+  // Promptly, as a keypress sees it — not awaiting the step: a press waiting
+  // on a diagram that is not coming back swallows every press after it.
+  const press = (step) => page.evaluate((step) => void window.canvasPage[step](), step);
+  await press("undo");
+  await page.waitForFunction((id) => window.canvasPage.count(id) === 1, drawnOn, { timeout: 2000 });
   check("one undo brings back the diagram and its shape", (await at("blocks")).includes(`${drawnOn}:canvas`), true);
+  await press("redo");
+  await page.waitForFunction((id) => !window.canvasPage.blocks().includes(`${id}:canvas`), drawnOn, { timeout: 2000 });
+  check("redo takes it out again", (await at("blocks")).includes(`${drawnOn}:canvas`), false);
+  await press("undo");
+  await page.waitForFunction((id) => window.canvasPage.count(id) === 1, drawnOn, { timeout: 2000 });
+  check("and undo brings it back again", (await at("blocks")).includes(`${drawnOn}:canvas`), true);
+
+  // ⌫ straight after a nudge: the nudge is a step of its own, under the
+  // step the block went in — undo brings the diagram back as it was when it
+  // went, and the next undo, from the diagram it brought back, the nudge.
+  await page.mouse.click(...Object.values(centre(await at("shape", drawnOn, lastShape.id))));
+  const unnudged = await at("model", drawnOn, lastShape.id);
+  await page.keyboard.press("ArrowRight");
+  const nudged = await at("model", drawnOn, lastShape.id);
+  await page.keyboard.press("Backspace");
+  await page.waitForFunction((id) => !window.canvasPage.blocks().includes(`${id}:canvas`), drawnOn);
+  await press("undo");
+  await page.waitForFunction((id) => window.canvasPage.count(id) === 1, drawnOn, { timeout: 2000 });
+  check("after a nudge, undo brings the diagram back as it went", await at("model", drawnOn, lastShape.id), nudged);
+  await at("undo");
+  check("and the next undo takes the nudge back", await at("model", drawnOn, lastShape.id), unnudged);
 
   // Two diagrams that touch can be one: Merge at their seam, one undo to take
   // it back, and × to keep them apart.

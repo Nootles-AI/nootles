@@ -321,6 +321,10 @@ export class SceneStore {
           this.depth = 1;
           this.commit();
         }
+        // The edit is made, as the block's removal: the selection letting go
+        // in its wake is its doing, and a stop recorded after the block's
+        // step would be undone before the step that brings the block back.
+        this.markEdited();
         this.onEmpty();
         return;
       }
@@ -684,6 +688,10 @@ export class SceneStore {
 
   private record(scene: Scene, selection: RestoreSelection | null): void {
     this.push({ scene, selection, selectionOnly: false });
+    this.markEdited();
+  }
+
+  private markEdited(): void {
     if (this.justEdited) return;
     this.justEdited = true;
     // A selection made in the same task as an edit is the edit's own doing, and

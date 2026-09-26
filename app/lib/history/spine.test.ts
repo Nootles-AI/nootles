@@ -278,6 +278,35 @@ describe("summoning across pages", () => {
     await spine.undo(); // a is gone with no page to summon it on; b answers
     expect(b.log).toEqual(["undo:0"]);
   });
+
+  it("waits for a domain on this page only once the part before it has stepped", async () => {
+    // A diagram's open bracket closing into the step that takes its block
+    // out: the text's undo brings the block back, and the diagram's domain
+    // with it, which is only then there to take its own part.
+    const spine = new WorkspaceHistory();
+    spine.setNavigator({ currentPage: () => "page-1", openPage: () => {} });
+    const trail: string[] = [];
+    const diagram = new FakeDomain(spine, "diagram", trail);
+    let unmount = spine.register("diagram", diagram, "page-1");
+    const text = new FakeDomain(spine, "text", trail);
+    const textUndo = text.undo.bind(text);
+    text.undo = () => {
+      const step = textUndo();
+      queueMicrotask(() => (unmount = spine.register("diagram", diagram, "page-1")));
+      return step;
+    };
+    spine.register("text", text, "page-1");
+    spine.batch(() => {
+      diagram.edit(1);
+      text.edit(2);
+    });
+    unmount();
+
+    await spine.undo();
+    expect(trail).toEqual(["text:undo:2", "diagram:undo:1"]);
+    await spine.redo();
+    expect(trail.slice(2)).toEqual(["diagram:redo:1", "text:redo:2"]);
+  });
 });
 
 /** A domain that reports a live gesture up front, as the canvas does. */

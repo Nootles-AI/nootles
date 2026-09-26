@@ -29,6 +29,19 @@ describe("the last-shape guard", () => {
     expect(events).toEqual([]);
   });
 
+  it("records no stop for the selection letting go in the guarded edit's wake", async () => {
+    // The block's removal focuses the text, which clears the selection: a
+    // stop recorded then would be the step's newest part, undone before the
+    // text part that brings the diagram back to take it.
+    const { store, events } = guarded();
+    store.setOnEmpty(() => store.recordSelection(() => {}));
+    store.dispatch({ type: "remove", ids: ["a"] });
+    expect(events).toEqual([]);
+    await Promise.resolve();
+    store.recordSelection(() => {});
+    expect(events).toEqual([{ type: "push", selectionOnly: true }]);
+  });
+
   it("lets every other edit through, a removal that leaves a shape included", () => {
     const { store, onEmpty } = guarded(two);
     store.dispatch({ type: "remove", ids: ["a"] });

@@ -309,7 +309,7 @@ export class WorkspaceHistory {
         const token = stack[stack.length - 1];
         if (!token) return;
 
-        const domains = await this.gather(token);
+        const { domains, late } = await this.gather(token);
         for (const domain of domains.values()) domain.settle?.();
         // A run that settling recorded is newer than this step, so the press
         // is its to take — and on the redo side, that edit ended the redo.
@@ -320,7 +320,12 @@ export class WorkspaceHistory {
         let refused = false;
         while (live(token)) {
           const part = token.parts[token.parts.length - 1];
-          const domain = domains.get(part.domain);
+          let domain = domains.get(part.domain);
+          if (!domain && late.has(part.domain)) {
+            late.delete(part.domain);
+            domain = (await this.summon(part.domain, part.pageId)) ?? undefined;
+            if (domain) domains.set(part.domain, domain);
+          }
           if (!domain) {
             // It never came back: this part dies, the rest still step.
             token.parts.pop();
@@ -366,19 +371,32 @@ export class WorkspaceHistory {
     }
   }
 
-  /** Every domain a token spans, summoned once each in walk order; one
-   *  that never comes back is missing from the map. */
-  private async gather(token: Token): Promise<Map<string, UndoDomain>> {
-    const found = new Map<string, UndoDomain>();
+  /**
+   * Every domain a token spans, summoned once each in walk order; one that
+   * never comes back is missing from the map. One missing from the page on
+   * screen is `late` instead: it is summoned when its part's turn comes,
+   * because the part stepped before it may be what brings it back — a text
+   * step restoring the block of a diagram that died in the same step. Being
+   * unmounted, it has nothing to settle and no gesture to be blocked by.
+   */
+  private async gather(
+    token: Token,
+  ): Promise<{ domains: Map<string, UndoDomain>; late: Set<string> }> {
+    const domains = new Map<string, UndoDomain>();
+    const late = new Set<string>();
     const asked = new Set<string>();
     for (let i = token.parts.length - 1; i >= 0; i--) {
       const { domain: id, pageId } = token.parts[i];
       if (asked.has(id)) continue;
       asked.add(id);
+      if (!this.domains.has(id) && pageId !== null && pageId === this.navigator?.currentPage()) {
+        late.add(id);
+        continue;
+      }
       const domain = await this.summon(id, pageId);
-      if (domain) found.set(id, domain);
+      if (domain) domains.set(id, domain);
     }
-    return found;
+    return { domains, late };
   }
 
   /**

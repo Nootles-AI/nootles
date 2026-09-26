@@ -103,6 +103,14 @@ function Page() {
   useEffect(() => {
     spine = history;
   }, [history]);
+  // The page on screen, as the workspace tells the spine: a step whose domain
+  // is not mounted waits for it here, where without a navigator it would be
+  // given up on at once.
+  useEffect(() => {
+    if (!history) return;
+    history.setNavigator({ currentPage: () => PAGE, openPage: () => {} });
+    return () => history.setNavigator(null);
+  }, [history]);
   const [hub] = useState(() =>
     createPageCanvasHub(history ? { batch: history.batch, quiet: history.walking } : { batch: (fn) => fn() }),
   );
@@ -278,6 +286,7 @@ const harness = {
   /** The diagram blocks on the page, in order. */
   diagrams: () => (page?.entries() ?? []).map((diagram) => diagram.blockId),
   undo: () => spine?.undo(),
+  redo: () => spine?.redo(),
   /**
    * The page as a document not served from NML — the app's default — whose
    * text steps undo. While the mirror runs, every change it takes in is
