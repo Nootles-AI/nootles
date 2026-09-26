@@ -16,6 +16,7 @@ import { ySyncPluginKey } from "y-prosemirror";
 import type * as Y from "yjs";
 import { flattenBlocks, type AnyBlock } from "@/app/lib/ai/projection";
 import { useHints } from "@/app/components/hints/useHints";
+import { X } from "@/app/components/Icons";
 import { useReadOnly } from "../readOnly";
 import { putDataUri } from "../album/upload";
 import { canonicalPathOps } from "../canvas/scene/canonicalPaths";
@@ -42,6 +43,7 @@ import { serializeScene } from "../canvas/scene/serialize";
 import type { Scene } from "../canvas/scene/types";
 import { CanvasSurface, type CanvasApi } from "../canvas/render/CanvasSurface";
 import { usePageCanvas } from "../canvas/page/PageCanvas";
+import { deleteDiagramBlock, mergeOps, pageScope, type LifecycleEditor } from "../canvas/page/lifecycle";
 import { blockSelection, type BlockSelectionEditor } from "../blockSelection";
 
 /** How many preceding blocks of page text to hand the canvas for context. */
@@ -61,12 +63,20 @@ const CONTEXT_BLOCKS = 4;
 const MIRROR_MS = 5000;
 
 /** The editor members this block needs beyond what the spec hands over. */
-type HostEditor = {
+type HostEditor = LifecycleEditor & {
   prosemirrorState: unknown;
   getExtension: (key: string) => unknown;
   getBlock: (id: string) => { props?: unknown } | undefined;
-  removeBlocks: (ids: string[]) => unknown;
 };
+
+/** The diagram block right after this one's, when the two touch: what a merge takes in. */
+function nextDiagram(host: HTMLElement | null): string | null {
+  const outer = host?.closest(".bn-block-outer");
+  if (!outer || outer.querySelector(":scope > .bn-block > .bn-block-group")) return null;
+  const next = outer.nextElementSibling;
+  const diagram = next?.querySelector(':scope > .bn-block > .react-renderer > .bn-block-content[data-content-type="canvas"]');
+  return diagram ? ((next as HTMLElement).dataset.id ?? null) : null;
+}
 
 type ForkStore = {
   state?: { isForked?: boolean };
@@ -492,6 +502,43 @@ function CanvasBlockView({
     writeMirror();
   }, [liveApi, writeMirror]);
   const remove = useCallback(() => editor.removeBlocks([blockId]), [editor, blockId]);
+  // The last shape going takes the block with it, as one text step: the prop
+  // written first holds the diagram as it stood with that shape, so undoing
+  // the delete brings back both.
+  const onEmpty = useCallback(() => {
+    flushMirror();
+    page.batch(() => deleteDiagramBlock(editor, blockId));
+  }, [flushMirror, page, editor, blockId]);
+
+  // Two diagrams that touch can be one: the one below brought into this one's
+  // store, and its block taken out, as one step. The seam's button shows by
+  // the page's own structure (canvas.css), unless dismissed for this pair.
+  const seam = useRef<HTMLDivElement>(null);
+  const reseam = useCallback(() => {
+    const el = seam.current;
+    if (!el) return;
+    const below = nextDiagram(host.current);
+    el.toggleAttribute("data-dismissed", !!below && page.mergeDismissed(blockId, below));
+  }, [host, page, blockId]);
+  useLayoutEffect(reseam);
+  const merge = () => {
+    const below = nextDiagram(host.current);
+    const lower = below ? page.get(below) : undefined;
+    if (!below || !lower || lower.readOnly || !liveApi) return;
+    flushMirror();
+    lower.flushMirror();
+    const scope = pageScope(page.entries().map((entry) => entry.api.store.getScene()));
+    const ops = mergeOps(liveApi.store.getScene(), lower.api.store.getScene(), scope);
+    page.batch(() => {
+      liveApi.store.dispatch(ops);
+      editor.transact(() => editor.removeBlocks([below]));
+    });
+  };
+  const keepApart = () => {
+    const below = nextDiagram(host.current);
+    if (below) page.dismissMerge(blockId, below);
+    reseam();
+  };
   const blocks = useMemo(() => blockSelection(editor as unknown as BlockSelectionEditor), [editor]);
   const onPage = useMemo(() => (page.pane ? { canvas: page, blockId } : undefined), [page, blockId]);
   useEffect(() => {
@@ -530,6 +577,7 @@ function CanvasBlockView({
       ref={host}
       className="nt-canvas-block relative w-full"
       onPointerDownCapture={() => setPressing(true)}
+      onPointerEnter={reseam}
     >
       <CanvasAiContext value={ai}>
         <CanvasSurface
@@ -539,6 +587,7 @@ function CanvasBlockView({
           tools={page.tools ?? undefined}
           page={onPage}
           keymap={page.pane ? "page" : "container"}
+          onEmpty={onEmpty}
           onApi={(next) => {
             api.current = next;
             setLiveApi(next);
@@ -550,6 +599,22 @@ function CanvasBlockView({
         <p className="nt-canvas-hint is-low" aria-hidden>
           A real canvas, not a picture — drag a shape
         </p>
+      )}
+      {page.pane && (
+        <div ref={seam} className="nt-canvas-merge">
+          <button type="button" className="nt-canvas-merge-go" onClick={merge}>
+            Merge
+          </button>
+          <button
+            type="button"
+            className="nt-canvas-merge-no"
+            aria-label="Keep these diagrams apart"
+            title="Keep apart"
+            onClick={keepApart}
+          >
+            <X width={12} height={12} />
+          </button>
+        </div>
       )}
     </div>
   );

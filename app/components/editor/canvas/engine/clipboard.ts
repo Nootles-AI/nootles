@@ -105,7 +105,7 @@ export function copiesInto(
 }
 
 /** The connectors among `edges` whose both ends were copied, onto the copies' ids. */
-function remapEdges(
+export function remapEdges(
   scene: Scene,
   edges: readonly SceneEdge[],
   map: ReadonlyMap<NodeId, NodeId>,

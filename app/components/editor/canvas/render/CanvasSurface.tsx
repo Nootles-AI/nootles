@@ -348,6 +348,8 @@ export interface CanvasApi {
    * shape's place — a collaborator's selection outline — reads it here.
    */
   live: LiveDrawing;
+  /** The pen on this canvas: whether it is mid-path, and when it is done. */
+  pen: PenState;
   /**
    * The board this canvas is a shot of, or absent on a canvas that stands on
    * its own.
@@ -358,6 +360,13 @@ export interface CanvasApi {
    * rather than nullable so an ordinary canvas is unchanged by its existence.
    */
   board?: BoardApi;
+}
+
+export interface PenState {
+  /** A path is being drawn here, open to more points. */
+  drawing(): boolean;
+  /** Told the path the pen finished on, or `null` for one it gave up. */
+  onFinish(listener: (id: NodeId | null) => void): () => void;
 }
 
 export interface LiveDrawing {
@@ -441,6 +450,8 @@ export interface CanvasSurfaceProps {
    * the page — the pane's keymap, which speaks for every diagram on it.
    */
   keymap?: "container" | "page";
+  /** The last-shape guard: a diagram block's, which goes with its last shape. */
+  onEmpty?: () => void;
 }
 
 export function CanvasSurface({
@@ -453,6 +464,7 @@ export function CanvasSurface({
   tools,
   page,
   keymap = "container",
+  onEmpty,
 }: CanvasSurfaceProps) {
   const store = useScene({
     source,
@@ -460,6 +472,7 @@ export function CanvasSurface({
     cacheKey: storeKey,
     frame: frame && { w: frame.w, h: frame.h },
     band: !frame,
+    onEmpty,
   });
   const scene = useSceneSnapshot(store);
   // Every family the scene names, asked for once. The declaration is the
@@ -1015,6 +1028,22 @@ export function CanvasSurface({
   );
   const pressing = useCallback(() => busy.current || gesture.isActive(), [gesture]);
 
+  const penDrawing = useRef(false);
+  const penListeners = useRef(new Set<(id: NodeId | null) => void>());
+  const onPenDrawing = useCallback((drawing: boolean) => {
+    penDrawing.current = drawing;
+  }, []);
+  const pen = useMemo<PenState>(
+    () => ({
+      drawing: () => penDrawing.current,
+      onFinish: (listener) => {
+        penListeners.current.add(listener);
+        return () => void penListeners.current.delete(listener);
+      },
+    }),
+    [],
+  );
+
   const api = useMemo<CanvasApi>(
     () => ({
       store,
@@ -1034,6 +1063,7 @@ export function CanvasSurface({
       previewSize,
       previewStyle,
       live,
+      pen,
     }),
     [
       store,
@@ -1052,6 +1082,7 @@ export function CanvasSurface({
       previewSize,
       previewStyle,
       live,
+      pen,
     ],
   );
 
@@ -1569,6 +1600,7 @@ export function CanvasSurface({
     (id: NodeId | null) => {
       settleTool();
       if (id) selection.select([id]);
+      for (const listener of [...penListeners.current]) listener(id);
     },
     [selection, settleTool],
   );
@@ -1734,11 +1766,28 @@ export function CanvasSurface({
             viewport={viewport}
             nodeId={penTarget}
             onFinish={onPenFinish}
+            onDrawing={onPenDrawing}
+            shared={keymap === "page"}
           />
         )}
 
-        {scene.nodes.length === 0 && !readOnly && !frame && (
-          <p className="nt-canvas-hint">Pick a shape from the toolbar</p>
+        {/* An empty diagram says what it is for in the page's own placeholder
+            voice, and the words are the way in: a press on them arms the
+            rectangle, which the next press on the band draws. */}
+        {scene.nodes.length === 0 && !readOnly && !frame && tool === "move" && (
+          <button
+            type="button"
+            className="nt-canvas-placeholder"
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              event.preventDefault();
+              event.stopPropagation();
+              changeTool("rect");
+              focus();
+            }}
+          >
+            Add shapes
+          </button>
         )}
       </div>
 

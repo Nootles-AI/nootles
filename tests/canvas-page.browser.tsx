@@ -21,6 +21,8 @@ import {
   WorkspaceHistoryProvider,
 } from "../app/lib/history/useWorkspaceHistory";
 import type { WorkspaceHistory } from "../app/lib/history/spine";
+import { useTextUndoDomain, type UndoHostEditor } from "../app/lib/history/textDomain";
+import { textStepsExtension } from "../app/lib/history/textSteps";
 import { createNmlYDoc, type NmlDocument } from "../app/lib/nml";
 import { NmlLegacyMirror } from "../app/lib/nml/mirror";
 import { blockNoteNmlMirrorHost } from "../app/lib/nml/mirrorBlockNote";
@@ -91,11 +93,13 @@ const source = (): NmlDocument =>
   }) as unknown as NmlDocument;
 
 let editor: Editor;
+let mirror: NmlLegacyMirror;
 let page: PageCanvas | null = null;
 let spine: WorkspaceHistory | null = null;
 
 function Page() {
   const history = useWorkspaceHistory();
+  useTextUndoDomain(history, editor as unknown as UndoHostEditor, "canvas-page", PAGE);
   useEffect(() => {
     spine = history;
   }, [history]);
@@ -116,6 +120,8 @@ function Pane() {
   useEffect(() => {
     page = canvas;
   }, [canvas]);
+  // What a draw on the page makes its diagrams in, as the app's editor says.
+  useEffect(() => canvas.setEditor(editor as never), [canvas]);
   useZoomKeys(() => "main");
   return (
     <PageCanvasContext value={canvas}>
@@ -137,7 +143,7 @@ function mount() {
     withCollaboration({
       schema,
       // The document's own block keys and its paste, as the app's editor has them.
-      extensions: [blockSelectionExtension, blockKeysExtension],
+      extensions: [blockSelectionExtension, blockKeysExtension, textStepsExtension],
       pasteHandler,
       collaboration: {
         fragment: ydoc.getXmlFragment("prosemirror"),
@@ -148,7 +154,7 @@ function mount() {
   ) as unknown as Editor;
   // The canonical document is the NML maps; the mirror is what renders them
   // into the editor's fragment, as it does in the app.
-  new NmlLegacyMirror(ydoc, blockNoteNmlMirrorHost(editor, ydoc), {
+  mirror = new NmlLegacyMirror(ydoc, blockNoteNmlMirrorHost(editor, ydoc), {
     actor: { kind: "human", userId: "browser-test" },
     onError: (error) => console.error("NML compatibility mirror failed", error),
   }).start();
@@ -255,6 +261,13 @@ const harness = {
       (rect) => rect.style.display !== "none" && rect.getBoundingClientRect().width > 0,
     );
   },
+  /** A copy as the browser raises one; what it put on the clipboard. */
+  copy: () => {
+    const data = new DataTransfer();
+    const target = document.activeElement ?? document.body;
+    target.dispatchEvent(new ClipboardEvent("copy", { clipboardData: data, bubbles: true, cancelable: true }));
+    return data.getData("text/plain");
+  },
   /** A paste as the browser raises one, with this text on the clipboard. */
   paste: (text: string) => {
     const data = new DataTransfer();
@@ -265,7 +278,38 @@ const harness = {
   /** The diagram blocks on the page, in order. */
   diagrams: () => (page?.entries() ?? []).map((diagram) => diagram.blockId),
   undo: () => spine?.undo(),
+  /**
+   * The page as a document not served from NML — the app's default — whose
+   * text steps undo. While the mirror runs, every change it takes in is
+   * written back over the editor's fragment, and the text's undo has nothing
+   * of its own left to restore.
+   */
+  unserve: () => mirror.stop(),
   clear: () => page?.selection.clearAll(),
+  /** Picks the page's tool, as the bar does. */
+  pick: (tool: string) => page?.tools?.set(tool as never),
+  /** A block's box on screen, whatever it holds. */
+  block: (blockId: string) => box(document.querySelector(`.bn-block-outer[data-id="${CSS.escape(blockId)}"]`)),
+  /** A new empty line after a block; its id. */
+  addLine: (after: string) => editor.insertBlocks([{ type: "paragraph" }], after, "after")[0].id,
+  /** Takes a block out, as a person deleting it would. */
+  removeBlock: (blockId: string) => editor.removeBlocks([blockId]),
+  /** The seam's Merge offer under a diagram, and its ×, while it shows. */
+  seam: (blockId: string) => {
+    const seam = bandOf(blockId)?.parentElement?.querySelector(".nt-canvas-merge");
+    if (!seam || getComputedStyle(seam).display === "none") return null;
+    return {
+      merge: box(seam.querySelector(".nt-canvas-merge-go")),
+      dismiss: box(seam.querySelector(".nt-canvas-merge-no")),
+    };
+  },
+  /** Every shape's id and place in a diagram. */
+  nodes: (blockId: string) =>
+    (entry(blockId)?.api.store.getScene().nodes ?? []).map((node) => ({ id: node.id, x: node.x, y: node.y })),
+  /** Where a new diagram would go, as the page shows it while a tool is armed. */
+  insertLine: () => box(document.querySelector(".nt-page-insert")),
+  /** Which band is outlined as a draw's target. */
+  target: () => (page?.entries() ?? []).find((diagram) => diagram.api.band.current?.hasAttribute("data-target"))?.blockId ?? null,
 };
 
 declare global {

@@ -111,6 +111,13 @@ export interface PenToolProps {
   nodeId?: NodeId | null;
   /** The pen is done: leave the tool, and select `id` when there is one. */
   onFinish: (id: NodeId | null) => void;
+  /** Whether a path is being drawn — placed from, and still open to more points. */
+  onDrawing?: (drawing: boolean) => void;
+  /**
+   * One pen of several, on a page of diagrams: with nothing under way here,
+   * Enter and Escape are the pen's that has something, or the page's.
+   */
+  shared?: boolean;
 }
 
 /** Map an anchor through a point transform, carrying its handles along. */
@@ -214,6 +221,8 @@ export function PenTool({
   viewport,
   nodeId = null,
   onFinish,
+  onDrawing,
+  shared = false,
 }: PenToolProps) {
   const [initial] = useState(() => load(store, nodeId));
 
@@ -362,7 +371,9 @@ export function PenTool({
   const sync = useCallback(() => {
     setCount(anchorsRef.current.length);
     paint();
-  }, [paint]);
+    onDrawing?.(drawingRef.current && !closedRef.current && anchorsRef.current.length > 0);
+  }, [paint, onDrawing]);
+  useEffect(() => () => onDrawing?.(false), [onDrawing]);
 
   // -- Writing --------------------------------------------------------------
 
@@ -472,13 +483,17 @@ export function PenTool({
     endNudgeRun();
     const id = idRef.current;
     if (anchorsRef.current.length < 2) {
-      if (id) store.dispatch({ type: "remove", ids: [id] });
+      // Its own, taken back: a diagram that held nothing else was empty
+      // before the pen began, and the last-shape guard is not asked.
+      if (id) store.dispatch({ type: "remove", ids: [id] }, { guard: false });
+      onDrawing?.(false);
       onFinish(null);
       return;
     }
     write();
+    onDrawing?.(false);
     onFinish(id);
-  }, [endNudgeRun, store, write, onFinish]);
+  }, [endNudgeRun, store, write, onFinish, onDrawing]);
 
   /** One visual update and one committed edit per frame, never per event. */
   const schedule = useCallback(() => {
@@ -545,7 +560,11 @@ export function PenTool({
         // A pointer gesture is its own entry; a nudge run still open would
         // otherwise swallow it.
         endNudgeRun();
-        e.currentTarget.setPointerCapture(e.pointerId);
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          // A press handed over from the page by a pointer already let go.
+        }
         pointerRef.current = e.pointerId;
         dragRef.current = drag;
         bracketRef.current = true;
@@ -760,6 +779,7 @@ export function PenTool({
       };
 
       if (e.key === "Enter" || e.key === "Escape") {
+        if (shared && !idRef.current && anchorsRef.current.length === 0) return;
         claim();
         finish();
         return;
@@ -802,12 +822,13 @@ export function PenTool({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [finish, write, sync, nudgeStep, endNudgeRun]);
+  }, [finish, write, sync, nudgeStep, endNudgeRun, shared]);
 
   // -- Overlay --------------------------------------------------------------
 
   return (
     <svg
+      className="nt-pen"
       style={{
         position: "absolute",
         inset: 0,

@@ -6,7 +6,10 @@
  * a click and a drag still land in the diagram's own px. The page's keys:
  * ⌥⇧ picks a tool from the text, Escape abandons a draw and a marquee and
  * climbs out of a diagram onto the page, ⌘A climbs from shapes to blocks, and
- * shapes pasted into the text make a diagram.
+ * shapes pasted into the text make a diagram. Drawing on the page: a draw just
+ * below a band goes into it, one on an empty line makes a diagram, the pen's
+ * first point makes one for it; ⌫ on a last shape takes the diagram, Merge
+ * joins two that touch, each one undo step.
  *
  *   node tests/canvas-page.browser.mjs
  */
@@ -353,6 +356,149 @@ try {
     (await at("blocks")).some((block) => block.startsWith("bottom:")),
     false,
   );
+
+  // Drawing on the page. A draw begun in the room just below a diagram goes
+  // into it, and the band grows to hold it.
+  await at("clear");
+  await at("pick", "rect");
+  const topNow = await at("band", "top");
+  const topShapes = await at("count", "top");
+  const topHeight = await at("height", "top");
+  const blockCount = (await at("blocks")).length;
+  const gapAt = { x: topNow.left + 200, y: topNow.top + topNow.height + 10 };
+  await page.mouse.move(gapAt.x, gapAt.y);
+  await frame();
+  check("armed, the band a draw below it would go into is outlined", await at("target"), "top");
+  await drag(gapAt, 120, 60);
+  await page.waitForFunction((n) => window.canvasPage.count("top") === n, topShapes + 1);
+  check("a draw in the room below a diagram goes into it", await at("count", "top"), topShapes + 1);
+  check("no diagram is made for it", (await at("blocks")).length, blockCount);
+  check("the band grows to hold it", (await at("height", "top")) > topHeight, true);
+  check("and the tool is put down", await tool(), "move");
+  check("the outline goes with it", await at("target"), null);
+  await page.waitForFunction(() => (window.canvasPage.selection().top ?? []).length === 1);
+
+  // Pasted back over its originals, again and again, each copy lands a step
+  // further out than the one before.
+  const drawnId = (await at("selection")).top[0];
+  const original = await at("model", "top", drawnId);
+  const copied = await at("copy");
+  await at("paste", copied);
+  const once = await at("model", "top", (await at("selection")).top[0]);
+  await at("paste", copied);
+  const twice = await at("model", "top", (await at("selection")).top[0]);
+  check("a paste over its originals lands beside them", once, { x: original.x + 10, y: original.y + 10 });
+  check("and the next a step further out", twice, { x: original.x + 20, y: original.y + 20 });
+  await at("undo");
+  await at("undo");
+  await frame();
+
+  // On an empty line, the line becomes a diagram holding what was drawn —
+  // one clear of the room under the diagram above it.
+  await at("clear");
+  const emptyLine = await at("addLine", "outro");
+  await frame();
+  await at("pick", "rect");
+  const line = await at("block", emptyLine);
+  const lineAt = { x: line.left + 80, y: line.top + line.height / 2 };
+  await page.mouse.move(lineAt.x, lineAt.y);
+  await frame();
+  check("over an empty line, a line shows where the diagram would go", (await at("insertLine")) !== null, true);
+  await drag(lineAt, 140, 70);
+  await page.waitForFunction((id) => !window.canvasPage.blocks().some((b) => b.startsWith(`${id}:`)), emptyLine);
+  const drawnOn = (await at("diagrams")).find((id) => !before.includes(id) && id !== made);
+  const order2 = (await at("blocks")).map((block) => block.split(":")[0]);
+  check("a draw on an empty line makes a diagram in the line's place", order2.indexOf(drawnOn), order2.indexOf("outro") + 1);
+  await page.waitForFunction((id) => window.canvasPage.count(id) === 1, drawnOn);
+  check("its shape a band below the diagram's top", (await at("nodes", drawnOn))[0]?.y, 24);
+  check("the insertion line comes down", await at("insertLine"), null);
+  await page.waitForFunction((id) => (window.canvasPage.selection()[id] ?? []).length === 1, drawnOn);
+  check("selected, with the keyboard on its band", await at("keyboard"), `band:${drawnOn}`);
+
+  // ⌫ on a diagram's last shape takes the diagram with it, and one undo
+  // brings back both. Undo is the text's, so the page stops being served
+  // from NML here (see `unserve`).
+  await at("unserve");
+  await page.keyboard.press("Backspace");
+  await page.waitForFunction((id) => !window.canvasPage.blocks().includes(`${id}:canvas`), drawnOn);
+  check("⌫ on a diagram's last shape takes its block out", (await at("blocks")).includes(`${drawnOn}:canvas`), false);
+  check("with the caret in the text beside it", await at("keyboard"), "text");
+  await at("undo");
+  await page.waitForFunction((id) => window.canvasPage.count(id) === 1, drawnOn);
+  check("one undo brings back the diagram and its shape", (await at("blocks")).includes(`${drawnOn}:canvas`), true);
+
+  // Two diagrams that touch can be one: Merge at their seam, one undo to take
+  // it back, and × to keep them apart.
+  await at("clear");
+  check("no Merge with a paragraph between two diagrams", await at("seam", "top"), null);
+  await at("removeBlock", "between");
+  await frame();
+  const seam = await at("seam", "top");
+  check("once they touch, Merge is offered at their seam", seam !== null, true);
+  const upperCount = await at("count", "top");
+  const lowerCount = await at("count", made);
+  const upperHeight = await at("height", "top");
+  const upperIds = (await at("nodes", "top")).map((node) => node.id);
+  await page.mouse.click(...Object.values(centre(seam.merge)));
+  await page.waitForFunction((id) => !window.canvasPage.diagrams().includes(id), made);
+  check("Merge brings the diagram below into the one above", await at("count", "top"), upperCount + lowerCount);
+  const brought = (await at("nodes", "top")).filter((node) => !upperIds.includes(node.id));
+  check("its shapes come in under the upper band", brought.every((node) => node.y >= upperHeight), true);
+  check("and its block is gone", (await at("blocks")).some((block) => block.startsWith(`${made}:`)), false);
+  await at("undo");
+  await page.waitForFunction((id) => window.canvasPage.count(id) !== null, made);
+  check("one undo takes the whole merge back", [await at("count", "top"), await at("count", made)], [
+    upperCount,
+    lowerCount,
+  ]);
+  const offered = await at("seam", "top");
+  check("the offer is back with the pair", offered !== null, true);
+  await page.mouse.click(...Object.values(centre(offered.dismiss)));
+  await frame();
+  check("× puts it away for that pair", await at("seam", "top"), null);
+
+  // The pen on the page: its first point makes a diagram for it, which goes
+  // again if the path is given up before its second point.
+  const spare = await at("addLine", drawnOn);
+  const penLine = await at("addLine", spare);
+  await frame();
+  const diagramsBefore = await at("diagrams");
+  const penAt = async () => {
+    const box = await at("block", penLine);
+    return { x: box.left + 120, y: box.top + box.height / 2 };
+  };
+  await at("pick", "pen");
+  const first = await penAt();
+  await page.mouse.click(first.x, first.y);
+  await page.waitForFunction((n) => window.canvasPage.diagrams().length === n, diagramsBefore.length + 1);
+  const penBorn = (await at("diagrams")).find((id) => !diagramsBefore.includes(id));
+  await page.waitForFunction((id) => window.canvasPage.count(id) === 1, penBorn);
+  check("the pen's first point on the page makes a diagram for it", await at("count", penBorn), 1);
+  const penOrder = (await at("blocks")).map((block) => block.split(":")[0]);
+  check("just before the line it was pressed on", penOrder.indexOf(penBorn), penOrder.indexOf(penLine) - 1);
+  await page.keyboard.press("Escape");
+  await page.waitForFunction((id) => !window.canvasPage.diagrams().includes(id), penBorn);
+  check("given up after one point, the diagram goes with it", (await at("diagrams")).includes(penBorn), false);
+  check("and the line is still there", (await at("blocks")).includes(`${penLine}:paragraph`), true);
+
+  await at("pick", "pen");
+  const again = await penAt();
+  await page.mouse.click(again.x, again.y);
+  await page.waitForFunction((n) => window.canvasPage.diagrams().length === n, diagramsBefore.length + 1);
+  const pathBorn = (await at("diagrams")).find((id) => !diagramsBefore.includes(id));
+  await page.waitForFunction((id) => window.canvasPage.count(id) === 1, pathBorn);
+  const bornBand = await at("band", pathBorn);
+  const bornHeight = await at("height", pathBorn);
+  // Below the band, on the page: the diagram mid-path takes the point, and
+  // grows to hold it.
+  await page.mouse.click(bornBand.left + 320, bornBand.top + bornBand.height + 60);
+  await frame();
+  check("a later point below the band grows it", (await at("height", pathBorn)) > bornHeight, true);
+  check("and makes no other diagram", (await at("diagrams")).length, diagramsBefore.length + 1);
+  await page.keyboard.press("Enter");
+  await page.waitForFunction((id) => (window.canvasPage.selection()[id] ?? []).length === 1, pathBorn);
+  check("Enter makes the path, in the pen's diagram", await at("count", pathBorn), 1);
+  check("and the tool is put down", await tool(), "move");
 
   check("no page errors", guards.errors(), []);
   check("no requests off the fixture", guards.requests(), []);

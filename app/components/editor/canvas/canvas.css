@@ -229,6 +229,74 @@
   }
 }
 
+/* An empty diagram's line, in the empty paragraph's placeholder voice and
+   where that paragraph's words would sit: one line down a band. The words
+   are a button — a press arms the rectangle. */
+.nt-canvas-placeholder {
+  position: absolute;
+  top: 24px;
+  left: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-style: italic;
+  line-height: 26px;
+  color: var(--bn-colors-side-menu, var(--faint));
+  cursor: pointer;
+}
+
+/* Two diagrams that touch can be one. The offer sits at their seam, in the
+   right margin, only while the block below is a diagram too (read off the
+   page's own structure) and until its × is pressed. Quiet: the page's muted
+   voice, the hover wash, no accent. */
+.nt-canvas-merge {
+  position: absolute;
+  bottom: -3px;
+  left: calc(100% + 8px);
+  z-index: 3;
+  display: none;
+  align-items: center;
+  gap: 1px;
+  transform: translateY(50%);
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+}
+.bn-block-outer:not(:has(> .bn-block > .bn-block-group)):has(
+    + .bn-block-outer > .bn-block > .react-renderer > .bn-block-content[data-content-type="canvas"]
+  )
+  > .bn-block
+  > .react-renderer
+  > .bn-block-content[data-content-type="canvas"]
+  .nt-canvas-merge:not([data-dismissed]) {
+  display: flex;
+}
+/* No margin to stand in, or a wide band already in it: on the column's edge,
+   over the two bands' empty margins at the seam. */
+.nt-sheet[data-page="narrow"] .nt-canvas-merge,
+.nt-canvas-block:has(> .nt-canvas[data-wide]) > .nt-canvas-merge {
+  right: 0;
+  left: auto;
+}
+.nt-canvas-merge > button {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-canvas-merge > .nt-canvas-merge-no {
+  padding: 0 4px;
+}
+.nt-canvas-merge > button:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+
 /* Bottom edge: drag to set an explicit height, double-click to fit again. */
 .nt-canvas-grip {
   position: absolute;
@@ -844,18 +912,35 @@
 
 /* ---- Drawing on the page ------------------------------------------------
    A shape armed from the page bar draws straight onto the document, and on
-   release becomes a diagram holding it (`PageDraw.tsx`). While armed the page
-   is a surface, not text: it takes the crosshair, and its caret stands down. */
-.nt-well[data-drawing] .nt-pane,
-.nt-well[data-drawing] .nt-pane * {
+   release becomes a diagram holding it (`page/pageDraw.ts`). While armed the
+   page is a surface, not text: it takes the crosshair, and its caret stands
+   down. */
+.nt-pane[data-drawing],
+.nt-pane[data-drawing] * {
   cursor: crosshair;
 }
-.nt-well[data-drawing] .nt-pane button,
-.nt-well[data-drawing] .nt-pane a {
+.nt-pane[data-drawing] button,
+.nt-pane[data-drawing] a {
   cursor: pointer;
 }
-.nt-well[data-drawing] .ProseMirror {
+.nt-pane[data-drawing] .ProseMirror {
   caret-color: transparent;
+}
+
+/* Where the draw would land: the band it goes into, outlined as a pointed-at
+   band is, or the line between blocks where a new diagram would go. Where,
+   not an answer — so the page's hairline, never the accent. */
+.nt-canvas:not(.nt-canvas-shot)[data-target] > .nt-canvas-viewport {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+.nt-page-insert {
+  position: fixed;
+  z-index: var(--z-overlay);
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 1px;
+  background: var(--border-strong);
+  pointer-events: none;
 }
 
 /* The shape as it is drawn: the canvas's own new-shape grey, framed in the

@@ -628,7 +628,8 @@ function isTextEntry(): boolean {
 }
 
 /**
- * Whether a tool's key picks it. ⌥⇧ and the letter always do; the bare letter
+ * Whether a tool's key picks it on the page (a shot's own keymap takes every
+ * letter). ⌥⇧ and the letter always do; the bare letter
  * only over shapes in hand with no caret in the page, where a letter is not
  * typing — and not in a band that holds nothing either, whose letters the
  * person may well think are going to the text beside it.
@@ -1236,17 +1237,6 @@ export function useCanvasShortcuts({
       const id = matchShortcut(e, apple);
       if (!id) return;
       if (id === "edit.paste" || id === "edit.pasteInPlace") pasteInPlace = id === "edit.pasteInPlace";
-      if (
-        id.startsWith("tool.") &&
-        !toolKeyAllowed({
-          chord: e.altKey && e.shiftKey,
-          field: false,
-          page: false,
-          shapes: latest.current.selection.getSnapshot().ids.length > 0,
-        })
-      ) {
-        return;
-      }
       // Anything but another nudge closes an open run first — so an unrelated
       // edit is never folded into it, and ⌘Z is not refused for the depth we
       // are holding.

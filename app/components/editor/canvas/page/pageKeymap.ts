@@ -144,6 +144,8 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
   const apple = isApplePlatform();
   /** Set by the ⌘⇧V keydown and consumed by the paste event it produces. */
   let pasteInPlace = false;
+  /** Pastes of one copy back over its originals so far — each lands a step further out. */
+  let repeats: { copy: ReturnType<typeof lastCopy>; blockId: string; n: number } | null = null;
   /** One run per diagram being nudged, ended together as one undo step. */
   const runs = new Map<string, NudgeRun>();
 
@@ -270,6 +272,8 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
     const shapes = canvas.selection.getSnapshot().parts.size > 0;
 
     if (id.startsWith("tool.")) {
+      // A held shot has its own tools and keys; the page's are not in play.
+      if (canvas.framed()) return false;
       if (!toolKeyAllowed({ chord: e.altKey && e.shiftKey, field: false, page, shapes })) return false;
       const tool = id.slice(5) as CanvasTool;
       // A text is written into a diagram, never onto the page.
@@ -403,10 +407,13 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
     const fragment = parseScene(html);
     const store = band.api.store;
     const scene = store.getScene();
-    // Back over its own originals it lands beside them, where it can be seen.
+    // Back over its own originals it lands beside them, where it can be seen,
+    // and again a step further out, so no paste hides under the one before.
     const onto = !inPlace && copy?.html === html && copy.blockIds.includes(band.blockId);
+    const n = onto && repeats?.copy === copy && repeats.blockId === band.blockId ? repeats.n + 1 : 1;
+    repeats = onto ? { copy, blockId: band.blockId, n } : null;
     const { ops, ids } = landFragment(scene, fragment, {
-      offset: onto ? DUPLICATE_OFFSET : 0,
+      offset: onto ? DUPLICATE_OFFSET * n : 0,
       parentId: pasteLevel(scene, band.api.ownSelection),
     });
     if (ops.length === 0) return;

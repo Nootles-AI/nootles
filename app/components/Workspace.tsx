@@ -34,8 +34,6 @@ import {
   useHubSnapshot,
 } from "./editor/canvas/page/PageCanvas";
 import { FrameClaimContext, type ActiveFrame } from "./editor/canvas/page/frameClaim";
-import { useEditorRegistry } from "./editor/EditorRegistry";
-import { usePageDraw } from "./PageDraw";
 import { isApplePlatform, matchShortcut, type CanvasTool } from "./editor/canvas/engine/shortcuts";
 import { LocationPanel } from "./editor/location/LocationPanel";
 import { LocationShellContext, type ActiveLocation } from "./editor/location/shell";
@@ -191,6 +189,8 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     [spine],
   );
   const held = useHubSnapshot(hub);
+  // A held shot keeps its own keys: the page's tool keys stand down.
+  useEffect(() => hub.setFramed(() => frameRef.current !== null), [hub]);
 
   // Through the sidebar's own selection: one way to choose a page.
   useLinkedPage(open);
@@ -558,11 +558,6 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   }
   const [lastPlace, setLastPlace] = useState(placePanel);
   if (placePanel && placePanel !== lastPlace) setLastPlace(placePanel);
-
-  // Armed with a shape, the page itself draws: a new diagram where the drag
-  // was, or more of one it was drawn beside.
-  const registry = useEditorRegistry();
-  usePageDraw({ well: columnRef, tools: viewer ? null : hub.tools, hub, registry });
 
   // A page's own keymap picks and puts down the tool inside it. A key pressed
   // anywhere else — the bar just used, a rail, the body — still does, with

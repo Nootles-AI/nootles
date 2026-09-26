@@ -3,12 +3,14 @@
 import { createContext, useContext, useEffect, useMemo, useSyncExternalStore } from "react";
 import type { Pane } from "@/app/components/OpenPageContext";
 import type { BlockSelectionStore } from "@/app/components/editor/blockSelection";
+import type { LiveEditor } from "@/app/components/editor/EditorRegistry";
 import { setFitFrozen } from "@/app/lib/columnScale";
 import type { SceneStore } from "../engine/useScene";
 import { selectionFrame, type SelectionStore } from "../engine/useSelection";
 import type { CanvasApi } from "../render/CanvasSurface";
 import type { RotatedRect } from "../scene/geometry";
 import { createPageGesture, type PageGesture } from "./pageGesture";
+import { attachPageDraw } from "./pageDraw";
 import { attachPageKeymap } from "./pageKeymap";
 import {
   createPageSelection,
@@ -82,6 +84,14 @@ export interface PageCanvas {
   batch<T>(fn: () => T): T;
   /** Whether a pointer pressed on one of the diagrams is still down. */
   pressing(): boolean;
+  /** A storyboard's shot holds the screen: the page's tool keys stand down. */
+  framed(): boolean;
+  /** The page's editor, which a draw on the page makes its diagrams in. */
+  editor(): LiveEditor | null;
+  setEditor(editor: LiveEditor | null): () => void;
+  /** × on the seam between two diagrams: no Merge offered for that pair until the page reopens. */
+  dismissMerge(upper: string, lower: string): void;
+  mergeDismissed(upper: string, lower: string): boolean;
   /**
    * The pane is on screen: what listens on its behalf — the keymap, the press
    * outside every diagram — starts here, and stops with the returned call.
@@ -104,6 +114,10 @@ export interface PageCanvasHub {
   readonly tools: PageToolControl | null;
   batch<T>(fn: () => T): T;
   quiet(): boolean;
+  /** Whether a storyboard's shot holds the screen. */
+  framed(): boolean;
+  /** Who answers {@link framed}; returns how to stop. */
+  setFramed(held: () => boolean): () => void;
   addPane(canvas: PageCanvas): () => void;
   pane(pane: Pane): PageCanvas | null;
   clearAll(): void;
@@ -138,8 +152,16 @@ export function createPageCanvas({
   tools,
   batch,
   quiet,
-}: Deps & { pane: Pane; pageId: string; tools: PageToolControl | null }): PageCanvas {
+  framed = never,
+}: Deps & {
+  pane: Pane;
+  pageId: string;
+  tools: PageToolControl | null;
+  framed?: () => boolean;
+}): PageCanvas {
   const registry = new Map<string, DiagramEntry>();
+  let editor: LiveEditor | null = null;
+  const dismissed = new Set<string>();
   const waiting = new Map<string, Set<(entry: DiagramEntry) => void>>();
   const selection = createPageSelection({
     batch,
@@ -268,6 +290,16 @@ export function createPageCanvas({
       registry.get(blockId)?.api.band.current?.scrollIntoView?.({ block: "nearest" });
     },
     pressing: () => pressed,
+    framed,
+    editor: () => editor,
+    setEditor: (next) => {
+      editor = next;
+      return () => {
+        if (editor === next) editor = null;
+      };
+    },
+    dismissMerge: (upper, lower) => void dismissed.add(`${upper}>${lower}`),
+    mergeDismissed: (upper, lower) => dismissed.has(`${upper}>${lower}`),
     attach: (paneEl) => {
       // One listener for every diagram in the pane: a press outside all of
       // them lets the page's selection go, batched, where a listener per
@@ -295,8 +327,10 @@ export function createPageCanvas({
       window.addEventListener("pointerup", onUp, true);
       window.addEventListener("pointercancel", onUp, true);
       const detachKeys = attachPageKeymap(canvas, paneEl);
+      const detachDraw = attachPageDraw(canvas, paneEl);
       return () => {
         detachKeys();
+        detachDraw();
         document.removeEventListener("pointerdown", onDown, true);
         window.removeEventListener("pointerup", onUp, true);
         window.removeEventListener("pointercancel", onUp, true);
@@ -308,6 +342,7 @@ export function createPageCanvas({
 }
 
 export function createPageCanvasHub({ batch, quiet = never }: Deps): PageCanvasHub {
+  let held: () => boolean = never;
   const tools = createPageTools();
   const panes = new Map<Pane, PageCanvas>();
   const focusedIn = new Map<Pane, string | null>();
@@ -340,6 +375,13 @@ export function createPageCanvasHub({ batch, quiet = never }: Deps): PageCanvasH
     tools,
     batch,
     quiet,
+    framed: () => held(),
+    setFramed: (next) => {
+      held = next;
+      return () => {
+        if (held === next) held = never;
+      };
+    },
     addPane: (canvas) => {
       const pane = canvas.pane!;
       panes.set(pane, canvas);
@@ -422,6 +464,11 @@ export const NO_PAGE_CANVAS: PageCanvas = {
   focus: noop,
   batch: identity,
   pressing: never,
+  framed: never,
+  editor: nothing,
+  setEditor: () => noop,
+  dismissMerge: noop,
+  mergeDismissed: never,
   attach: () => noop,
 };
 
@@ -429,6 +476,8 @@ const NO_HUB: PageCanvasHub = {
   tools: null,
   batch: identity,
   quiet: never,
+  framed: never,
+  setFramed: () => noop,
   addPane: () => noop,
   pane: () => null,
   clearAll: noop,
@@ -462,6 +511,7 @@ export function usePaneCanvas(pane: Pane, pageId: string, readOnly = false): Pag
             tools: readOnly ? null : hub.tools,
             batch: hub.batch,
             quiet: hub.quiet,
+            framed: hub.framed,
           })
         : NO_PAGE_CANVAS,
     [hub, pane, pageId, readOnly],

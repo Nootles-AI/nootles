@@ -61,7 +61,7 @@
    still picks up the item metrics BlockNote hangs off that class. */
 /* The same while a shape is armed on the page: the margin is somewhere to
    draw from, and the handles would take the press. */
-body:has(.nt-well[data-drawing]) .nt-side-menu-anchor {
+body:has(.nt-pane[data-drawing]) .nt-side-menu-anchor {
   visibility: hidden;
 }
 .nt-side-menu-anchor .nt-block-handles {
