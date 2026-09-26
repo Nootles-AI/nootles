@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Segmented } from "@/app/components/Segmented";
+import { Tooltip } from "@/app/components/Tooltip";
 import { undoScope } from "@/app/lib/history/useWorkspaceHistory";
 import type { BandRange } from "../engine/gestures";
 import type { SceneStore } from "../engine/useScene";
@@ -29,6 +30,7 @@ import {
 } from "./colorVariables";
 import { ColorField } from "./controls/ColorField";
 import { LiveEditContext, type LiveEdit } from "./controls/live";
+import { AutoHeight, Corner } from "./controls/glyphs";
 import { NumberField } from "./controls/NumberField";
 import { PanelSection } from "./controls/PanelSection";
 import { rememberStyle } from "../render/newShape";
@@ -279,11 +281,27 @@ const WIDTHS = [
   { id: "wide", label: "Wide", hint: "Past the text on both sides" },
 ] as const;
 
+/** Whether a diagram paints its own ground — a band is otherwise the page's paper. */
+function hasGround(style: StyleMap): boolean {
+  return Object.keys(style).some((prop) => prop.startsWith("background"));
+}
+
+/** A radius as the one number the field edits: the first length of the shorthand. */
+function radiusPx(value: string | undefined): number {
+  const n = Number.parseFloat(value ?? "");
+  return Number.isFinite(n) ? n : 0;
+}
+
+const radiusCss = (n: number) => (n > 0 ? `${n}px` : undefined);
+
 /**
  * The diagram itself: how wide its band is, how tall, and what it paints
  * behind its shapes. A band states no width of its own — it is the column's,
- * or wide — and is never shorter than what it holds. A storyboard shot's size
- * is its board's, so a frame shows its background alone.
+ * or wide — and is never shorter than what it holds: its height follows the
+ * content until a height is typed (or the grip dragged), which pins it, and
+ * Auto height lets go of the pin. A painted ground can be rounded. A
+ * storyboard shot's size is its board's, so a frame shows its background
+ * alone.
  */
 function DiagramFields({
   scene,
@@ -297,6 +315,7 @@ function DiagramFields({
   onPreviewStyle?: (decls: StylePatch) => void;
 }) {
   const framed = scene.w > 0;
+  const pinned = scene.h > 0;
   return (
     <PanelSection title={framed ? "Frame" : "Diagram"}>
       {!framed && (
@@ -318,6 +337,16 @@ function DiagramFields({
               onChange={(h) => onChange({ h: Math.max(bandFloor(scene), h) })}
               onPreview={onPreviewSize}
             />
+            <Tooltip label="Auto height" className="nt-ctl-slot">
+              <button
+                className="nt-icon-btn is-sm"
+                aria-pressed={!pinned}
+                aria-label="Auto height"
+                onClick={() => onChange({ h: pinned ? 0 : bandHeight(scene) })}
+              >
+                <AutoHeight />
+              </button>
+            </Tooltip>
           </div>
         </>
       )}
@@ -337,6 +366,21 @@ function DiagramFields({
           }
         />
       </div>
+      {!framed && hasGround(scene.style) && (
+        <div className="nt-ctl-grid">
+          <NumberField
+            label={<Corner />}
+            name="Corner radius"
+            value={radiusPx(scene.style["border-radius"])}
+            unit="px"
+            min={0}
+            onChange={(n) => onChange({ style: { "border-radius": radiusCss(n) } })}
+            onPreview={
+              onPreviewStyle && ((n) => onPreviewStyle({ "border-radius": radiusCss(n) }))
+            }
+          />
+        </div>
+      )}
     </PanelSection>
   );
 }

@@ -1,6 +1,6 @@
 import { parseHTML } from "linkedom";
 import { describe, expect, it } from "vitest";
-import { WIDE_W } from "../scene/band";
+import { bandHeight, WIDE_W } from "../scene/band";
 import { emptyScene } from "../scene/migrate";
 import { applyOps } from "../scene/ops";
 import { parseScene, type ParseHtml } from "../scene/parse";
@@ -151,7 +151,7 @@ describe("diagramFromClipboard", () => {
     const made = parseScene(diagramFromClipboard(html, parseHtml)!, parseHtml);
     expect(made.w).toBe(0);
     expect(made.nodes[0]).toMatchObject({ x: 80, y: 24 });
-    expect(made.h).toBe(24 + 60 + 24);
+    expect([made.h, bandHeight(made)]).toEqual([0, 24 + 60 + 24]);
   });
 
   it("is nothing for a clipboard with no shapes in it", () => {

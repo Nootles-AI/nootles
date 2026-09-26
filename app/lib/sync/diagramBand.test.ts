@@ -152,7 +152,7 @@ describe("normalizeDiagramsInDoc", () => {
     expect(updates).toHaveLength(1);
     expect(report).toMatchObject({ diagrams: 2, maps: 1, props: 2, nml: 2, wide: 2 });
     expect(report.samples).toEqual([
-      { blockId: "c1", before: `<nt-diagram w="960" h="540">`, after: `<nt-diagram h="260" wide>` },
+      { blockId: "c1", before: `<nt-diagram w="960" h="540">`, after: `<nt-diagram wide>` },
       {
         blockId: "p1",
         before: `<nt-diagram w="640" h="360" data-width="fixed" data-height="fixed">`,

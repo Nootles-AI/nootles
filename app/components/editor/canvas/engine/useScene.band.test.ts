@@ -1,7 +1,7 @@
 import { DOMParser } from "linkedom";
 import { duringAiApply } from "@/app/lib/debugRing";
 import { describe, expect, it } from "vitest";
-import { BAND, bandFloor } from "../scene/band";
+import { BAND, bandFloor, bandHeight } from "../scene/band";
 import { laidOutScene } from "../scene/autoLayout";
 import { edgePoints } from "../scene/edgePath";
 import { readCanvasSource } from "../scene/migrate";
@@ -62,12 +62,22 @@ describe("a band's store raises its height to hold a local edit", () => {
     expect(frame.getScene().h).toBe(readCanvasSource(shot).h);
   });
 
-  it("never on what arrives from outside: a collaborator's scene adds no entry", () => {
+  it("never on what arrives from outside: a collaborator's scene is taken as written", () => {
     const store = new SceneStore(band, undefined, true);
     const tall = `<nt-diagram h="200"><nt-rect id="a" x="40" y="500" w="100" h="60"></nt-rect></nt-diagram>`;
     store.adoptRemote(tall);
-    expect(store.getScene().h).toBe(bandFloor(store.getScene()));
+    expect(store.getScene().h).toBe(200);
+    expect(bandHeight(store.getScene())).toBe(bandFloor(store.getScene()));
     expect(store.canUndo()).toBe(false);
+  });
+
+  it("never pins an unpinned band: it is drawn at its floor, both ways", () => {
+    const loose = `<nt-diagram><nt-rect id="a" x="40" y="40" w="100" h="60"></nt-rect></nt-diagram>`;
+    const store = new SceneStore(loose, undefined, true);
+    store.dispatch({ type: "move", ids: ["a"], dx: 0, dy: 300 });
+    expect([store.getScene().h, bandHeight(store.getScene())]).toEqual([0, 340 + 60 + BAND]);
+    store.dispatch({ type: "move", ids: ["a"], dx: 0, dy: -300 });
+    expect([store.getScene().h, bandHeight(store.getScene())]).toEqual([0, 40 + 60 + BAND]);
   });
 });
 

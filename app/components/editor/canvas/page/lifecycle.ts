@@ -37,8 +37,9 @@ export function deleteDiagramBlock(editor: LifecycleEditor, blockId: string): vo
 /**
  * The ops that bring the diagram below into this one: its shapes under this
  * band, as far down as this band is tall, with ids of their own here and its
- * connectors following them; the band as tall as the two were together, and
- * wide if either was. What was below's own ground is not brought: a diagram
+ * connectors following them; the band as tall as the two were together —
+ * pinned only if the lower one was, since its pin is the room left at the
+ * bottom — and wide if either was. What was below's own ground is not brought: a diagram
  * has one.
  */
 export function mergeOps(upper: Scene, lower: Scene): SceneOp[] {
@@ -49,10 +50,10 @@ export function mergeOps(upper: Scene, lower: Scene): SceneOp[] {
   const ops: SceneOp[] = [];
   if (nodes.length) ops.push({ type: "insert", nodes });
   if (edges.length) ops.push({ type: "addEdge", edges });
-  ops.push({
-    type: "setDiagram",
-    h: dy + bandHeight(lower),
-    ...(lower.wide && !upper.wide ? { wide: true } : {}),
-  });
+  const h = lower.h > 0 ? dy + bandHeight(lower) : 0;
+  const root: Extract<SceneOp, { type: "setDiagram" }> = { type: "setDiagram" };
+  if (h !== upper.h) root.h = h;
+  if (lower.wide && !upper.wide) root.wide = true;
+  if (Object.keys(root).length > 1) ops.push(root);
   return ops;
 }

@@ -13,8 +13,9 @@ import { redeemDrawnStubs, toDocHtml } from "./serialize";
 
 /**
  * What the model reads and writes of a diagram's band. A read states the
- * width the diagram is drawn at, because the model has to know its room; no
- * write ever stores it, because it is the page's. Whatever the model writes
+ * width and height the diagram is drawn at, because the model has to know its
+ * room; no write ever stores the width, because it is the page's, and an echo
+ * of the height pins nothing. Whatever the model writes
  * lands inside the band — scaled, never widened — at the one seam every
  * AI-authored diagram crosses. A storyboard's shots are frames, and none of
  * this touches them.
@@ -24,8 +25,10 @@ const dom = (html: string) => parseHTML(html).document as unknown as Document;
 const parse = (html: string) => parseDocHtml(html, dom);
 
 const RECT = '<nt-rect id="a" x="40" y="24" w="200" h="48"></nt-rect>';
-const BAND = `<nt-diagram h="96">\n  ${RECT}\n</nt-diagram>`;
-const WIDE = '<nt-diagram h="96" wide>\n  <nt-rect id="a" x="-200" y="24" w="1000" h="48"></nt-rect>\n</nt-diagram>';
+/** Unpinned: drawn 96 tall, the floor its rect needs (24 + 48 + 24). */
+const BAND = `<nt-diagram>\n  ${RECT}\n</nt-diagram>`;
+const PINNED = `<nt-diagram h="200">\n  ${RECT}\n</nt-diagram>`;
+const WIDE = '<nt-diagram wide>\n  <nt-rect id="a" x="-200" y="24" w="1000" h="48"></nt-rect>\n</nt-diagram>';
 
 function block(id: string, type: string, data: string): AnyBlock {
   return { id, type, props: { data }, content: undefined, children: [] } as unknown as AnyBlock;
@@ -38,11 +41,15 @@ function inserted(html: string): string {
   return String(op.blocks[0].props?.data ?? "");
 }
 
-describe("the read form states the band's width", () => {
+describe("the read form states the band's width and height", () => {
   it("a diagram in the column reads as 720 wide", () => {
     expect(toDocHtml([block("b1", "canvas", BAND)])).toBe(
       `<nt-diagram id="b1" w="720" h="96">\n  ${RECT}\n</nt-diagram>`,
     );
+  });
+
+  it("a pinned one reads at its pin", () => {
+    expect(toDocHtml([block("b1", "canvas", PINNED)])).toMatch(/^<nt-diagram id="b1" w="720" h="200">\n/);
   });
 
   it("a wide one reads as 1200 wide, and says it is wide", () => {
@@ -83,6 +90,12 @@ describe("no write stores the width", () => {
     expect(inserted(`<nt-diagram w="720" h="96">${RECT}</nt-diagram>`)).toBe(BAND);
   });
 
+  it("an echo of a pinned read stays pinned, and room asked for below pins", () => {
+    const read = toDocHtml([block("b1", "canvas", PINNED)]);
+    expect(compileDocHtml(parse(read), { current: parse(read) }).ops).toHaveLength(0);
+    expect(inserted(`<nt-diagram w="720" h="200">${RECT}</nt-diagram>`)).toBe(PINNED);
+  });
+
   it("an old frame's hand-pinned size is dropped with it", () => {
     expect(inserted(`<nt-diagram w="720" h="96" data-width="fixed" data-height="fixed">${RECT}</nt-diagram>`)).toBe(
       BAND,
@@ -93,9 +106,9 @@ describe("no write stores the width", () => {
 describe("a model's diagram lands inside its band", () => {
   it("content wider than the column is scaled about its top-left, and the height follows", () => {
     // 1440 across halves to 720; the stated 96 halves to 48, under the floor
-    // the halved rect needs (24 + 24 + 24).
+    // the halved rect needs (24 + 24 + 24), so it pins nothing.
     expect(inserted('<nt-diagram h="96"><nt-rect id="a" x="0" y="24" w="1440" h="48"></nt-rect></nt-diagram>')).toBe(
-      '<nt-diagram h="72">\n  <nt-rect id="a" x="0" y="24" w="720" h="24"></nt-rect>\n</nt-diagram>',
+      '<nt-diagram>\n  <nt-rect id="a" x="0" y="24" w="720" h="24"></nt-rect>\n</nt-diagram>',
     );
   });
 

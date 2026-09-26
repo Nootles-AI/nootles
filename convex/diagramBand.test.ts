@@ -156,14 +156,14 @@ describe("diagramBand.migrate", () => {
     const preview = await t.action(migrate, { dryRun: true });
     expect(preview).toMatchObject({ seen: 1, skipped: [], done: true, cursor: null });
     expect(preview.changed).toMatchObject([{ docId, maps: 1, props: 1, moved: 0 }]);
-    expect(preview.changed[0].samples[0].after).toBe(`<nt-diagram h="260" wide>`);
+    expect(preview.changed[0].samples[0].after).toBe(`<nt-diagram wide>`);
     expect((await stored(t, docId)).seq).toBe(1);
 
     const run = await t.action(migrate, { dryRun: false });
     expect(run.changed).toMatchObject([{ docId, maps: 1, props: 1 }]);
     const { seq, doc } = await stored(t, docId);
     expect(seq).toBe(2);
-    expect(materializeCanvas(doc.getMap(canvasMapName("c1")))).toMatchObject({ w: 0, h: 260, wide: true });
+    expect(materializeCanvas(doc.getMap(canvasMapName("c1")))).toMatchObject({ w: 0, h: 0, wide: true });
     const page = await t.run((ctx) => ctx.db.get(pageId));
     expect(page?.updatedAt).toBe(1);
 

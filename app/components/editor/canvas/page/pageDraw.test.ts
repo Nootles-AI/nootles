@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { newNode } from "../render/newShape";
-import { BAND, bandFloor, WIDE_MARGIN } from "../scene/band";
+import { BAND, bandFloor, bandHeight, WIDE_MARGIN } from "../scene/band";
 import { emptyScene } from "../scene/migrate";
 import { applyOps } from "../scene/ops";
-import { landingIn, landOps, pictureOps, placeNew, sceneFor, type BandBox, type BlockBox } from "./pageDraw";
+import { landingIn, landOps, penPoint, pictureOps, placeNew, sceneFor, type BandBox, type BlockBox } from "./pageDraw";
 
 // Client px: a band from 100 to 300 down, 200 to 920 across, drawn at 1×; and
 // another under it, drawn at half size.
@@ -98,7 +98,8 @@ describe("the diagram a draw on the page makes", () => {
     const { scene, nodeId } = sceneFor("rect", { x: 40, y: 500, w: 120, h: 60 });
     expect(scene.nodes).toHaveLength(1);
     expect(scene.nodes[0]).toMatchObject({ id: nodeId, x: 40, y: BAND, w: 120, h: 60 });
-    expect(scene.h).toBe(bandFloor(scene));
+    expect(scene.h).toBe(0);
+    expect(bandHeight(scene)).toBe(bandFloor(scene));
     expect(scene.wide).toBeUndefined();
   });
 
@@ -142,5 +143,32 @@ describe("pictures dropped on a diagram", () => {
     expect(ids).toHaveLength(2);
     expect(landed.nodes[0]).toMatchObject({ kind: "image", x: 60, y: 0, w: 480, h: 240 });
     expect(landed.nodes[1]).toMatchObject({ kind: "image", x: 300 - 50 + BAND, y: 100 - 25 + BAND, w: 100, h: 50 });
+  });
+});
+
+describe("penPoint", () => {
+  const band = bands[0];
+  // The band's scene at 1×, its origin on the band's top-left.
+  const born = {
+    toScene: (p: { x: number; y: number }) => ({ x: p.x - band.left, y: p.y - band.top }),
+    toClient: (p: { x: number; y: number }) => ({ x: p.x + band.left, y: p.y + band.top }),
+  };
+
+  it("on a band made for the path, goes where it was pressed: above, below, in a margin", () => {
+    expect(penPoint(band, { x: 400, y: 40 }, born)).toEqual({ x: 400, y: 40 });
+    expect(penPoint(band, { x: 400, y: 500 }, born)).toEqual({ x: 400, y: 500 });
+    expect(penPoint(band, { x: band.right + 100, y: 200 }, born)).toEqual({ x: band.right + 100, y: 200 });
+    expect(penPoint(band, { x: band.left - 100, y: 200 }, born)).toEqual({ x: band.left - 100, y: 200 });
+  });
+
+  it("is brought in only past the wide band's margins", () => {
+    expect(penPoint(band, { x: band.right + WIDE_MARGIN + 50, y: 200 }, born).x).toBe(band.right + WIDE_MARGIN);
+    expect(penPoint(band, { x: band.left - WIDE_MARGIN - 50, y: 200 }, born).x).toBe(band.left - WIDE_MARGIN);
+  });
+
+  it("on any other diagram, is held in the band and a band in from its top, but may go below", () => {
+    expect(penPoint(band, { x: 100, y: 40 }, null)).toEqual({ x: band.left + 1, y: band.top + BAND });
+    expect(penPoint(band, { x: 2000, y: 200 }, null)).toEqual({ x: band.right - 1, y: 200 });
+    expect(penPoint(band, { x: 400, y: 500 }, null)).toEqual({ x: 400, y: 500 });
   });
 });

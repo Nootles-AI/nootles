@@ -824,15 +824,17 @@ body[data-resizing] .nt-rail-face {
 /* A rail that is put away stays away when a diagram brings its panels: the
    panel floats where the rail would stand, over the page rather than beside
    it, so the column never reflows under the diagram being edited. The rail's
-   own width and full height, held off the window's edges and lifted, and it
-   slides in from the edge the rail belongs to. No z-index: it comes after the
+   own width and full height, held a thin band inside the sheet's edge — its
+   border never lies on the sheet's — lifted, and it slides in from the edge
+   the rail belongs to. No z-index: it comes after the
    column in the shell, which settles the paint, and whatever it opens portals
    to the body (NT-52). At rest it has no transform, for the same reason a face
    has none. */
 .nt-rail-float {
+  --float-inset: calc(var(--inset) * 2);
   position: fixed;
-  inset-block: var(--inset);
-  left: var(--inset);
+  inset-block: var(--float-inset);
+  left: var(--float-inset);
   display: flex;
   width: var(--nt-rail-w);
   overflow: hidden;
@@ -844,7 +846,7 @@ body[data-resizing] .nt-rail-face {
     0 4px 12px oklch(0.25 0.005 90 / 0.06),
     0 16px 40px oklch(0.25 0.005 90 / 0.08);
   opacity: 0;
-  translate: calc(-100% - var(--inset)) 0;
+  translate: calc(-100% - var(--float-inset)) 0;
   visibility: hidden;
   transition:
     opacity var(--dur) var(--ease),
@@ -852,9 +854,9 @@ body[data-resizing] .nt-rail-face {
     visibility 0s 250ms;
 }
 .nt-rail-float.is-right {
-  right: var(--inset);
+  right: var(--float-inset);
   left: auto;
-  translate: calc(100% + var(--inset)) 0;
+  translate: calc(100% + var(--float-inset)) 0;
 }
 .nt-rail-float[data-on="true"] {
   opacity: 1;

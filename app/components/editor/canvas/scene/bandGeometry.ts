@@ -47,7 +47,10 @@ export function bandFloor(scene: Scene): number {
   return floor;
 }
 
-/** The height a band is drawn at: what it stores, raised to what it holds. */
+/**
+ * The height a band is drawn at: its floor, or its pinned height (`h`, `0`
+ * when unpinned) where that is taller.
+ */
 export function bandHeight(scene: Scene): number {
   return Math.max(scene.h, bandFloor(scene));
 }

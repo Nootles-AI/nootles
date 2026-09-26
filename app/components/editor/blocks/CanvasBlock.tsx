@@ -16,7 +16,7 @@ import { ySyncPluginKey } from "y-prosemirror";
 import type * as Y from "yjs";
 import { flattenBlocks, type AnyBlock } from "@/app/lib/ai/projection";
 import { useHints } from "@/app/components/hints/useHints";
-import { X } from "@/app/components/Icons";
+import { Merge, X } from "@/app/components/Icons";
 import { useReadOnly } from "../readOnly";
 import { putDataUri } from "../album/upload";
 import { canonicalPathOps } from "../canvas/scene/canonicalPaths";
@@ -619,6 +619,7 @@ function CanvasBlockView({
       {page.pane && (
         <div ref={seam} className="nt-canvas-merge">
           <button type="button" className="nt-canvas-merge-go" onClick={merge}>
+            <Merge width={12} height={12} aria-hidden />
             Merge
           </button>
           <button

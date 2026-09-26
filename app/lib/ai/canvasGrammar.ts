@@ -132,6 +132,9 @@ The page is ${COLUMN_WIDTH}px wide. Body text is ${BODY_PX}px with a ${BODY_LEAD
 A diagram is ${COLUMN_WIDTH} wide, or ${WIDE_W} when it has the bare wide attribute (it then spans
 x = ${-WIDE_MARGIN} … ${COLUMN_WIDTH + WIDE_MARGIN}, centred on the column). Shapes outside the width are scaled down to fit.
 x/y are px from the diagram's origin: the text's left edge, at the diagram's top.
-Leave ${BAND}px above the first shape. The diagram's height grows to fit; give h only to add room below.
-A read shows w on <nt-diagram>: it is the page's width, never yours to write.
+Leave ${BAND}px above the first shape. The diagram's height follows its content, growing and
+shrinking with it. Omit h, or leave it as read, and it keeps doing so; write a larger h only to
+add room below the lowest shape, which fixes the height there.
+A read shows w and h on <nt-diagram>: w is the page's width, never yours to write; h is the
+height it is drawn at.
 Keep 40px between things that are not related.`;

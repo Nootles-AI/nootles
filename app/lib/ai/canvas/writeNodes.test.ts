@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitOps } from "@/app/components/editor/canvas/scene/band";
+import { bandHeight, fitOps } from "@/app/components/editor/canvas/scene/band";
 import { applyOps, setAttrs } from "@/app/components/editor/canvas/scene/ops";
 import { findNode } from "@/app/components/editor/canvas/scene/types";
 import { isRefusal } from "./host";
@@ -224,7 +224,7 @@ describe("planWriteNodes", () => {
     expect(plan.next).toBe(scene);
   });
 
-  it("an h below the content is raised to hold it (W16)", () => {
+  it("an h below the content pins nothing: the band is drawn holding it (W16)", () => {
     const plan = ok(
       planWriteNodes(
         f1(),
@@ -232,7 +232,7 @@ describe("planWriteNodes", () => {
       ),
     );
     // g1 ends at 240; the band adds 24 below it.
-    expect(plan.next.h).toBe(264);
+    expect([plan.next.h, bandHeight(plan.next)]).toEqual([0, 264]);
   });
 
   it("content written past the column is scaled into it, said, and reproduced by the ops", () => {

@@ -1,5 +1,5 @@
 import { adoptScene } from "@/app/components/editor/canvas/scene/adopt";
-import { bandWidth, fitOps } from "@/app/components/editor/canvas/scene/band";
+import { bandHeight, bandWidth, fitOps } from "@/app/components/editor/canvas/scene/band";
 import {
   applyOp,
   applyOps,
@@ -211,13 +211,14 @@ export function planWriteNodes(
   };
 
   // Step 4: the diagram surface itself — its height only when the wrapper
-  // stated one (a bare-shapes fragment, or one with no h, never touches it),
-  // and never a width: a band's is the page's, and the read form's `w` is an
-  // echo. `wide`, style and attrs are merge-only diffs, so this call can widen
+  // stated one other than the height the read showed (a bare-shapes fragment,
+  // one with no h, or an echo never touches it; the fit below decides whether
+  // a stated one pins), and never a width: a band's is the page's, and the
+  // read form's `w` is an echo. `wide`, style and attrs are merge-only diffs, so this call can widen
   // a diagram but never narrow it.
   {
     const diagramPatch: { h?: number; wide?: boolean } = {};
-    if (fragment.rootH && frag.h !== working.h) diagramPatch.h = frag.h;
+    if (fragment.rootH && frag.h !== bandHeight(scene) && frag.h !== working.h) diagramPatch.h = frag.h;
     if (frag.wide && !working.wide) diagramPatch.wide = true;
     const style = styleDiffMerge(working.style, frag.style);
     const attrs = styleDiffMerge(working.attrs, omit(fragment.rootAttrs, LEGACY_ROOT_ATTRS));

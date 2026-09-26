@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { nodeBounds } from "../scene/geometry";
+import { applyOps } from "../scene/ops";
 import type { Point, Rect, Scene, SceneNode, SceneOp } from "../scene/types";
 import {
   applyDecision,
@@ -12,7 +13,10 @@ import {
   liveBottomOf,
   liveBoxes,
   moveAllowed,
+  pushEdge,
   scaleAllowed,
+  settleWiden,
+  WIDEN_PUSH,
   type BandRange,
   type GestureSession,
   type PointerLike,
@@ -52,6 +56,7 @@ function diagram(nodes: SceneNode[], { offset = { x: 0, y: 0 }, scale = 1, band 
       getScene: () => scene,
       begin: () => {},
       commit: () => {},
+      abort: () => {},
       dispatch: (ops) => void landed.push(ops),
     },
     clientToScene: (p) => ({ x: (p.x - offset.x) / scale, y: (p.y - offset.y) / scale }),
@@ -226,5 +231,106 @@ describe("one diagram's gesture, held in its band", () => {
     const d = diagram([rect("n", 600, 100, 100, 50)]);
     const s = session(d, "resize", "e");
     expect(decideGesture(s, d.o, { x: 60, y: 0 }).decision).toEqual({ kind: "resize", dx: 20, dy: 0 });
+  });
+});
+
+describe("a column band's side, pushed", () => {
+  /** A column band whose store applies what it is given, and says what it was asked. */
+  const pushable = () => {
+    let scene = sceneOf([rect("a", 600, 40, 100, 50)]);
+    let bracket: Scene | null = null;
+    const calls: string[] = [];
+    const o: TransformGestureOptions = {
+      store: {
+        getScene: () => scene,
+        begin: () => {
+          bracket = scene;
+          calls.push("begin");
+        },
+        commit: () => void calls.push("commit"),
+        abort: () => {
+          if (bracket) scene = bracket;
+          calls.push("abort");
+        },
+        dispatch: (ops) => {
+          scene = applyOps(scene, ops);
+          calls.push(ops.map((op) => op.type).join("+"));
+        },
+      },
+      clientToScene: (p) => p,
+      screenScale: () => 1,
+      band: () => ({ minX: 0, maxX: 720 }),
+      widen: () => {
+        o.store.dispatch([{ type: "setDiagram", wide: true }]);
+        return { minX: -240, maxX: 960 };
+      },
+      pushing: (held) => void calls.push(held ? "held" : "free"),
+      getSelection: () => ["a"],
+      getElement: () => null,
+    };
+    const s = createGestureSession(o, press(650, 60), "move", null)!;
+    const to = (x: number) => decideGesture(s, o, { x, y: 60 }).decision;
+    return { o, s, to, calls, scene: () => scene };
+  };
+
+  it("holds at the side, and says so while the pointer goes on past it", () => {
+    const { o, s, to, calls } = pushable();
+    expect(to(660)).toEqual({ kind: "move", dx: 10, dy: 0 });
+    expect(pushEdge(s, o)).toBe(false);
+    expect(to(700)).toEqual({ kind: "move", dx: 20, dy: 0 });
+    expect(s.push).toBe(30);
+    expect(pushEdge(s, o)).toBe(false);
+    expect(calls).toEqual(["free", "held"]);
+  });
+
+  it("turns the band wide past the push, and the drag goes on into the margin", () => {
+    const { o, s, to, calls, scene } = pushable();
+    to(670 + WIDEN_PUSH + 1);
+    expect(pushEdge(s, o)).toBe(true);
+    expect(scene().wide).toBe(true);
+    expect(calls).toEqual(["free", "begin", "setDiagram"]);
+    expect(to(800)).toEqual({ kind: "move", dx: 150, dy: 0 });
+  });
+
+  it("stays wide on a drop past the column, as one step with the move", () => {
+    const { o, s, to, calls, scene } = pushable();
+    to(800);
+    pushEdge(s, o);
+    o.store.dispatch([{ type: "move", ids: ["a"], dx: 150, dy: 0 }]);
+    settleWiden(s, o, { cancelled: false, landed: true });
+    expect(scene().wide).toBe(true);
+    expect(calls.slice(-2)).toEqual(["move", "commit"]);
+  });
+
+  it("folds back on a drop inside the column: it was only wide for the drag", () => {
+    const { o, s, to, calls, scene } = pushable();
+    to(800);
+    pushEdge(s, o);
+    o.store.dispatch([{ type: "move", ids: ["a"], dx: -100, dy: 0 }]);
+    settleWiden(s, o, { cancelled: false, landed: true });
+    expect(scene().wide).toBeUndefined();
+    expect(calls.slice(-3)).toEqual(["move", "setDiagram", "commit"]);
+  });
+
+  it("takes the widening back with a cancel, or when nothing landed inside the column", () => {
+    const cancelled = pushable();
+    cancelled.to(800);
+    pushEdge(cancelled.s, cancelled.o);
+    settleWiden(cancelled.s, cancelled.o, { cancelled: true, landed: false });
+    expect([cancelled.scene().wide, cancelled.calls.at(-1)]).toEqual([undefined, "abort"]);
+
+    const still = pushable();
+    still.to(800);
+    pushEdge(still.s, still.o);
+    settleWiden(still.s, still.o, { cancelled: false, landed: false });
+    expect([still.scene().wide, still.calls.at(-1)]).toEqual([undefined, "abort"]);
+  });
+
+  it("never for a band with no way wider", () => {
+    const { o, s, to, calls } = pushable();
+    delete o.widen;
+    to(900);
+    expect(pushEdge(s, o)).toBe(false);
+    expect(calls).toEqual([]);
   });
 });

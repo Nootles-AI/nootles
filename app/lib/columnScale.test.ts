@@ -15,21 +15,21 @@ describe("pageFit", () => {
   });
 
   it("is wide from 832: full measure, wide gutter", () => {
-    expect(pageFit(832)).toEqual({ mode: "wide", fit: 1, wideFit: 832 / 1200 });
-    expect(pageFit(1199)).toEqual({ mode: "wide", fit: 1, wideFit: 1199 / 1200 });
-    expect(pageFit(1200)).toEqual({ mode: "wide", fit: 1, wideFit: 1 });
+    expect(pageFit(832)).toEqual({ mode: "wide", fit: 1, wideFit: 784 / 1200 });
+    expect(pageFit(1247)).toEqual({ mode: "wide", fit: 1, wideFit: 1199 / 1200 });
+    expect(pageFit(1248)).toEqual({ mode: "wide", fit: 1, wideFit: 1 });
     expect(pageFit(2000).wideFit).toBe(1);
   });
 
   it("flows from 640 to 831: the wide gutter holds and the text gives up width", () => {
-    expect(pageFit(831)).toEqual({ mode: "flow", fit: 719 / COLUMN_WIDTH, wideFit: 831 / 1200 });
-    expect(pageFit(768)).toEqual({ mode: "flow", fit: 656 / COLUMN_WIDTH, wideFit: 768 / 1200 });
-    expect(pageFit(767)).toEqual({ mode: "flow", fit: 655 / COLUMN_WIDTH, wideFit: 767 / 1200 });
-    expect(pageFit(640)).toEqual({ mode: "flow", fit: 528 / COLUMN_WIDTH, wideFit: 640 / 1200 });
+    expect(pageFit(831)).toEqual({ mode: "flow", fit: 719 / COLUMN_WIDTH, wideFit: 783 / 1200 });
+    expect(pageFit(768)).toEqual({ mode: "flow", fit: 656 / COLUMN_WIDTH, wideFit: 720 / 1200 });
+    expect(pageFit(767)).toEqual({ mode: "flow", fit: 655 / COLUMN_WIDTH, wideFit: 719 / 1200 });
+    expect(pageFit(640)).toEqual({ mode: "flow", fit: 528 / COLUMN_WIDTH, wideFit: 592 / 1200 });
   });
 
   it("is narrow below 640: the narrow gutter, and the text is the rest", () => {
-    expect(pageFit(639)).toEqual({ mode: "narrow", fit: 591 / COLUMN_WIDTH, wideFit: 639 / 1200 });
+    expect(pageFit(639)).toEqual({ mode: "narrow", fit: 591 / COLUMN_WIDTH, wideFit: 591 / 1200 });
     expect(pageFit(400).fit).toBeCloseTo(352 / 720, 12);
   });
 

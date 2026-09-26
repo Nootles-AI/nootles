@@ -36,6 +36,11 @@
  * move is clamped exactly, a scale's factor is capped, and a resize that would
  * leave is clamped where the maths is linear and refused where it is not.
  *
+ * A column band held against its side shows its margins, and a push well past
+ * the side turns it wide for the rest of the drag, which goes on into the
+ * margin. The band stays wide only if the drop leaves something past the
+ * column, and then as one step with the move; a cancel takes both back.
+ *
  * ## Modifiers, as Figma has trained everyone to expect
  *
  * Shift constrains — axis-locks a drag, keeps the aspect ratio of a resize,
@@ -55,6 +60,7 @@ import {
   layoutOf,
   resolveLayout,
 } from "../scene/autoLayout";
+import { reachesMargins } from "../scene/band";
 import {
   absoluteRect,
   absoluteRotation,
@@ -113,6 +119,8 @@ export interface TransformStore {
   /** Open a coalescing bracket: everything until `commit` is one undo entry. */
   begin(): void;
   commit(): void;
+  /** Close the bracket as though it never opened — a widening a cancel takes back. */
+  abort(): void;
   dispatch(ops: SceneOp[]): void;
 }
 
@@ -169,6 +177,14 @@ export interface TransformGestureOptions {
   screenScale(): number;
   /** The band the selection is held in, or `null` for a frame, which has none. */
   band?(): BandRange | null;
+  /**
+   * A column band's way past its sides: turns the band wide, by an op
+   * dispatched inside the bracket the gesture opened for it, and says the wide
+   * band's range. Absent for a wide band and for a frame.
+   */
+  widen?(): BandRange;
+  /** Whether the band's side is holding the selection this frame — its margins show while it is. */
+  pushing?(held: boolean): void;
   /** Selection ids. Ids nested inside another selected node are ignored. */
   getSelection(): readonly NodeId[];
   /** A node's rendered element. The surface finds and caches it; we only read. */
@@ -289,6 +305,9 @@ export type PointerLike = {
 
 /** Screen px of travel before a press becomes a drag rather than a click. */
 const DRAG_THRESHOLD = 3;
+
+/** Screen px the pointer goes on past a column band's side before the band turns wide. */
+export const WIDEN_PUSH = 40;
 
 /** Shift-rotate quantum, Figma's. Unshifted, rotation still lands on a degree. */
 const ROTATE_STEP = 15;
@@ -508,6 +527,10 @@ interface Session {
   allowed: Allowed | null;
   /** The last decision that stayed inside the fence, for a resize or a rotation to fall back on. */
   accepted: Decision;
+  /** Screen px the pointer is past where the band's side holds the selection, this frame. */
+  push: number;
+  /** The band was made wide during this gesture, in a bracket the landing closes. */
+  widened: boolean;
   centre: Point;
   startAngle: number;
   /** Accumulated rotation, unwrapped so a full turn keeps counting. */
@@ -1013,6 +1036,8 @@ export function createGestureSession(
     reach,
     allowed: moveAllowed(band, reach),
     accepted: IDENTITY[mode],
+    push: 0,
+    widened: false,
     centre: { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 },
     startAngle: angleOf(
       { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 },
@@ -1145,6 +1170,55 @@ export function pastThreshold(start: Point, client: Point): boolean {
 }
 
 /**
+ * A column band holding the selection at its side: its margins show while it
+ * holds, and a push past {@link WIDEN_PUSH} turns it wide so the drag goes on
+ * into them. True when it has just widened — the frame is then decided again,
+ * against the wide band.
+ */
+export function pushEdge(session: Session, o: TransformGestureOptions): boolean {
+  if (!o.widen || session.widened) return false;
+  if (session.push > WIDEN_PUSH) {
+    widenGesture(session, o);
+    return true;
+  }
+  o.pushing?.(session.push > 0);
+  return false;
+}
+
+/**
+ * The band made wide mid-gesture, in a bracket of its own that
+ * {@link settleWiden} closes once the gesture has landed, so the widening and
+ * the drag are one step — or none, on a cancel.
+ */
+export function widenGesture(session: Session, o: TransformGestureOptions): void {
+  if (!o.widen || session.widened) return;
+  o.pushing?.(false);
+  o.store.begin();
+  const band = o.widen();
+  session.widened = true;
+  session.fence = fenceFor(band, session.reach);
+  session.allowed = moveAllowed(band, session.reach);
+}
+
+/**
+ * The widening's bracket, closed after the landing. The band keeps its width
+ * only where the drop left something past the column: brought back in, it was
+ * only ever wide for the drag, and nothing landed at all is no step.
+ */
+export function settleWiden(
+  session: Session,
+  o: TransformGestureOptions,
+  { cancelled, landed }: { cancelled: boolean; landed: boolean },
+): void {
+  if (!session.widened) return;
+  session.widened = false;
+  const outside = reachesMargins(o.store.getScene());
+  if (cancelled || (!landed && !outside)) return o.store.abort();
+  if (!outside) o.store.dispatch([{ type: "setDiagram", wide: false }]);
+  o.store.commit();
+}
+
+/**
  * The press became a drag. `announce` tells the overlay what its readout
  * should say — the one overlay a gesture spanning several diagrams draws in.
  */
@@ -1169,7 +1243,8 @@ function runFrame(session: Session, o: TransformGestureOptions) {
     return;
   }
 
-  const { decision, guides } = decideGesture(session, o, point);
+  let { decision, guides } = decideGesture(session, o, point);
+  if (pushEdge(session, o)) ({ decision, guides } = decideGesture(session, o, point));
   const min = o.minSize ?? 1;
   let shown = guides;
   if (applyDecision(session, decision, min)) {
@@ -1323,6 +1398,8 @@ function decideMove(
       targets = session.targetsY;
     }
   }
+  // How far past the side the pointer went is the pointer's own, unsnapped.
+  const pointerDx = dx;
 
   const snapped = session.snapper.snap(
     targets,
@@ -1337,9 +1414,11 @@ function decideMove(
   dy = snapped.dy;
 
   const allowed = session.allowed;
+  session.push = 0;
   if (allowed) {
     dx = Math.min(allowed.maxDx, Math.max(allowed.minDx, dx));
     dy = Math.max(allowed.minDy, dy);
+    session.push = Math.max(0, pointerDx - allowed.maxDx, allowed.minDx - pointerDx) * scale;
   }
   return { decision: { kind: "move", dx, dy }, guides: snapped.guides };
 }
@@ -1389,8 +1468,11 @@ function decideResize(
     session.snapper.reset();
   }
 
+  session.push = 0;
   if (session.fence && !session.lockstep) {
+    const asked = delta.x;
     delta = fenceResize(session, handle, delta, aspect, fromCentre);
+    session.push = Math.abs(asked - delta.x) * scale;
   }
   return { decision: { kind: "resize", dx: delta.x, dy: delta.y }, guides };
 }
@@ -1931,7 +2013,9 @@ function finish(
   }
   session.detach();
   const { ops, select } = finishGesture(session, o, cancelled);
-  if (landGesture(o, ops) && select?.length) o.onSelect?.(select);
+  const landed = landGesture(o, ops);
+  if (landed && select?.length) o.onSelect?.(select);
+  settleWiden(session, o, { cancelled: cancelled || !session.active, landed });
   endGesture(session, o);
 }
 
@@ -1988,6 +2072,7 @@ export function landGesture(o: TransformGestureOptions, ops: readonly SceneOp[])
 /** The gesture is over: the overlay draws from the scene again, and the host hears so. */
 export function endGesture(session: Session, o: TransformGestureOptions) {
   if (!session.active) return;
+  o.pushing?.(false);
   o.overlay?.current?.update(null, 0, NO_GUIDES);
   o.onActiveChange?.(false);
 }

@@ -11,6 +11,8 @@ const PAGE_GUTTER_WIDE = 56;
 export const PAGE_BREAKPOINT = COLUMN_WIDTH + 2 * PAGE_GUTTER_WIDE;
 /** Below this the wide gutter would cost the text too much, and gives way to the narrow one. */
 export const NARROW_BREAKPOINT = 640;
+/** What a wide band keeps clear of the pane's edges, so it never meets them. */
+const WIDE_BAND_GUTTER = 24;
 
 type PageMode = "wide" | "flow" | "narrow";
 
@@ -28,7 +30,7 @@ export function pageFit(pane: number): PageFit {
     pane >= PAGE_BREAKPOINT ? "wide" : pane >= NARROW_BREAKPOINT ? "flow" : "narrow";
   const gutter = mode === "narrow" ? PAGE_GUTTER : PAGE_GUTTER_WIDE;
   const fit = Math.min(COLUMN_WIDTH, Math.max(1, pane - 2 * gutter)) / COLUMN_WIDTH;
-  const wideFit = Math.min(1, Math.max(1, pane) / WIDE_W);
+  const wideFit = Math.min(1, Math.max(1, pane - 2 * WIDE_BAND_GUTTER) / WIDE_W);
   return { mode, fit, wideFit };
 }
 
@@ -131,7 +133,11 @@ export function followFit(el: HTMLElement, kind: FitKind): () => void {
   return () => {
     if (sheet.followers.get(el) !== kind) return;
     sheet.followers.delete(el);
+    // Heard as a rescale too: a band going wide and back follows again at the
+    // zoom it had, and nothing else would tell what measured it at the other.
+    if (!el.style.zoom) return;
     el.style.zoom = "";
+    el.dispatchEvent(new Event(FIT_EVENT, { bubbles: true }));
   };
 }
 

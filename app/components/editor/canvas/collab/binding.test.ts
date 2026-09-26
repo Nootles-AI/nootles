@@ -470,7 +470,8 @@ describe("maps from before bands", () => {
     expect(meta().w).toBe(640);
 
     store.dispatch({ type: "move", ids: ["a"], dx: 10, dy: 0 });
-    expect([meta().w, meta().h]).toEqual([undefined, 260]);
+    // An old root's height was never pinned by hand, so the band follows its content.
+    expect([meta().w, meta().h]).toEqual([undefined, undefined]);
     expect(materializeCanvas(doc.getMap(canvasMapName("b1")))).toEqual(store.getScene());
   });
 });

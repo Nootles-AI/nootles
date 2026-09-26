@@ -99,7 +99,13 @@ try {
       width: float.width,
       height: float.height,
       visible: float.visible,
-    }, { left: 8, top: 8, width: 256, height: 900 - 16, visible: true });
+    }, { left: 16, top: 16, width: 256, height: 900 - 32, visible: true });
+    const card = await at("card");
+    check("[left away] a thin band parts the float from the sheet's edge", {
+      left: float.left - card.left >= 6,
+      top: float.top - card.top >= 6,
+      bottom: card.top + card.height - (float.top + float.height) >= 6,
+    }, { left: true, top: true, bottom: true });
     check("[left away] the column keeps its width and place", await at("column"), before);
 
     // A press inside the float is the diagram's chrome, not a press outside it.
@@ -131,6 +137,17 @@ try {
     await page.keyboard.press("Enter");
     await wait(200);
     check("[left away] the background paints the band", await at("paint"), "rgb(220, 236, 245)");
+    check("[left away] a band's ground has no corner of its own", await at("corner"), "0px");
+
+    // A painted ground can be rounded, by as much as the panel says.
+    const radius = (await at("design"))?.radius;
+    check("[left away] with a background, the panel offers a corner radius", !!radius, true);
+    await page.mouse.click(...centre(radius));
+    await page.keyboard.press("ControlOrMeta+a");
+    await page.keyboard.type("12");
+    await page.keyboard.press("Enter");
+    await wait(200);
+    check("[left away] and the band's ground takes it", await at("corner"), "12px");
     check("[left away] and the panels stay with the diagram", (await at("sides")).floatLeft, "Layers");
     check("[left away] the column still has not moved", await at("column"), before);
 
@@ -190,7 +207,13 @@ try {
       right: 1440 - (right.left + right.width),
       width: right.width,
       visible: right.visible,
-    }, { right: 8, width: 320, visible: true });
+    }, { right: 16, width: 320, visible: true });
+    const card = await at("card");
+    check("[both away] a thin band parts the right float from the sheet's edge", {
+      right: card.left + card.width - (right.left + right.width) >= 6,
+      top: right.top - card.top >= 6,
+      bottom: card.top + card.height - (right.top + right.height) >= 6,
+    }, { right: true, top: true, bottom: true });
     check("[both away] the column keeps its width and place", await at("column"), before);
     await page.screenshot({ path: path.join(shots, "both-floating.png") });
 

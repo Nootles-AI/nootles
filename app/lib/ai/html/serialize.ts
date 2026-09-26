@@ -5,6 +5,7 @@ import { parseLocation } from "@/app/components/editor/location/parse";
 import { serializeLocation } from "@/app/components/editor/location/serialize";
 import { parseStoryboard } from "@/app/components/editor/storyboard/parse";
 import { serializeStoryboard } from "@/app/components/editor/storyboard/serialize";
+import { bandHeight } from "@/app/components/editor/canvas/scene/band";
 import { labelText } from "@/app/components/editor/canvas/scene/label";
 import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
@@ -286,12 +287,14 @@ function storedScene(blocks: AnyBlock[], at: string): string | null {
 
 /**
  * A diagram block in the full form the model reads: the stored root plus the
- * width it is drawn at. One helper for the read and for stub redemption, so a
- * returned stub redeems to the read byte for byte. Storyboard shots are
- * frames and pass through as stored.
+ * width and height it is drawn at — the height whether or not it is pinned,
+ * so the model knows how much room there is; an echo of it pins nothing (see
+ * `fitOps`). One helper for the read and for stub redemption, so a returned
+ * stub redeems to the read byte for byte. Storyboard shots are frames and
+ * pass through as stored.
  */
 function diagramHtml(scene: Scene, id: string): string {
-  return serializeScene({ ...scene, id }, { readWidth: true });
+  return serializeScene({ ...scene, id, h: bandHeight(scene) }, { readWidth: true });
 }
 
 /**

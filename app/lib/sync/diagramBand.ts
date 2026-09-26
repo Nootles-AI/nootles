@@ -132,8 +132,9 @@ function rewriteBlock(doc: Y.Doc, block: Y.XmlElement, parseHtml: ParseHtml, rep
     if (format === "empty" || (format === "html" && !DIAGRAM_ROOT.test(prop))) return;
     was = readCanvasSource(prop, parseHtml);
     next = normalizeDiagram(was);
-    // A band already: re-serializing it would only restyle it.
-    if (next === was && !isLegacyRoot(was)) return;
+    // A band already: re-serializing it would only restyle it. An old graph
+    // is never one, however little it holds.
+    if (next === was && !isLegacyRoot(was) && format === "html") return;
     html = serializeScene(next);
   }
   if (next.wide && !was.wide) report.wide += 1;

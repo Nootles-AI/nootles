@@ -194,6 +194,144 @@ try {
   await frame();
   check("one undo puts both heights back", [await at("height", "top"), await at("height", "bottom")], [180, 180]);
 
+  {
+    // ---- A band's height, pinned and not --------------------------------------
+    // Scrolled so a band sits mid-screen: whatever changes its height moves only
+    // what is below it — its top and its shapes stay put on screen.
+    await at("clear");
+    await at("padPage", 1200);
+    await at("centreBand", "bottom");
+    await frame();
+    const still = async () => ({ band: (await at("band", "bottom")).top, shape: (await at("shape", "bottom", "b1")).top });
+    const near = (a, b) => Math.abs(a - b) <= 1;
+    const rest = await still();
+    await drag(centre(await at("heightGrip", "bottom")), 0, 100);
+    let now = await still();
+    check("a grip dragged down leaves the band's top and shapes where they were", [near(now.band, rest.band), near(now.shape, rest.shape)], [true, true]);
+    check("and pins the height it was dragged to", await at("height", "bottom"), 280);
+
+    // Pinned with room to spare, the band offers to follow its content again.
+    const offer = await at("autoOffer", "bottom");
+    check("a pin with room below the drawing offers auto height", !!offer, true);
+    await page.mouse.click(...Object.values(centre(offer.go)));
+    await frame();
+    now = await still();
+    check("auto height lets go of the pin", await at("height", "bottom"), 0);
+    check("and the band draws at what it holds", (await at("band", "bottom")).height, 40 + 70 + 24);
+    check("its top and shapes still where they were", [near(now.band, rest.band), near(now.shape, rest.shape)], [true, true]);
+    check("and the offer goes with the pin", await at("autoOffer", "bottom"), null);
+    await drag(centre(await at("heightGrip", "bottom")), 0, 60);
+    const again = await at("autoOffer", "bottom");
+    check("a new pin offers it again", !!again, true);
+    await page.mouse.click(...Object.values(centre(again.dismiss)));
+    await frame();
+    check("× puts the offer away and keeps the height", [await at("autoOffer", "bottom"), (await at("height", "bottom")) > 134], [null, true]);
+    await drag(centre(await at("heightGrip", "bottom")), 0, 20);
+    check("the next resize brings it back", !!(await at("autoOffer", "bottom")), true);
+
+    // A shape dragged down grows the band under it, and the page does not move.
+    const grab = await at("shape", "bottom", "b1");
+    await drag(centre(grab), 0, 150);
+    now = await still();
+    check("a band grown by a drag keeps its top where it was", near(now.band, rest.band), true);
+    check("and the shape landed where the pointer let it go", near(now.shape - grab.top, 150), true);
+    // And with the band's top cut off by the pane's: the band holds its place
+    // rather than whatever of the page happens to sit below it.
+    await at("bandTopAt", "bottom", -60);
+    await frame();
+    const cut = await still();
+    const held = await at("shape", "bottom", "b1");
+    await drag(centre(held), 0, 150);
+    now = await still();
+    check("cut off at the top, a band grown by a drag keeps its place", near(now.band, cut.band), true);
+    check("and the shape lands under the pointer", near(now.shape - held.top, 150), true);
+    await drag(centre(await at("heightGrip", "bottom")), 0, 80);
+    check("and a grip dragged down keeps it too", near((await still()).band, cut.band), true);
+    await at("dispatch", "bottom", [
+      { type: "resize", frames: [{ id: "b1", x: 300, y: 40, w: 120, h: 70 }] },
+      { type: "setDiagram", h: 180 },
+    ]);
+    await at("padPage", null);
+    await at("clear");
+    await frame();
+
+    // ---- Past the column's side ----------------------------------------------
+    // A shape held at the side washes both margins in; pushed on, the band turns
+    // wide for the drag, and stays wide only if the drop is past the column.
+    const pushTo = async (dxs, { escape = false } = {}) => {
+      const from = centre(await at("shape", "top", "a2"));
+      const seen = [];
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      for (const dx of dxs) {
+        await page.mouse.move(from.x + dx, from.y, { steps: 6 });
+        await frame();
+        seen.push({ edge: await at("edge", "top"), wide: await at("wide", "top") });
+      }
+      if (escape) await page.keyboard.press("Escape");
+      await page.mouse.up();
+      await frame();
+      return seen;
+    };
+    // a2 is 420…540 across: 180px of room to the column's side.
+    let seen = await pushTo([200]);
+    check("held at the column's side, the margins wash in", seen[0], { edge: true, wide: false });
+    check("and let go inside the column, it moves no further than the side", [await at("wide", "top"), (await at("model", "top", "a2")).x], [false, 600]);
+    check("and the wash goes", await at("edge", "top"), false);
+    await at("undo");
+    await frame();
+
+    seen = await pushTo([200, 260, 330]);
+    check("pushed past the side, the band turns wide under the drag", seen.map((s) => s.wide), [false, true, true]);
+    const landed = await at("frameOf", "top", "a2");
+    check("and the drop in the margin keeps it wide", [await at("wide", "top"), landed.x + landed.w > 720], [true, true]);
+    await at("undo");
+    await frame();
+    check("one undo takes the move and the widening back", [await at("wide", "top"), (await at("model", "top", "a2")).x], [false, 420]);
+
+    seen = await pushTo([200, 260, 100]);
+    check("pushed past and brought back inside", seen.map((s) => s.wide), [false, true, true]);
+    check("the drop inside the column leaves the band in the column", await at("wide", "top"), false);
+    const inside = await at("frameOf", "top", "a2");
+    check("with the shape where it was dropped", [inside.x > 420, inside.x + inside.w <= 720], [true, true]);
+    await at("undo");
+    await frame();
+
+    seen = await pushTo([200, 260, 215]);
+    const straddling = await at("frameOf", "top", "a2");
+    check("dropped across the column's side, the band stays wide", [await at("wide", "top"), straddling.x < 720 && straddling.x + straddling.w > 720], [true, true]);
+    await at("undo");
+    await frame();
+
+    seen = await pushTo([200, 260], { escape: true });
+    check("Escape after the push puts the band back in the column", [await at("wide", "top"), (await at("model", "top", "a2")).x], [false, 420]);
+    await at("clear");
+
+    // ---- Folded into the column, and out again ------------------------------
+    await at("setDiagram", "top", { wide: true });
+    await at("put", "top", "m1", 900, 40, 60);
+    await frame();
+    await at("setDiagram", "top", { wide: false });
+    await frame();
+    const folded = await at("frameOf", "top", "m1");
+    check("into the column, a drawing in the margin is scaled to fit", [await at("wide", "top"), folded.x + folded.w <= 720 + 0.01], [false, true]);
+    check("and the band is the column's width", await at("bandWidth", "top"), 720);
+    await at("setDiagram", "top", { wide: true });
+    await frame();
+    check("back out before any edit, it is unfolded exactly", await at("frameOf", "top", "m1"), { x: 900, y: 40, w: 60, h: 70 });
+    await at("setDiagram", "top", { wide: false });
+    await at("dispatch", "top", [{ type: "move", ids: ["a1"], dx: 0, dy: 4 }]);
+    await at("setDiagram", "top", { wide: true });
+    await frame();
+    check("after an edit, back out only widens", (await at("frameOf", "top", "m1")).x < 720, true);
+    await at("dispatch", "top", [
+      { type: "remove", ids: ["m1"] },
+      { type: "resize", frames: [{ id: "a1", x: 80, y: 40, w: 120, h: 70 }, { id: "a2", x: 420, y: 40, w: 120, h: 70 }] },
+      { type: "setDiagram", wide: false, h: 180 },
+    ]);
+    await frame();
+  }
+
   // A plain click on empty canvas clears the page.
   const top = await at("band", "top");
   await page.mouse.click(top.left + 20, top.top + 150);
@@ -218,6 +356,7 @@ try {
   await at("clear");
   const mod = (await at("apple")) ? "Meta" : "Control";
   check("the page opens at 100%", await at("zoomReadout"), "100%");
+  check("at 100% the bar has no reset", await at("zoomReset"), null);
   await page.keyboard.press(`${mod}+Equal`);
   await frame();
   check("⌘= zooms the page a step", await at("zoomReadout"), "125%");
@@ -241,6 +380,15 @@ try {
   await frame();
   check("⌘0 puts the page back at 100%", await at("zoomReadout"), "100%");
   check("and the band at its own size", await at("bandScale", "top"), 1);
+  check("and the reset leaves the bar", await at("zoomReset"), null);
+  await page.keyboard.press(`${mod}+Equal`);
+  await frame();
+  const reset = await at("zoomReset");
+  check("zoomed in, the bar offers a reset", !!reset, true);
+  await page.mouse.click(reset.x, reset.y);
+  await frame();
+  check("a click on it puts the page back at 100%", await at("zoomReadout"), "100%");
+  check("and it goes", await at("zoomReset"), null);
 
   // A pane narrowed under a held pointer — a rail opening on the selection
   // the press made — leaves the band's scale alone until the pointer lets go.
@@ -551,6 +699,112 @@ try {
   await page.waitForFunction((id) => (window.canvasPage.selection()[id] ?? []).length === 1, pathBorn);
   check("Enter makes the path, in the pen's diagram", await at("count", pathBorn), 1);
   check("and the tool is put down", await tool(), "move");
+
+  {
+    // ---- The pen past the band it made ----------------------------------------
+    // Above it, the path moves down and the band grows to hold the point; in its
+    // margins, the wash says the band will turn wide, and the point turns it;
+    // below, it grows. The rubber band reaches the pointer wherever it is.
+    const near = (a, b, tol = 1) => Math.abs(a - b) <= tol;
+    // Each made below the last, a line apart, so none is pressed in another's
+    // band of room.
+    let lastLine = penLine;
+    const penBornAt = async () => {
+      const line = await at("addLine", lastLine);
+      lastLine = line;
+      await frame();
+      // Mid-screen, with room above and below it for the band to grow into.
+      await page.evaluate((id) => document.querySelector(`.bn-block-outer[data-id="${id}"]`)?.scrollIntoView({ block: "center" }), line);
+      await frame();
+      const known = await at("diagrams");
+      await at("pick", "pen");
+      const box = await at("block", line);
+      await page.mouse.click(box.left + 200, box.top + box.height / 2);
+      await page.waitForFunction((n) => window.canvasPage.diagrams().length === n, known.length + 1);
+      const id = (await at("diagrams")).find((d) => !known.includes(d));
+      await page.waitForFunction((d) => window.canvasPage.count(d) === 1, id);
+      await at("centreBand", id);
+      await frame();
+      return id;
+    };
+    const pathOf = async (id) => at("frameOf", id, (await at("nodes", id))[0].id);
+
+    const up = await penBornAt();
+    const band = await at("band", up);
+    const scale = await at("bandScale", up);
+    const first = await pathOf(up);
+    await page.mouse.move(band.left + 300, band.top - 40, { steps: 4 });
+    await frame();
+    const reaching = await at("penDraft", up);
+    check("hovered above the band, the pen's rubber band reaches the pointer", !!reaching && near(reaching.top, band.top - 40, 2), true);
+    await page.mouse.click(band.left + 300, band.top - 40);
+    await frame();
+    const lifted = await pathOf(up);
+    check("a point pressed above the band lands at its top", near(lifted.y, 0, 0.5), true);
+    check("the first point moved down with it, keeping the path's shape", near(lifted.h, first.y + 40 / scale), true);
+    const grown = await at("band", up);
+    check("the band grows to hold it, its top where it was", [near(grown.top, band.top), grown.height > band.height], [true, true]);
+
+    const below = await at("band", up);
+    await page.mouse.move(below.left + 200, below.top + below.height + 50, { steps: 4 });
+    await frame();
+    const down = await at("penDraft", up);
+    check("hovered below the band, the rubber band reaches down past it", !!down && near(down.top + down.height, below.top + below.height + 50, 2), true);
+
+    await page.mouse.move(below.left + below.width + 80, below.top + below.height / 2, { steps: 4 });
+    await frame();
+    const aside = await at("penDraft", up);
+    check("hovered in the margin, the margins wash in", await at("edge", up), true);
+    check("and the rubber band reaches into it", !!aside && near(aside.left + aside.width, below.left + below.width + 80, 2), true);
+    await page.mouse.click(below.left + below.width + 80, below.top + below.height / 2);
+    await frame();
+    const widened = await pathOf(up);
+    check("a point pressed in the margin turns the diagram wide", await at("wide", up), true);
+    check("and lands there", widened.x + widened.w > 720 + 40, true);
+    check("the wash goes with the margins", await at("edge", up), false);
+    await page.keyboard.press("Enter");
+    await page.waitForFunction((d) => (window.canvasPage.selection()[d] ?? []).length === 1, up);
+    // The first undo takes back the selection Enter made; the next, the point.
+    await at("undo");
+    await frame();
+    check("undo first lets go of the path Enter selected", [JSON.stringify(await at("selection")), await at("wide", up)], ["{}", true]);
+    await at("undo");
+    await frame();
+    const unwidened = await pathOf(up);
+    check("one undo takes back the point and the width together", [await at("wide", up), near(unwidened.x + unwidened.w, lifted.x + lifted.w)], [false, true]);
+
+    // ---- A curve pulled past the band stays in it ------------------------------
+    // Handles pulled out of a band by the pen: the curve it draws is held, above
+    // by moving the drawing down, beside by turning wide, below by growing.
+    await at("clear");
+    const curve = await penBornAt();
+    const cb = await at("band", curve);
+    const k = await at("bandScale", curve);
+    // The second anchor near the top, dragged down-right: its in-handle points
+    // up-left, and the curve into it arches above the band's top.
+    await drag({ x: cb.left + 420, y: cb.top + 20 }, 160, 140);
+    let f = await pathOf(curve);
+    check("a curve arched above the band's top is moved down into it", f.y >= -0.01, true);
+    // The two anchors are a few px apart down the band; the arch between them
+    // tens of px tall.
+    check("with its box around the whole arch, not only its anchors", f.h > 30, true);
+    let drawn = await at("band", curve);
+    check("and the band holds its lowest point", drawn.height / k >= f.y + f.h - 0.5, true);
+    // The third near the column's right edge, dragged left: its in-handle
+    // points right, and the curve into it bulges past the column.
+    const edgeAt = { x: drawn.left + drawn.width - 30, y: drawn.top + drawn.height - 40 };
+    const held = await drag(edgeAt, -200, 30, { hold: () => at("edge", curve) });
+    check("while a curve is pulled past the column, the margins wash in", held, true);
+    f = await pathOf(curve);
+    check("let go, the band turns wide to hold it", await at("wide", curve), true);
+    check("and the curve is inside the wide band", [f.x >= -240 - 0.01, f.x + f.w <= 960 + 0.01, f.y >= -0.01], [true, true, true]);
+    drawn = await at("band", curve);
+    check("the band still holds its lowest point", drawn.height / (await at("bandScale", curve)) >= f.y + f.h - 0.5, true);
+    await page.keyboard.press("Enter");
+    await at("clear");
+    await at("padPage", null);
+    await frame();
+  }
 
   // ⌫ over a selection spanning diagrams, where the upper one goes with its
   // last shape: the caret that lands in the text lets nothing of the lower

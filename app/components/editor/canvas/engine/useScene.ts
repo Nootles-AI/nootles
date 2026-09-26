@@ -304,9 +304,10 @@ export class SceneStore {
   /**
    * Apply one op, or a group of ops that must land together.
    *
-   * On a band, an edit that leaves content below the stored height raises it
-   * in the same entry: a band never crops what is drawn in it, never shrinks
-   * on its own, and undoing the edit takes the height back with it.
+   * On a band pinned to a height, an edit that leaves content below the pin
+   * raises it in the same entry — a pin is a floor the content lifts — and
+   * undoing the edit takes the height back with it. An unpinned band needs
+   * nothing: it is drawn at its floor, whichever way that moves.
    *
    * On a guarded store (see {@link setOnEmpty}) an edit taking the last shape
    * is handed to the guard instead, at any depth: an open bracket is committed
@@ -337,7 +338,7 @@ export class SceneStore {
     }
     if (this.band) {
       const floor = bandFloor(next);
-      if (floor > next.h) {
+      if (next.h > 0 && floor > next.h) {
         const raise: SceneOp = { type: "setDiagram", h: floor };
         next = applyOps(next, [raise]);
         ops = [...ops, raise];

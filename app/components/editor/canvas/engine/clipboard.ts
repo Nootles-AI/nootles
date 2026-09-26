@@ -13,7 +13,7 @@
  */
 
 import { COLUMN_WIDTH } from "@/app/lib/column";
-import { BAND, EPS, fitToBand, normalizeDiagram } from "../scene/band";
+import { BAND, EPS, fitToBand } from "../scene/band";
 import { absoluteRect, absoluteRotation, unionBounds } from "../scene/geometry";
 import { emptyScene } from "../scene/migrate";
 import { applyOps, mintEdgeIds, mintIds } from "../scene/ops";
@@ -242,5 +242,5 @@ export function diagramFromClipboard(html: string, parseHtml?: ParseHtml): strin
   const lifted = fragment.nodes.map((node) => ({ ...node, y: node.y - top + BAND }));
   const base = emptyScene();
   const { ops } = landFragment(base, { nodes: lifted, edges: fragment.edges });
-  return serializeScene(normalizeDiagram(applyOps(base, ops)));
+  return serializeScene(applyOps(base, ops));
 }

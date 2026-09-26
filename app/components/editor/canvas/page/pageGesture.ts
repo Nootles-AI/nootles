@@ -16,7 +16,11 @@ import {
   readGestureMods,
   resetGestureRotation,
   scaleAllowed,
+  settleWiden,
+  WIDEN_PUSH,
+  widenGesture,
   writeGesture,
+  type Allowed,
   type GestureSession,
   type PointerLike,
   type TransformGestureOptions,
@@ -53,7 +57,9 @@ type PageGestureMode = "move" | "resize" | "scale" | "rotate";
  * a rotation turns them about one centre. The edges of every diagram's band
  * hold the whole gesture: a move stops where the first of them would leave its
  * band, and a resize or a rotation that would take any of them out is refused
- * for all. The landing is one undo step.
+ * for all. A move held at a column band's side is the lead's to push past, as
+ * a diagram's own is: every column band in it shows its margins, then turns
+ * wide. The landing is one undo step.
  */
 export interface PageGesture {
   /** Whether a selection spans more than one diagram — the gesture is the page's, not the diagram's. */
@@ -80,6 +86,8 @@ type Lane = {
   /** Screen px per scene px, at the press. */
   scale: number;
   min: number;
+  /** How far this diagram's own band lets the selection move, in its px. */
+  room: Allowed | null;
 };
 
 type Run = {
@@ -98,6 +106,14 @@ const NO_GUIDES: readonly SnapGuide[] = [];
 function visible(el: HTMLElement): boolean {
   const r = el.getBoundingClientRect();
   return r.bottom > 0 && r.top < window.innerHeight && r.right > 0 && r.left < window.innerWidth;
+}
+
+/** The room every diagram's band leaves the selection, in the lead's px. */
+function sharedRoom(lanes: readonly Lane[], lead: Lane): Allowed | null {
+  return lanes.reduce<Allowed | null>(
+    (room, lane) => intersectAllowed(room, scaleAllowed(lane.room, lane.scale / lead.scale)),
+    null,
+  );
 }
 
 /** `rect` in one diagram's px, carried into another's through the screen. */
@@ -189,6 +205,20 @@ export function createPageGesture(deps: {
 
     const point = lead.o.clientToScene(state.client);
     let { decision, guides } = decideGesture(lead.session, lead.o, point);
+    if (lead.o.widen && !lead.session.widened) {
+      const push = lead.session.push;
+      if (push > WIDEN_PUSH) {
+        for (const lane of lanes) {
+          if (!lane.o.widen) continue;
+          widenGesture(lane.session, lane.o);
+          lane.room = lane.session.allowed;
+        }
+        lead.session.allowed = sharedRoom(lanes, lead);
+        ({ decision, guides } = decideGesture(lead.session, lead.o, point));
+      } else {
+        for (const lane of lanes) lane.o.pushing?.(push > 0);
+      }
+    }
     if (decision.kind === "scale") {
       let k = decision.k;
       for (const lane of lanes) k = capScale(lane.session, k);
@@ -230,16 +260,21 @@ export function createPageGesture(deps: {
     }
     const { lanes, lead } = state;
     if (cancelled || !state.active) {
-      for (const lane of lanes) finishGesture(lane.session, lane.o, true);
+      for (const lane of lanes) {
+        finishGesture(lane.session, lane.o, true);
+        settleWiden(lane.session, lane.o, { cancelled: true, landed: false });
+      }
     } else {
       deps.batch(() => {
         for (const lane of lanes) {
           const { ops, select } = finishGesture(lane.session, lane.o, false);
           // The copies an Alt-drag leaves are this diagram's selection, and
           // the others' copies stay theirs.
-          if (landGesture(lane.o, ops) && select?.length) {
+          const landed = landGesture(lane.o, ops);
+          if (landed && select?.length) {
             deps.selection.selectIn(lane.blockId, select, { keep: true });
           }
+          settleWiden(lane.session, lane.o, { cancelled: false, landed });
         }
       });
       deps.selection.focus(lead.blockId);
@@ -277,14 +312,19 @@ export function createPageGesture(deps: {
         // A child of an auto-layout group would be reordered, which is a
         // question about its own group alone; across diagrams it stays put.
         if (!session || session.mode === "reorder") continue;
-        lanes.push({ blockId: entry.blockId, entry, o, session, scale: o.screenScale(), min: o.minSize ?? 1 });
+        lanes.push({
+          blockId: entry.blockId,
+          entry,
+          o,
+          session,
+          scale: o.screenScale(),
+          min: o.minSize ?? 1,
+          room: session.allowed,
+        });
       }
       if (!lanes.length) return false;
       const lead = lanes.find((lane) => lane.entry === leader) ?? lanes[0];
-      lead.session.allowed = lanes.reduce(
-        (room, lane) => intersectAllowed(room, scaleAllowed(lane.session.allowed, lane.scale / lead.scale)),
-        lead.session.allowed,
-      );
+      lead.session.allowed = sharedRoom(lanes, lead);
 
       event.preventDefault();
       const state: Run = {

@@ -171,6 +171,8 @@ const rails = {
   shape: () => rect(band()?.querySelector('.nt-canvas-scene [data-id="r1"]') ?? null),
   /** The document column: its width is what a rail coming out would take. */
   column: () => rect(document.querySelector(".nt-well")),
+  /** The document's sheet inside the column: the card a float must not touch. */
+  card: () => rect(document.querySelector(".nt-well .nt-pane")),
   /** Whether the band shows its edge and grid, as a chosen diagram does. */
   holding: () => band()?.hasAttribute("data-holding") ?? false,
   /** What each side shows: which faces are on in the rail, and which panels float. */
@@ -208,7 +210,13 @@ const rails = {
       head: panel.querySelector(".nt-style-panel-head > span")?.textContent ?? null,
       sections: [...panel.querySelectorAll(".nt-ctl-section .nt-ctl-title")].map((el) => el.textContent),
       background: rect(panel.querySelector('button[aria-label="Background"]')),
+      radius: rect(panel.querySelector('input[aria-label="Corner radius"]')),
     };
+  },
+  /** The band's painted corner. */
+  corner: () => {
+    const viewport = band()?.querySelector<HTMLElement>(".nt-canvas-viewport");
+    return viewport ? getComputedStyle(viewport).borderTopLeftRadius : null;
   },
   /** The band's painted background. */
   paint: () => {

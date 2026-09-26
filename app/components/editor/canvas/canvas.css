@@ -13,8 +13,8 @@
 
 /* A band of the page: the column's width, or the wide band's, set inline by
    the surface, as tall as what it holds. No paper and no corner of its own —
-   the page is the paper and its band spacing is the margin — unless the
-   diagram paints a ground, which gets the block's corner back. */
+   the page is the paper and its band spacing is the margin. A diagram that
+   paints a ground rounds it only as far as its own style says. */
 .nt-canvas {
   position: relative;
   margin: 0;
@@ -22,8 +22,13 @@
 .nt-canvas:not(.nt-canvas-shot) {
   flex: none;
 }
-.nt-canvas[data-ground] {
-  border-radius: var(--radius-lg);
+/* When a band changes height the page holds the band still, never something
+   inside it: the browser's scroll anchor is the band itself whenever it is the
+   first thing in view, so its top and its shapes stay where they are and only
+   what is below it moves. Anchored on a shape — one a drag is carrying — the
+   page would scroll after it instead. */
+.nt-canvas:not(.nt-canvas-shot) > * {
+  overflow-anchor: none;
 }
 
 /* A wide band is centred on its block, reaching past the column on both
@@ -58,21 +63,9 @@
   }
 }
 
-/* The band's edge, while it is pointed at, holds a selection, or is the
-   selected block — a hairline, never the accent. On the viewport, so a
-   diagram's own ground lies under it and its shapes over it. */
-.nt-canvas:not(.nt-canvas-shot) > .nt-canvas-viewport {
-  transition: box-shadow var(--dur-slow) var(--ease);
-}
-.nt-editor .ProseMirror-selectednode .nt-canvas:not(.nt-canvas-shot) > .nt-canvas-viewport,
-.nt-editor .nt-block-selected .nt-canvas:not(.nt-canvas-shot) > .nt-canvas-viewport,
-.nt-canvas:not(.nt-canvas-shot):hover > .nt-canvas-viewport,
-.nt-canvas:not(.nt-canvas-shot)[data-holding] > .nt-canvas-viewport {
-  box-shadow: inset 0 0 0 1px var(--border-strong);
-}
-
-/* The dots, while the diagram holds a selection: a surface you are working on
-   rather than a picture on the page. Spacing and offset are written by
+/* The dots, while the diagram holds a selection or is where an armed tool's
+   draw would land: a surface you are working on rather than a picture on the
+   page. The band draws no edge of its own — the dots are how it says so. Spacing and offset are written by
    `useViewport`, so scene (0, 0) sits on a dot at the text's edge; the ink is
    the graphite at a whisper, never the accent. */
 .nt-canvas-grid {
@@ -88,16 +81,48 @@
   pointer-events: none;
   transition: opacity var(--dur-slow) var(--ease);
 }
-.nt-canvas[data-holding] .nt-canvas-grid {
+.nt-canvas[data-holding] .nt-canvas-grid,
+.nt-canvas[data-target] .nt-canvas-grid {
   opacity: 1;
 }
+/* A drag held at a column band's side: both margins wash in, where a further
+   push takes the band wide and the drag into them. The system's answer to the
+   push, so the accent, at a whisper. `--nt-margin` is written with the wash. */
+.nt-canvas-margins {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur) var(--ease);
+}
+.nt-canvas-margins::before,
+.nt-canvas-margins::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  width: var(--nt-margin, 240px);
+  background: color-mix(in oklab, var(--nt-select) 7%, transparent);
+}
+.nt-canvas-margins::before {
+  right: 100%;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+.nt-canvas-margins::after {
+  left: 100%;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.nt-canvas[data-edge] > .nt-canvas-margins {
+  opacity: 1;
+}
+
 /* Turned off in the toolbar's settings (engine/dotGrid.ts). */
 :root[data-nt-grid="off"] .nt-canvas-grid {
   display: none;
 }
 @media (prefers-reduced-motion: reduce) {
   .nt-canvas-viewport,
-  .nt-canvas-grid {
+  .nt-canvas-grid,
+  .nt-canvas-margins {
     transition: none;
   }
 }
@@ -314,6 +339,9 @@
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
+.nt-canvas-merge > .nt-canvas-merge-go {
+  gap: 4px;
+}
 .nt-canvas-merge > .nt-canvas-merge-no {
   padding: 0 4px;
 }
@@ -322,7 +350,43 @@
   color: var(--foreground);
 }
 
-/* Bottom edge: drag to set an explicit height, double-click to fit again. */
+/* A band pinned taller than it needs offers to follow its content again: on
+   its bottom edge beside the grip, in the Merge offer's quiet voice. */
+.nt-canvas-autoh {
+  position: absolute;
+  bottom: 0;
+  left: calc(50% + 28px);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  transform: translateY(50%);
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+}
+.nt-canvas-autoh > button {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-canvas-autoh > .nt-canvas-autoh-go {
+  gap: 4px;
+}
+.nt-canvas-autoh > .nt-canvas-autoh-no {
+  padding: 0 4px;
+}
+.nt-canvas-autoh > button:hover {
+  background: var(--hover);
+  color: var(--foreground);
+}
+
+/* Bottom edge: drag to pin a height, double-click to follow the content again. */
 .nt-canvas-grip {
   position: absolute;
   right: 0;
@@ -952,12 +1016,9 @@
   caret-color: transparent;
 }
 
-/* Where the draw would land: the band it goes into, outlined as a pointed-at
-   band is, or the line between blocks where a new diagram would go. Where,
-   not an answer — so the page's hairline, never the accent. */
-.nt-canvas:not(.nt-canvas-shot)[data-target] > .nt-canvas-viewport {
-  box-shadow: inset 0 0 0 1px var(--border-strong);
-}
+/* Where the draw would land: the band it goes into shows its dots (above,
+   with the grid), or the line between blocks where a new diagram would go.
+   Where, not an answer — so the page's hairline, never the accent. */
 .nt-page-insert {
   position: fixed;
   z-index: var(--z-overlay);

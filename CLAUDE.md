@@ -72,7 +72,8 @@ Project → Page (1:1 with a canvas surface) → Block[text | canvas] → Shape 
     single accent, and it marks *the system's live answer to an input* — never a property of the
     thing. That is the one job neutral grey cannot do. In practice: the selection frame and its
     grips, the size readout shown while a shape is dragged or resized, a selected connector and
-    its label, the connector tool's plugs / target ring / preview, and the layers panel's drag
+    its label, the connector tool's plugs / target ring / preview, the faint wash over a column
+    band's margins while a drag or the pen pushes past its side, and the layers panel's drag
     drop-indicator. Note the layers panel's *selected row* is neutral
     (`--selected`) — a resting state is not an answer. Everything else on the canvas stays neutral.
     Don't extend it, and don't remove it.
@@ -135,12 +136,14 @@ so they don't collide (that's why the canvas layout helper is `autoLayout.ts`).
   even the AI's whole-diagram edits merge per shape.
 - Math persists as LaTeX source in a node attribute (debounced), whole-value LWW.
 - A diagram is a **band** on the page, not a surface with its own camera: its root is
-  `<nt-diagram h="…" [wide] [style]>` — shapes in page px from the text column's left edge,
-  width 720 (or 1200 centred when `wide`), `h` the stored height the content can raise
-  (`canvas/scene/band.ts`). Storyboard shots are frames, not bands: they keep their `w`.
-  Old roots are normalized at the diagram-block reader (`migrateLegacyCanvas`), never in
-  `parseScene`; `readCanvasSource` stays raw for frames. Every AI write goes through
-  `fitToBand`, and a read shows the band's width as `w` that is never stored.
+  `<nt-diagram [h="…"] [wide] [style]>` — shapes in page px from the text column's left edge,
+  width 720 (or 1200 centred when `wide`). `h` is written only when the height is pinned
+  (grip drag or the panel), and is then a floor the content can raise; unpinned, the band is
+  drawn at its content's floor (`canvas/scene/band.ts`). Storyboard shots are frames, not
+  bands: they keep their `w`. Old roots are normalized at the diagram-block reader
+  (`migrateLegacyCanvas`), never in `parseScene`; `readCanvasSource` stays raw for frames. Every AI write goes through
+  `fitToBand`, and a read shows the band's width as `w` (never stored) and its drawn height
+  as `h` (an echo pins nothing).
 - The canvas HTML round-trip is exact: `serialize(parse(html)) === html`, and
   `materialize(populate(parse(html)))` equals `parse(html)` — both are contracts the AI
   layer edits diagrams through. Keep them that way.

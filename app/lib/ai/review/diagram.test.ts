@@ -82,9 +82,9 @@ describe("takeBackDiagram", () => {
       const scene = migrateLegacyCanvas(html);
       return { h: scene.h, wide: scene.wide === true };
     };
-    // WAS is an old root: its band is as tall as the old canvas drew it.
+    // WAS is an old root no one pinned: its band follows its content.
     const asked = `<nt-diagram h="400" wide>\n${rect("a", 0)}\n</nt-diagram>`;
-    expect(surface(takeBackDiagram(WAS, asked, asked))).toEqual({ h: 260, wide: false });
+    expect(surface(takeBackDiagram(WAS, asked, asked))).toEqual({ h: 0, wide: false });
     const resized = `<nt-diagram h="500" wide>\n${rect("a", 0)}\n</nt-diagram>`;
     expect(surface(takeBackDiagram(WAS, asked, resized))).toEqual({ h: 500, wide: true });
     const narrowed = `<nt-diagram h="400">\n${rect("a", 0)}\n</nt-diagram>`;

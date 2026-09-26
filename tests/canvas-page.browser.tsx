@@ -219,6 +219,13 @@ const harness = {
   members: (blockId: string) => bandOf(blockId)?.querySelectorAll(".nt-ov-members > rect").length ?? 0,
   /** What the zoom bar reads. */
   zoomReadout: () => document.querySelector('[aria-label="Document zoom"] .nt-toolbar-zoom')?.textContent ?? null,
+  /** The bar's reset button, where it stands, or null when there is none. */
+  zoomReset: () => {
+    const button = document.querySelector('[aria-label="Document zoom"] button[aria-label="Reset zoom"]');
+    if (!button) return null;
+    const { left, top, width, height } = button.getBoundingClientRect();
+    return { x: left + width / 2, y: top + height / 2 };
+  },
   /** Client px per band px: the page's zoom, as the band is drawn. */
   bandScale: (blockId: string) => {
     const band = bandOf(blockId);
@@ -340,9 +347,54 @@ const harness = {
   nodes: (blockId: string) =>
     (entry(blockId)?.api.store.getScene().nodes ?? []).map((node) => ({ id: node.id, x: node.x, y: node.y })),
   /** Where a new diagram would go, as the page shows it while a tool is armed. */
+  /** The pen's rubber band on a diagram, on screen, or null while it draws none. */
+  penDraft: (blockId: string) => {
+    const draft = bandOf(blockId)?.querySelector("svg.nt-pen path[stroke-dasharray]");
+    return draft?.getAttribute("d") ? box(draft) : null;
+  },
   insertLine: () => box(document.querySelector(".nt-page-insert")),
   /** Which band is outlined as a draw's target. */
   target: () => (page?.entries() ?? []).find((diagram) => diagram.api.band.current?.hasAttribute("data-target"))?.blockId ?? null,
+  /** Room above and below the page's blocks, so a band can sit mid-screen; null takes it away. */
+  padPage: (px: number | null) => {
+    const column = document.querySelector<HTMLElement>(".nt-column");
+    if (column) column.style.paddingBlock = px === null ? "" : `${px}px`;
+    if (px === null) document.querySelector(".nt-pane")?.scrollTo({ top: 0 });
+  },
+  /** Scrolls the pane so a band sits in the middle of it. */
+  centreBand: (blockId: string) => bandOf(blockId)?.scrollIntoView({ block: "center" }),
+  /** Scrolls the pane so a band's top is at `y` on screen — above the pane's top for a band cut off there. */
+  bandTopAt: (blockId: string, y: number) => {
+    const band = bandOf(blockId);
+    const pane = band?.closest(".nt-pane");
+    if (band && pane) pane.scrollTop += band.getBoundingClientRect().top - y;
+  },
+  /** A band's bottom grip. */
+  heightGrip: (blockId: string) => box(bandOf(blockId)?.querySelector(".nt-canvas-grip")),
+  /** A pinned band's offer to follow its content again, and its ×, while it shows. */
+  autoOffer: (blockId: string) => {
+    const offer = bandOf(blockId)?.querySelector(".nt-canvas-autoh");
+    if (!offer) return null;
+    return { go: box(offer.querySelector(".nt-canvas-autoh-go")), dismiss: box(offer.querySelector(".nt-canvas-autoh-no")) };
+  },
+  /** Whether a diagram is wide, and whether its margins are washed in. */
+  wide: (blockId: string) => entry(blockId)?.api.store.getScene().wide === true,
+  edge: (blockId: string) => bandOf(blockId)?.hasAttribute("data-edge") ?? false,
+  /** A band's own width, whatever it is scaled by. */
+  bandWidth: (blockId: string) => bandOf(blockId)?.offsetWidth ?? null,
+  /** The diagram's own fields, as the Design panel sets them. */
+  setDiagram: (blockId: string, patch: { wide?: boolean; h?: number }) => entry(blockId)?.api.setDiagram(patch),
+  /** A shape put in a diagram, as it would be drawn. */
+  put: (blockId: string, id: string, x: number, y: number, w: number) =>
+    entry(blockId)?.api.store.dispatch({ type: "insert", nodes: [{ ...rect(id, x, y, "#d8e8c8"), w }] }),
+  /** A diagram's ops, as its own gestures would land them. */
+  dispatch: (blockId: string, ops: never) => entry(blockId)?.api.store.dispatch(ops),
+  /** A shape's box in its diagram's px. */
+  frameOf: (blockId: string, id: string) => {
+    const scene = entry(blockId)?.api.store.getScene();
+    const node = scene && findNode(scene, id);
+    return node ? { x: node.x, y: node.y, w: node.w, h: node.h } : null;
+  },
 };
 
 declare global {

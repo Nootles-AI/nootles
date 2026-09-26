@@ -17,7 +17,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { Check, FountainPen } from "@/app/components/Icons";
+import { Check, FountainPen, RotateCcw } from "@/app/components/Icons";
 import { Menu, MenuItem } from "@/app/components/Menu";
 import { Tooltip } from "@/app/components/Tooltip";
 import { useColumnEdges } from "@/app/lib/columnEdges";
@@ -440,67 +440,74 @@ const percent = (z: number) => `${Math.round(z * 100)}%`;
 /**
  * The focused page's zoom: its readout, and a menu of the steps. The zoom is
  * the page's, not the diagrams' — a diagram is magnified with the words
- * around it.
+ * around it. Zoomed in, the way back is one click beside the readout.
  */
 function ZoomMenu({ pane, hint }: { pane: ZoomPane; hint: (id: ShortcutId) => string }) {
   const store = zoomFor(pane);
   const zoom = useSyncExternalStore(store.subscribe, store.get, unzoomed);
   return (
-    <Menu
-      label="Zoom"
-      side="top"
-      align="end"
-      trigger={(props) => (
-        <Tooltip label="Zoom">
-          <button
-            type="button"
-            {...props}
-            className="nt-toolbar-zoom"
-            aria-label={`Zoom ${percent(zoom)}`}
-            onPointerDown={(e) => e.preventDefault()}
-          >
-            {percent(zoom)}
-          </button>
-        </Tooltip>
+    <>
+      <Menu
+        label="Zoom"
+        side="top"
+        align="end"
+        trigger={(props) => (
+          <Tooltip label="Zoom">
+            <button
+              type="button"
+              {...props}
+              className="nt-toolbar-zoom"
+              aria-label={`Zoom ${percent(zoom)}`}
+              onPointerDown={(e) => e.preventDefault()}
+            >
+              {percent(zoom)}
+            </button>
+          </Tooltip>
+        )}
+      >
+        {(close) => {
+          const run = (fn: () => void) => () => {
+            fn();
+            close();
+          };
+          const row = (id: ShortcutId, label: string, disabled: boolean, fn: () => void) => (
+            <MenuItem onClick={run(fn)} disabled={disabled}>
+              {label}
+              <kbd className="nt-menu-kbd">{hint(id)}</kbd>
+            </MenuItem>
+          );
+          return (
+            <>
+              {row("view.zoomIn", SHORTCUTS_BY_ID["view.zoomIn"].label, zoom >= ZOOM_MAX, () =>
+                store.set(stepZoom(zoom, 1)),
+              )}
+              {row("view.zoomOut", SHORTCUTS_BY_ID["view.zoomOut"].label, zoom <= ZOOM_MIN, () =>
+                store.set(stepZoom(zoom, -1)),
+              )}
+              <div className="nt-menu-sep" aria-hidden />
+              {ZOOM_STEPS.map((step) => (
+                <MenuItem key={step} onClick={run(() => store.set(step))}>
+                  {percent(step)}
+                  <Check
+                    width={14}
+                    height={14}
+                    aria-hidden
+                    className={`nt-menu-check${Math.abs(step - zoom) < 0.005 ? " is-on" : ""}`}
+                  />
+                </MenuItem>
+              ))}
+              <div className="nt-menu-sep" aria-hidden />
+              {row("view.zoomReset", "Reset zoom", zoom === ZOOM_MIN, store.reset)}
+            </>
+          );
+        }}
+      </Menu>
+      {zoom !== ZOOM_MIN && (
+        <Button label="Reset zoom" hint={hint("view.zoomReset")} onClick={store.reset}>
+          <RotateCcw width={svg.width} height={svg.height} strokeWidth={svg.strokeWidth} aria-hidden />
+        </Button>
       )}
-    >
-      {(close) => {
-        const run = (fn: () => void) => () => {
-          fn();
-          close();
-        };
-        const row = (id: ShortcutId, label: string, disabled: boolean, fn: () => void) => (
-          <MenuItem onClick={run(fn)} disabled={disabled}>
-            {label}
-            <kbd className="nt-menu-kbd">{hint(id)}</kbd>
-          </MenuItem>
-        );
-        return (
-          <>
-            {row("view.zoomIn", SHORTCUTS_BY_ID["view.zoomIn"].label, zoom >= ZOOM_MAX, () =>
-              store.set(stepZoom(zoom, 1)),
-            )}
-            {row("view.zoomOut", SHORTCUTS_BY_ID["view.zoomOut"].label, zoom <= ZOOM_MIN, () =>
-              store.set(stepZoom(zoom, -1)),
-            )}
-            <div className="nt-menu-sep" aria-hidden />
-            {ZOOM_STEPS.map((step) => (
-              <MenuItem key={step} onClick={run(() => store.set(step))}>
-                {percent(step)}
-                <Check
-                  width={14}
-                  height={14}
-                  aria-hidden
-                  className={`nt-menu-check${Math.abs(step - zoom) < 0.005 ? " is-on" : ""}`}
-                />
-              </MenuItem>
-            ))}
-            <div className="nt-menu-sep" aria-hidden />
-            {row("view.zoomReset", "Reset zoom", zoom === ZOOM_MIN, store.reset)}
-          </>
-        );
-      }}
-    </Menu>
+    </>
   );
 }
 

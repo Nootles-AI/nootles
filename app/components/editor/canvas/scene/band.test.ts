@@ -10,12 +10,15 @@ import {
   fitOps,
   fitToBand,
   isLegacyRoot,
+  narrowOps,
   normalizeDiagram,
+  unfoldOps,
   WIDE_MARGIN,
   WIDE_W,
+  wideOps,
 } from "./band";
+import { applyOps, reflowHugs } from "./ops";
 import { emptyScene, migrateLegacyCanvas } from "./migrate";
-import { reflowHugs } from "./ops";
 import type { Scene, SceneNode } from "./types";
 
 // `migrateLegacyCanvas` parses with the global DOMParser.
@@ -87,9 +90,11 @@ describe("the band's geometry", () => {
     expect(routed).toBe(218 + BAND);
   });
 
-  test("the height drawn is what is stored, raised to what is held", () => {
+  test("the height drawn is the floor, or the pin where that is taller", () => {
     expect(bandHeight(band([rect("a", 0, 24)], { h: 300 }))).toBe(300);
     expect(bandHeight(band([rect("a", 0, 24)], { h: 40 }))).toBe(108);
+    expect(bandHeight(band([rect("a", 0, 24)]))).toBe(108);
+    expect(bandHeight(band([]))).toBe(74);
   });
 });
 
@@ -99,18 +104,17 @@ describe("normalizeDiagram", () => {
     expect(normalizeDiagram(scene)).toBe(scene);
   });
 
-  test("a band shorter than its content is raised to the floor, and nothing else moves", () => {
-    const scene = band([rect("a", 900, 24)], { h: 40 });
-    const next = normalizeDiagram(scene);
-    expect(next.h).toBe(108);
-    expect(next.nodes).toBe(scene.nodes);
-    expect(next.wide).toBeUndefined();
+  test("a band root is left as it is, pinned or not, whatever it holds", () => {
+    const short = band([rect("a", 900, 24)], { h: 40 });
+    expect(normalizeDiagram(short)).toBe(short);
+    const unpinned = band([rect("a", 0, 24)]);
+    expect(normalizeDiagram(unpinned)).toBe(unpinned);
   });
 
-  test("an empty diagram is 74 tall, not the old 260", () => {
-    expect(normalizeDiagram(emptyScene()).h).toBe(74);
+  test("an empty diagram is unpinned and drawn 74 tall, not the old 260", () => {
+    expect(normalizeDiagram(emptyScene()).h).toBe(0);
     const slashMenu = migrateLegacyCanvas("");
-    expect([slashMenu.w, slashMenu.h, bandHeight(slashMenu)]).toEqual([0, 74, 74]);
+    expect([slashMenu.w, slashMenu.h, bandHeight(slashMenu)]).toEqual([0, 0, 74]);
   });
 
   test("only an old root is a legacy root", () => {
@@ -130,26 +134,21 @@ describe("normalizeDiagram", () => {
     expect(next.attrs).toEqual({ "data-legacy-edges": "[]" });
   });
 
-  test("an old diagram is never shorter than the old canvas drew it", () => {
-    // The old rule: 260…560 of the content's own extent plus 24.
-    expect(normalizeDiagram(old([rect("a", 0, 24)])).h).toBe(260);
+  test("an old diagram's height is not pinned: it follows its content from now on", () => {
+    const next = normalizeDiagram(old([rect("a", 0, 24)]));
+    expect([next.h, bandHeight(next)]).toEqual([0, 108]);
     // An offset the old camera hid shows as room above now, and the band holds it.
-    expect(normalizeDiagram(old([rect("a", 0, 400)])).h).toBe(484);
-    // Past the old 560 cap, the content decides.
-    expect(normalizeDiagram(old([rect("a", 0, 0), rect("b", 0, 900)])).h).toBe(984);
+    expect(bandHeight(normalizeDiagram(old([rect("a", 0, 400)])))).toBe(484);
+    expect(bandHeight(normalizeDiagram(old([])))).toBe(74);
   });
 
-  test("a hand-set old height is kept when taller than the content, and outgrown when not", () => {
+  test("a hand-set old height stays pinned, at no less than the old least", () => {
     const pinned = (h: number, y: number) =>
-      normalizeDiagram(old([rect("a", 0, y)], { h, attrs: { "data-height": "fixed" } })).h;
-    expect(pinned(400, 24)).toBe(400);
-    expect(pinned(200, 24)).toBe(260);
-    expect(pinned(300, 440)).toBe(524);
-  });
-
-  test("the old empty rule is an old root's alone", () => {
-    expect(normalizeDiagram(old([])).h).toBe(260);
-    expect(normalizeDiagram(band([])).h).toBe(74);
+      normalizeDiagram(old([rect("a", 0, y)], { h, attrs: { "data-height": "fixed" } }));
+    expect(pinned(400, 24).h).toBe(400);
+    expect(pinned(200, 24).h).toBe(260);
+    // Pinned under what it holds, it is drawn at what it holds.
+    expect([pinned(300, 440).h, bandHeight(pinned(300, 440))]).toEqual([300, 524]);
   });
 
   test("an old root widened by hand is wide; one that only stated its width is not", () => {
@@ -212,12 +211,15 @@ describe("fitToBand", () => {
     expect(fitToBand(scene)).toBe(scene);
   });
 
-  test("an echo of the read form's width is dropped, whatever else it says", () => {
+  test("an echo of the read form's width is dropped, and of its height pins nothing", () => {
+    // The read states the height drawn: an unpinned band's is its floor.
     const echo = band([rect("a", 0, 24, { h: 48 })], { w: 720, h: 96 });
-    expect(fitOps(echo)).toEqual([{ type: "setDiagram", w: 0 }]);
+    expect(fitOps(echo)).toEqual([{ type: "setDiagram", w: 0, h: 0 }]);
     const fitted = fitToBand(echo);
-    expect([fitted.w, fitted.h, fitted.wide]).toEqual([0, 96, undefined]);
-    // The old height rule never applies here: 96 stays 96.
+    expect([fitted.w, fitted.h, fitted.wide]).toEqual([0, 0, undefined]);
+    // A height past the floor is room asked for below the drawing: pinned.
+    const roomy = fitToBand(band([rect("a", 0, 24, { h: 48 })], { w: 720, h: 200 }));
+    expect([roomy.w, roomy.h]).toEqual([0, 200]);
   });
 
   test("an old root's pins are stripped, and one widened by hand reads as wide", () => {
@@ -254,10 +256,11 @@ describe("fitToBand", () => {
     expect(at(right)).toEqual([["a", 620, 24, 100, 60]]);
   });
 
-  test("the floor wins over a scaled or stated height that would cut the drawing off", () => {
-    expect(fitToBand(band([rect("a", 0, 300)], { h: 40 })).h).toBe(384);
+  test("a scaled or stated height at or under the floor unpins the band", () => {
+    expect(fitToBand(band([rect("a", 0, 300)], { h: 40 })).h).toBe(0);
+    expect(fitToBand(band([rect("a", 0, 300)], { h: 384 })).h).toBe(0);
     // Scaled by a half: round(40 · 0.5) = 20, but the drawing needs 24 + 30 + 24.
-    expect(fitToBand(band([rect("a", 0, 24), rect("b", 1340, 24)], { h: 40 })).h).toBe(78);
+    expect(fitToBand(band([rect("a", 0, 24), rect("b", 1340, 24)], { h: 40 })).h).toBe(0);
   });
 
   test("a hugging group is measured at the size it hugs to, so the fit is idempotent", () => {
@@ -292,5 +295,52 @@ describe("fitToBand", () => {
       expect(fitOps(fitted)).toEqual([]);
       expect(fitToBand(fitted)).toBe(fitted);
     }
+  });
+});
+
+describe("a wide band folded into the column, and unfolded", () => {
+  const edge = { id: "e", from: "a", to: "m", label: "", style: {}, attrs: {} };
+  // `m` sits in the right margin: the drawing spans 0…1000.
+  const wide = band([rect("a", 0, 24), rect("m", 900, 24)], { wide: true, edges: [edge] });
+
+  test("what reaches into the margins is scaled about its top-left to the column", () => {
+    const folded = applyOps(wide, narrowOps(wide));
+    expect(folded.wide).toBeUndefined();
+    const k = 720 / 1000;
+    expect(folded.nodes.map((node) => [node.id, node.x, node.y])).toEqual([
+      ["a", 0, 24],
+      ["m", 900 * k, 24],
+    ]);
+    expect(folded.nodes[1].x + folded.nodes[1].w).toBeCloseTo(720);
+    expect(folded.edges).toEqual(wide.edges);
+  });
+
+  test("content in a margin but narrower than the column is only moved in", () => {
+    const right = band([rect("m", 800, 24)], { wide: true });
+    expect(at(applyOps(right, narrowOps(right)))).toEqual([["m", 620, 24, 100, 60]]);
+  });
+
+  test("unfolding puts every shape and connector back exactly, the band wide", () => {
+    const folded = applyOps(wide, narrowOps(wide));
+    const back = applyOps(folded, unfoldOps(folded, wide));
+    expect(back).toEqual(wide);
+  });
+
+  test("into the column: a fold when the margins hold anything, a plain toggle when not", () => {
+    expect(wideOps(wide, false, null)).toEqual(narrowOps(wide));
+    const empty = band([rect("a", 0, 24)], { wide: true });
+    expect(wideOps(empty, false, null)).toEqual([{ type: "setDiagram", wide: false }]);
+    expect(wideOps(empty, true, null)).toEqual([]);
+  });
+
+  test("back out: unfolded only while the band is just as it was folded", () => {
+    const folded = applyOps(wide, narrowOps(wide));
+    const fold = { folded, before: wide };
+    expect(applyOps(folded, wideOps(folded, true, fold))).toEqual(wide);
+    // Any edit since — here a nudge — is a different band: it only turns wide.
+    const nudged = applyOps(folded, [{ type: "move", ids: ["a"], dx: 10, dy: 0 }]);
+    expect(wideOps(nudged, true, fold)).toEqual([{ type: "setDiagram", wide: true }]);
+    // Only identity says nothing happened: an equal band that is not the folded one counts as edited.
+    expect(wideOps({ ...folded }, true, fold)).toEqual([{ type: "setDiagram", wide: true }]);
   });
 });

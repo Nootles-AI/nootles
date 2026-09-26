@@ -53,7 +53,9 @@ import {
   type RefObject,
 } from "react";
 
+import { X } from "@/app/components/Icons";
 import { useContextMenu } from "../ContextMenu";
+import { AutoHeight } from "../panels/controls/glyphs";
 import { CANVAS_CHROME, type PageCanvas } from "../page/PageCanvas";
 import type { GestureHost } from "../page/pageGesture";
 import { spansDiagrams } from "../page/pageSelection";
@@ -114,15 +116,15 @@ import {
   type Rect,
   type EdgeId,
   type Scene,
-  type StyleMap,
+  type SceneOp,
   type StylePatch,
 } from "../scene/types";
-import { BAND, bandFloor, bandLeft, bandWidth, WIDE_MARGIN } from "../scene/band";
+import { BAND, bandFloor, bandLeft, bandWidth, WIDE_MARGIN, WIDE_W, wideOps, type Fold } from "../scene/band";
 import { sceneBlockHeight } from "../types";
 import { defaultBox, newNode, type DrawKind } from "./newShape";
 import { Overlay, type OverlayApi } from "./Overlay";
 import { shapeWriter, type ShapeWriter } from "./svgShape";
-import { PenTool } from "./PenTool";
+import { PenTool, tintMargins } from "./PenTool";
 import { useSceneFonts } from "./fonts";
 import { ShapeView, toCss } from "./ShapeView";
 import "../canvas.css";
@@ -247,9 +249,35 @@ function withinSelectionBounds(point: Point, box: RotatedRect): boolean {
   return local.x >= 0 && local.x <= box.w && local.y >= 0 && local.y <= box.h;
 }
 
-/** A diagram that paints its own ground — the band is otherwise the page's paper. */
-function hasGround(style: StyleMap): boolean {
-  return Object.keys(style).some((prop) => prop.startsWith("background"));
+/** How long a band takes to grow or shrink its drawing when it is folded into the column, or out. */
+const FOLD_MS = 200;
+
+/** A map of scene points from where they are drawn now back to where they were: `old = a·new + b`. */
+type Placement = { a: number; b: Point };
+
+/**
+ * Where a fold's ops leave the drawing, as a {@link Placement}, or `null` when
+ * they move nothing: a fold scales every top-level shape by one factor about
+ * one point, then moves them all together.
+ */
+function placementOf(ops: readonly SceneOp[]): Placement | null {
+  let k = 1;
+  let c = { x: 0, y: 0 };
+  for (const op of ops) {
+    if (op.type === "scale") {
+      c = { x: op.anchor.x * (1 - op.k) + c.x * op.k, y: op.anchor.y * (1 - op.k) + c.y * op.k };
+      k *= op.k;
+    } else if (op.type === "move") {
+      c = { x: c.x + op.dx, y: c.y + op.dy };
+    }
+  }
+  if (k === 1 && !c.x && !c.y) return null;
+  return { a: 1 / k, b: { x: -c.x / k, y: -c.y / k } };
+}
+
+/** The same map read the other way — an unfold is its fold undone. */
+function inverse({ a, b }: Placement): Placement {
+  return { a: 1 / a, b: { x: -b.x / a, y: -b.y / a } };
 }
 
 /**
@@ -672,26 +700,71 @@ export function CanvasSurface({
     latest.current = { onApi };
   });
 
+  /** The last fold into the column, while the band may still be unfolded exactly. */
+  const fold = useRef<(Fold & { placement: Placement }) | null>(null);
+  /** A fold or an unfold just dispatched: where it was drawn, and how it maps onto where it is now. */
+  const flip = useRef<({ from: Point; s: number } & Placement) | null>(null);
   /**
    * The diagram's own properties, as an op like any other — one undoable
    * entry, and on the shared pipeline one per-key meta write. (These used to
    * bypass the store and write the block prop directly, which the CRDT
-   * pipeline's frozen seed turned into an edit no history ever saw.)
+   * pipeline's frozen seed turned into an edit no history ever saw.) Into
+   * the column and back out, a band folds and unfolds its drawing: see
+   * `wideOps`.
    */
   const setDiagram = useCallback(
     (patch: DiagramPatch) => {
-      store.dispatch({
+      const scene = store.getScene();
+      const toggle = !inFrame && patch.wide !== undefined ? wideOps(scene, patch.wide, fold.current) : [];
+      const fields: SceneOp = {
         type: "setDiagram",
         // A band's width is `wide`, never a number: a stated one would read
         // back as a root from before bands.
         ...(patch.w !== undefined && inFrame ? { w: patch.w } : {}),
         ...(patch.h !== undefined ? { h: patch.h } : {}),
-        ...(patch.wide !== undefined ? { wide: patch.wide } : {}),
         ...(patch.style ? { style: patch.style } : {}),
-      });
+      };
+      const ops = Object.keys(fields).length > 1 ? [...toggle, fields] : toggle;
+      if (!ops.length) return;
+      const held = fold.current;
+      const unfolding = patch.wide === true && held?.folded === scene;
+      const drawing = unfolding ? inverse(held.placement) : placementOf(toggle);
+      if (drawing) {
+        // Where the drawing is on screen now, for the band to grow or shrink
+        // it from there once it is drawn where the ops put it.
+        const from = viewport.sceneToClient({ x: 0, y: 0 });
+        flip.current = { from, s: viewport.screenScale(), ...drawing };
+      }
+      store.dispatch(ops);
+      // A fold is remembered as the band it left, so that only a band nobody
+      // has touched since is unfolded; anything else lets it go.
+      fold.current =
+        patch.wide === false && drawing ? { folded: store.getScene(), before: scene, placement: drawing } : null;
     },
-    [store, inFrame],
+    [store, inFrame, viewport],
   );
+  // Drawn where the ops put it, then shown where it was and let go there over
+  // a moment — in the layout effect, after the band has its new width, fit
+  // and origin, so the measure is of what will paint. On the scene layer, in
+  // scene px on top of its own placement: the container is what every
+  // measure of the band's scale reads, and must never be caught mid-flight.
+  useLayoutEffect(() => {
+    const f = flip.current;
+    const el = sceneRef.current;
+    flip.current = null;
+    if (!f || !el || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const to = viewport.sceneToClient({ x: 0, y: 0 });
+    const z = viewport.screenScale();
+    const k = (f.s * f.a) / z;
+    const tx = (f.from.x + f.s * f.b.x - to.x) / z;
+    const ty = (f.from.y + f.s * f.b.y - to.y) / z;
+    const easing = getComputedStyle(el).getPropertyValue("--ease").trim() || "ease-out";
+    el.animate([{ transform: `matrix(${k}, 0, 0, ${k}, ${tx}, ${ty})` }, { transform: "scale(1)" }], {
+      duration: FOLD_MS,
+      easing,
+      composite: "add",
+    });
+  }, [scene, viewport, sceneRef]);
 
   const previewSize = useCallback(
     (h: number) => {
@@ -707,11 +780,9 @@ export function CanvasSurface({
     [containerRef],
   );
 
-  /** Back to the height the content needs — double-click on the grip. */
+  /** Unpinned: the band follows its content again — double-click on the grip. */
   const fit = useCallback(() => {
-    const scene = store.getScene();
-    const floor = bandFloor(scene);
-    if (scene.h !== floor) setDiagram({ h: floor });
+    if (store.getScene().h !== 0) setDiagram({ h: 0 });
   }, [store, setDiagram]);
 
   /** Where a band's content may go: its own width, and nothing above its top. */
@@ -752,13 +823,15 @@ export function CanvasSurface({
     [store, inFrame],
   );
   /**
-   * The height the gesture grew to, kept by the entry it lands as — so a band
-   * never springs back under a shape dragged down and then up again, and undo
-   * puts the old height back with the move.
+   * The height the gesture grew to, kept by the entry it lands as when the
+   * band is pinned — so a pinned band never springs back under a shape
+   * dragged down and then up again, and undo puts the old height back with
+   * the move. An unpinned band settles on what it holds.
    */
   const keepGrowth = useCallback(() => {
     const h = grown.current;
-    if (h > store.getScene().h) store.dispatch({ type: "setDiagram", h });
+    const pinned = store.getScene().h;
+    if (pinned > 0 && h > pinned) store.dispatch({ type: "setDiagram", h });
   }, [store]);
   /**
    * The band at the height its scene says, once a gesture is over. A cancel
@@ -769,6 +842,16 @@ export function CanvasSurface({
     if (!grown.current || !el) return;
     grown.current = 0;
     el.style.height = `${sceneBlockHeight(store.getScene())}px`;
+  }, [store]);
+
+  /** The column band's two margins, washed in while a drag is held at its side. */
+  const pushing = useCallback((held: boolean) => {
+    const el = wrap.current;
+    if (el && el.hasAttribute("data-edge") !== held) tintMargins(el, held);
+  }, []);
+  const widen = useCallback((): BandRange => {
+    store.dispatch({ type: "setDiagram", wide: true });
+    return { minX: -WIDE_MARGIN, maxX: WIDE_W - WIDE_MARGIN };
   }, [store]);
 
   /**
@@ -882,6 +965,8 @@ export function CanvasSurface({
     clientToScene: viewport.clientToScene,
     screenScale: viewport.screenScale,
     band: bandRange,
+    widen: inFrame || wide ? undefined : widen,
+    pushing,
     snapExtra,
     getSelection: () => ownSelection.getSnapshot().ids,
     getElement,
@@ -1613,8 +1698,17 @@ export function CanvasSurface({
   );
 
   const height = sceneBlockHeight(scene);
-  /** Whether this diagram is chosen or has anything selected — the band shows its edge, its grid and its grip. */
+  /** Whether this diagram is chosen or has anything selected — the band shows its grid and its grip. */
   const holding = active || sel.ids.length > 0 || sel.edges.length > 0;
+
+  /**
+   * A band pinned taller than it needs offers to follow its content again,
+   * until its × is pressed. The offer is back after the next resize, or once
+   * the diagram has been edited and let go; never stored.
+   */
+  const [declined, setDeclined] = useState<Scene | null>(null);
+  if (declined && declined !== scene && !holding) setDeclined(null);
+  const offersAuto = !readOnly && !frame && scene.h > bandFloor(scene) && !declined;
 
   const onGripDown = (event: ReactPointerEvent) => {
     const el = wrap.current;
@@ -1632,7 +1726,10 @@ export function CanvasSurface({
         // the source this commits.
         el.style.height = `${next}px`;
       },
-      () => setDiagram({ h: next }),
+      () => {
+        setDiagram({ h: next });
+        setDeclined(null);
+      },
       () => {
         el.style.height = `${startH}px`;
       },
@@ -1670,7 +1767,6 @@ export function CanvasSurface({
       contentEditable={false}
       data-wide={wide || undefined}
       data-holding={holding || undefined}
-      data-ground={(!frame && hasGround(scene.style)) || undefined}
       {...undoScope}
       style={
         frame
@@ -1774,6 +1870,7 @@ export function CanvasSurface({
             onFinish={onPenFinish}
             onDrawing={onPenDrawing}
             shared={keymap === "page"}
+            band={!inFrame}
           />
         )}
 
@@ -1797,12 +1894,32 @@ export function CanvasSurface({
         )}
       </div>
 
+      {!readOnly && !frame && !wide && <div className="nt-canvas-margins" aria-hidden />}
+
+      {offersAuto && (
+        <div className="nt-canvas-autoh">
+          <button type="button" className="nt-canvas-autoh-go" onClick={fit}>
+            <AutoHeight width={12} height={12} />
+            Auto height
+          </button>
+          <button
+            type="button"
+            className="nt-canvas-autoh-no"
+            aria-label="Keep this height"
+            title="Keep this height"
+            onClick={() => setDeclined(scene)}
+          >
+            <X width={12} height={12} />
+          </button>
+        </div>
+      )}
+
       {!readOnly && !frame && (
         <div
           className="nt-canvas-grip"
           role="separator"
           aria-label="Resize canvas height"
-          title="Drag to resize · double-click to fit"
+          title="Drag to set the height · double-click for auto height"
           onPointerDown={onGripDown}
           onDoubleClick={fit}
         />

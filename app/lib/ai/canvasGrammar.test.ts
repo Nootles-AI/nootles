@@ -22,7 +22,12 @@ describe("the grammar's size and placement", () => {
   });
 
   it("tells the model the read's w is not its to write", () => {
-    expect(placement).toMatch(/A read shows w on <nt-diagram>.*never yours to write/);
+    expect(placement).toMatch(/A read shows w and h on <nt-diagram>: w is the page's width, never yours to write/);
+  });
+
+  it("tells the model the height follows the content, and a larger h pins it", () => {
+    expect(placement).toMatch(/height follows its content, growing and\nshrinking with it/);
+    expect(placement).toMatch(/write a larger h only to\nadd room below the lowest shape/);
   });
 
   it("no longer teaches the old frame: no x=40 start, no w/h to set", () => {

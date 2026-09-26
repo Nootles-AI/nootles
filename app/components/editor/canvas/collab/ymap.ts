@@ -16,8 +16,8 @@ import { byOrder, keyBetween, keyForIndex } from "./order";
  * A diagram as CRDT structure: three Y.Maps under one root map in the page's
  * Y.Doc, named `canvas:<blockId>`.
  *
- *   "meta"   — the surface's own fields: `h` always; `w` only when one is
- *              held (a band states none); `wide` only while set, never
+ *   "meta"   — the surface's own fields: `h` only when pinned (a frame's
+ *              always is); `w` only when one is held (a band states none); `wide` only while set, never
  *              `false`; `style`, `attrs`, `id`
  *   "shapes" — NodeId → Y.Map of per-shape fields
  *   "edges"  — EdgeId → Y.Map of per-edge fields
@@ -179,7 +179,7 @@ function edgeFields(edge: SceneEdge, order: string): Record<string, unknown> {
 export function populateCanvas(root: Y.Map<unknown>, scene: Scene) {
   const meta = new Y.Map<unknown>();
   if (scene.w > 0) meta.set("w", scene.w);
-  meta.set("h", scene.h);
+  if (scene.h > 0) meta.set("h", scene.h);
   if (scene.wide) meta.set("wide", true);
   meta.set("style", { ...scene.style });
   meta.set("attrs", { ...scene.attrs });
@@ -397,7 +397,7 @@ export function applySceneDiff(
   const edges = root.get("edges") as Y.Map<unknown>;
 
   if (prev.w !== next.w) setOrDelete(meta, "w", next.w > 0 ? next.w : undefined);
-  if (prev.h !== next.h) meta.set("h", next.h);
+  if (prev.h !== next.h) setOrDelete(meta, "h", next.h > 0 ? next.h : undefined);
   if (prev.wide !== next.wide) setOrDelete(meta, "wide", next.wide);
   if (!same(prev.style, next.style)) meta.set("style", { ...next.style });
   if (!same(prev.attrs, next.attrs)) meta.set("attrs", { ...next.attrs });

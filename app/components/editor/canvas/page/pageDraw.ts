@@ -5,7 +5,8 @@ import type { LiveEditor } from "@/app/components/editor/EditorRegistry";
 import { forgetTextStep, newestTextStep } from "@/app/lib/history/textDomain";
 import type { CanvasTool } from "../engine/shortcuts";
 import { defaultBox, newNode, type DrawKind } from "../render/newShape";
-import { BAND, bandFloor, bandLeft, bandWidth, EMPTY_BAND_H } from "../scene/band";
+import { hoverPen } from "../render/PenTool";
+import { BAND, bandLeft, bandWidth, EMPTY_BAND_H } from "../scene/band";
 import { emptyScene } from "../scene/migrate";
 import { mintId, mintIds } from "../scene/ops";
 import { serializeScene } from "../scene/serialize";
@@ -124,7 +125,7 @@ export function sceneFor(kind: DrawKind, box: Rect): { scene: Scene; nodeId: str
     nodes: [newNode(kind, nodeId, { x, y: BAND, w, h: Math.round(box.h) })],
     ...(x + w > COLUMN_WIDTH ? { wide: true as const } : {}),
   };
-  return { scene: { ...drawn, h: bandFloor(drawn) }, nodeId };
+  return { scene: drawn, nodeId };
 }
 
 /**
@@ -350,8 +351,12 @@ const SETTLE = "cubic-bezier(0.25, 0, 0, 1)";
 
 /** A press the page draws from, rather than one of its own controls or a diagram's. */
 function pagePress(e: PointerEvent): boolean {
-  if (e.button !== 0) return false;
-  const target = e.target as Element;
+  return e.button === 0 && onPage(e.target);
+}
+
+/** Somewhere the page draws: not one of its controls, nor a diagram. */
+function onPage(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
   if (target.closest("button, a, input, textarea, select, [role='menu']")) return false;
   // A diagram — a canvas block or a storyboard's shot — draws for itself.
   return !target.closest(".nt-canvas");
@@ -564,6 +569,36 @@ function armShapes(canvas: PageCanvas, pane: HTMLElement, kind: DrawKind): () =>
 // ---------------------------------------------------------------------------
 
 /**
+ * Where on a diagram's band a pen point pressed at `origin` (client px) goes,
+ * in client px — what the press puts down, and what the hover before it
+ * shows, so the two cannot drift apart.
+ *
+ * On a band the pen made for this path it goes where it was pressed: the
+ * band makes room for it there (`roomFor`, in the pen), moving the path down
+ * under a point above it and turning wide under one in its margins; only past
+ * the wide margins is it brought in. On any other diagram it is held inside
+ * the band, and a band's width in from its top — the diagram was there first,
+ * and a point pressed off it is a point meant for its edge. Below either one
+ * grows it.
+ */
+export function penPoint(
+  band: { left: number; top: number; right: number; bottom: number; scale: number },
+  origin: Point,
+  born: { toScene: (p: Point) => Point; toClient: (p: Point) => Point } | null,
+): Point {
+  if (born) {
+    const at = born.toScene(origin);
+    const left = bandLeft({ wide: true });
+    return born.toClient({ x: Math.min(left + bandWidth({ wide: true }), Math.max(left, at.x)), y: at.y });
+  }
+  const inset = Math.min(BAND * band.scale, (band.bottom - band.top) / 2);
+  return {
+    x: Math.min(band.right - 1, Math.max(band.left + 1, origin.x)),
+    y: Math.max(band.top + inset, origin.y),
+  };
+}
+
+/**
  * A press on the page with the pen: its point handed to a diagram's own pen,
  * as the press it would have been there — the diagram mid-path, one it
  * landed in or beside, or one made for it where it was pressed. Held, the
@@ -574,25 +609,50 @@ function armPen(canvas: PageCanvas, pane: HTMLElement): () => void {
   const preview = createPreview(canvas);
   /** What each handed point left waiting on its pen to finish. */
   const pending = new Set<() => void>();
+  /** The diagrams made for a path still being drawn. */
+  const bornFor = new Set<string>();
   let hover = 0;
+  /** The pen the page last hovered for, so leaving takes its rubber band down. */
+  let hovered: SVGSVGElement | null = null;
+  const unhover = () => {
+    if (hovered) hoverPen(hovered, null);
+    hovered = null;
+  };
   const onHover = (e: PointerEvent) => {
     const at = { x: e.clientX, y: e.clientY };
     const target = e.target;
+    const press = onPage(target);
     if (hover) cancelAnimationFrame(hover);
     hover = requestAnimationFrame(() => {
       hover = 0;
       const drawing = canvas.entries().find((entry) => entry.api.pen.drawing());
-      if (drawing) preview.clear();
-      else preview.show({ ...at, w: 0, h: 0 }, at, target);
+      if (!drawing) {
+        unhover();
+        return preview.show({ ...at, w: 0, h: 0 }, at, target);
+      }
+      preview.clear();
+      const svg = penOverlay(drawing);
+      // Over a band the pointer is that band's own; off every band it is the
+      // drawing pen's, shown where a press there would put its point.
+      if (!svg || !press) return unhover();
+      if (hovered !== svg) unhover();
+      hovered = svg;
+      hoverPen(svg, pointFor(drawing, at, bornFor.has(drawing.blockId)));
     });
   };
-  const onLeave = () => preview.clear();
+  const onLeave = () => {
+    if (hover) cancelAnimationFrame(hover);
+    hover = 0;
+    unhover();
+    preview.clear();
+  };
 
   const onDown = (e: PointerEvent) => {
     if (!pagePress(e)) return;
     e.preventDefault();
     e.stopPropagation();
     preview.clear();
+    unhover();
     let released = false;
     const onUp = () => {
       released = true;
@@ -601,7 +661,7 @@ function armPen(canvas: PageCanvas, pane: HTMLElement): () => void {
     };
     window.addEventListener("pointerup", onUp, true);
     window.addEventListener("pointercancel", onUp, true);
-    void handPen(canvas, pane, e, () => released, pending);
+    void handPen(canvas, pane, e, () => released, pending, bornFor);
   };
 
   pane.setAttribute("data-drawing", "");
@@ -611,6 +671,7 @@ function armPen(canvas: PageCanvas, pane: HTMLElement): () => void {
   return () => {
     for (const settle of [...pending]) settle();
     if (hover) cancelAnimationFrame(hover);
+    unhover();
     preview.clear();
     pane.removeAttribute("data-drawing");
     pane.removeEventListener("pointerdown", onDown, true);
@@ -619,12 +680,29 @@ function armPen(canvas: PageCanvas, pane: HTMLElement): () => void {
   };
 }
 
+const penOverlay = (entry: DiagramEntry) => entry.api.band.current?.querySelector<SVGSVGElement>("svg.nt-pen") ?? null;
+
+/** {@link penPoint} for one diagram on the page. */
+function pointFor(entry: DiagramEntry, origin: Point, born: boolean): Point {
+  const { band, viewport } = entry.api;
+  const r = band.current!.getBoundingClientRect();
+  const box = {
+    left: r.left,
+    top: r.top,
+    right: r.right,
+    bottom: r.bottom,
+    scale: r.height / (band.current!.offsetHeight || 1),
+  };
+  return penPoint(box, origin, born ? { toScene: viewport.clientToScene, toClient: viewport.sceneToClient } : null);
+}
+
 async function handPen(
   canvas: PageCanvas,
   pane: HTMLElement,
   press: PointerEvent,
   released: () => boolean,
   pending: Set<() => void>,
+  bornFor: Set<string>,
 ) {
   const origin = { x: press.clientX, y: press.clientY };
   let entry =
@@ -633,19 +711,19 @@ async function handPen(
       const hit = landingIn(bandBoxes(canvas), { ...origin, w: 0, h: 0 }, origin);
       return hit ? (canvas.get(hit.blockId) ?? null) : null;
     })();
-  let born: { blockId: string; step: ReturnType<typeof newestTextStep> } | null = null;
+  let made: { blockId: string; step: ReturnType<typeof newestTextStep> } | null = null;
   const editor = canvas.editor();
   // A diagram made for the pen and given up before its path: it goes as it
   // came, with no step on anyone's history — its own entries, its block, and
   // the text step that put the block in.
-  const unmake = (made: NonNullable<typeof born>, diagram: DiagramEntry | null) => {
+  const unmake = (gone: NonNullable<typeof made>, diagram: DiagramEntry | null) => {
     if (!editor || (diagram && diagram.api.store.getScene().nodes.length > 0)) return;
     diagram?.api.store.forget();
     editor.transact((tr: { setMeta(key: string, value: unknown): void }) => {
       tr.setMeta("addToHistory", false);
-      editor.removeBlocks([made.blockId]);
+      editor.removeBlocks([gone.blockId]);
     });
-    if (made.step) forgetTextStep(editor, made.step);
+    if (gone.step) forgetTextStep(editor, gone.step);
   };
   if (!entry) {
     // Made beside the line it was pressed on rather than in its place: a
@@ -653,56 +731,55 @@ async function handPen(
     const place = editor && placeNew(blockBoxes(editor), origin.y, (id) => isEmptyLine(editor, id), { replace: false });
     if (!editor || !place) return;
     const blockId = insertDiagram(editor, place, serializeScene({ ...emptyScene(), h: EMPTY_BAND_H }));
-    born = { blockId, step: newestTextStep(editor) };
+    made = { blockId, step: newestTextStep(editor) };
     entry = await canvas.whenRegistered(blockId);
-    if (!entry) return unmake(born, null);
+    if (!entry) return unmake(made, null);
     await frames(1);
   }
   const band = entry.api.band.current;
-  const svg = band?.querySelector<SVGSVGElement>("svg.nt-pen");
+  const svg = penOverlay(entry);
   if (!band || !svg) {
-    if (born) unmake(born, entry);
+    if (made) unmake(made, entry);
     return;
   }
 
-  let r = band.getBoundingClientRect();
-  let stretched = false;
-  const inset = Math.min(BAND * (r.height / (band.offsetHeight || 1)), r.height / 2);
-  if (born && (origin.y < r.top || origin.y > r.bottom)) {
+  let at: Point;
+  if (made) {
     // Brought to the point rather than the point to it, as far as the page
     // will scroll; what is left over, the point makes up.
-    const by = origin.y < r.top ? r.top - (origin.y - inset) : r.bottom - (origin.y + inset);
-    pane.scrollBy({ top: by, behavior: "instant" });
-    r = band.getBoundingClientRect();
-  } else if (origin.y > r.bottom) {
-    // Below a diagram it belongs to: the band reaches down to the point now,
-    // and its store keeps the height once the point is written.
-    const scale = r.height / (band.offsetHeight || 1);
-    entry.api.previewSize(Math.ceil((origin.y - r.top) / scale + BAND));
-    stretched = true;
-    r = band.getBoundingClientRect();
+    let r = band.getBoundingClientRect();
+    const inset = Math.min(BAND * (r.height / (band.offsetHeight || 1)), r.height / 2);
+    if (origin.y < r.top || origin.y > r.bottom) {
+      const by = origin.y < r.top ? r.top - (origin.y - inset) : r.bottom - (origin.y + inset);
+      pane.scrollBy({ top: by, behavior: "instant" });
+      r = band.getBoundingClientRect();
+    }
+    at = {
+      x: Math.min(r.right - 1, Math.max(r.left + 1, origin.x)),
+      y: Math.min(r.bottom - inset, Math.max(r.top + inset, origin.y)),
+    };
+  } else {
+    at = pointFor(entry, origin, bornFor.has(entry.blockId));
   }
-  const at = {
-    x: Math.min(r.right - 1, Math.max(r.left + 1, origin.x)),
-    y: Math.min(r.bottom - inset, Math.max(r.top + inset, origin.y)),
-  };
 
-  // Once the pen is done — or the tool put down, or the press never taken —
-  // a made diagram left empty goes, and a stretched band comes back to the
-  // height its scene says: nothing re-renders to take a stretch back.
+  // A diagram made for the path goes again if the path is given up — once
+  // the pen is done, or the tool put down, or the press never taken.
   const diagram = entry;
-  const made = born;
-  let settled = false;
+  const born = made;
+  let settled = !born;
   const settle = () => {
-    if (settled) return;
+    if (settled || !born) return;
     settled = true;
     pending.delete(settle);
     off();
-    if (made) unmake(made, diagram);
-    if (stretched) diagram.api.previewSize(diagram.api.store.getScene().h);
+    bornFor.delete(born.blockId);
+    unmake(born, diagram);
   };
-  const off = diagram.api.pen.onFinish(settle);
-  pending.add(settle);
+  const off = born ? diagram.api.pen.onFinish(settle) : () => {};
+  if (born) {
+    pending.add(settle);
+    bornFor.add(born.blockId);
+  }
 
   const init = {
     bubbles: true,

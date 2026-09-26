@@ -108,7 +108,7 @@ describe("what a store reads", () => {
     const store = new SceneStore(diagram(40));
     const written: string[] = [];
     store.setWriter((html) => void written.push(html));
-    expect([store.getScene().w, store.getScene().h]).toEqual([0, 260]);
+    expect([store.getScene().w, store.getScene().h]).toEqual([0, 0]);
     store.flush();
     expect(written).toEqual([]);
   });

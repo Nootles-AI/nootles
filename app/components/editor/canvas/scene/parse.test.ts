@@ -80,6 +80,9 @@ describe("the root", () => {
     `<nt-diagram w="320" h="180">\n${RECT}\n</nt-diagram>`,
     // An old root, read raw.
     `<nt-diagram w="960" h="540" data-height="fixed" data-width="fixed">\n${RECT}\n</nt-diagram>`,
+    // Unpinned bands: no height stated, so it follows the content.
+    `<nt-diagram>\n${RECT}\n</nt-diagram>`,
+    `<nt-diagram wide style="background: #fff"></nt-diagram>`,
   ];
 
   it("round-trips byte for byte, and through the maps", () => {
@@ -128,7 +131,7 @@ describe("the root", () => {
     );
     const widened = `<nt-diagram w="1100" h="300" data-width="fixed">\n${RECT}\n</nt-diagram>`;
     expect(serializeScene(migrateLegacyCanvas(widened, parseHtml))).toBe(
-      `<nt-diagram h="260" wide>\n${RECT}\n</nt-diagram>`,
+      `<nt-diagram wide>\n${RECT}\n</nt-diagram>`,
     );
     const shot = CANONICAL[4];
     expect(serializeScene(readCanvasSource(shot, parseHtml))).toBe(shot);
