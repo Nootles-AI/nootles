@@ -9,6 +9,8 @@
  *   - Tab — finished or mid-stream — lands the diagram exactly where the ghost
  *     stood: the band, every shape, and the paragraph below it;
  *   - Escape takes it away and gives the page its height back;
+ *   - while planning the band says so, centred and pulsing, and the caret line
+ *     says nothing past the caret; the words fade once the first shape comes;
  *   - reduced motion stops every animation the ghost runs.
  *
  * Every non-origin request is aborted and the page's own fetch throws, so a
@@ -163,7 +165,16 @@ try {
     await shoot("column-1-thinking");
     if (!shotsOnly) {
       check("thinking: the ghost says so", await at("phase"), "thinking");
-      check("thinking: the caret line says what the model is doing", await at("status"), "Planning diagram");
+      check("thinking: the caret line has the caret alone, no words", await at("status"), null);
+      check(
+        "thinking: the caret still pulses on the caret line",
+        await page.evaluate(() => !!document.querySelector(".nt-ghost .nt-stream-head.is-live")),
+        true,
+      );
+      const plan = await at("planning");
+      check("thinking: the band says it is planning", [plan?.text, plan?.opacity, plan?.italic], ["Planning diagram", 1, true]);
+      check("thinking: the planning words sit centred in the band", plan?.offset, [0, 0]);
+      check("thinking: the planning words pulse", plan?.animation, "nt-ghost-plan");
     }
 
     // One element for the whole run, so a chunk never rebuilds what is drawn.
@@ -188,6 +199,8 @@ try {
     if (!shotsOnly) {
       check("drawing: the ghost says so", await at("phase"), "drawing");
       check("drawing: the caret line says so", await at("status"), "Drawing diagram");
+      const plan = await at("planning");
+      check("drawing: the planning words are gone from the band", [plan?.opacity, plan?.animation], [0, "none"]);
       check("drawing: the ghost is the same element from thinking on", rebuilt, false);
       check("drawing: a shape already drawn holds still as the next arrive", moved, []);
     }
@@ -294,6 +307,13 @@ try {
     const at = (fn, ...args) => page.evaluate(({ fn, args }) => window.diagramSuggest[fn](...args), { fn, args });
     await at("reset", "column", "");
     await at("think");
+    await page.waitForTimeout(100);
+    const plan = await at("planning");
+    check(
+      "reduced motion: the band still says it is planning, steady",
+      [plan?.text, plan?.opacity, plan?.animation],
+      ["Planning diagram", 1, "none"],
+    );
     await at("stream", 400);
     await page.waitForTimeout(100);
     // The app's own reduced-motion rule shortens transitions to a hair rather

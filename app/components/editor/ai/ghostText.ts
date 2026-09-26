@@ -186,7 +186,8 @@ function ghostWidget(
       if (live) text.classList.add("is-live");
       else if (tab) span.appendChild(keyChip("Tab"));
     }
-    if (phase) span.appendChild(statusEl(phase));
+    const status = phase && statusEl(phase);
+    if (status) span.appendChild(status);
     return span;
   };
 }
@@ -196,9 +197,11 @@ function ghostWidget(
  * ghost says it — rather than in a head line over the drawing: the band below
  * is left to be nothing but the diagram. A word while the model works; once it
  * is done, the two keys that answer it. Tab alone wears the accent, since only
- * Tab takes what the model is offering.
+ * Tab takes what the model is offering. While it plans the caret says nothing
+ * past its pulse; the empty band below carries the words.
  */
-function statusEl(phase: DiagramPhase): HTMLElement {
+function statusEl(phase: DiagramPhase): HTMLElement | null {
+  if (phase === "thinking") return null;
   const el = document.createElement("span");
   el.className = "nt-ghost-status";
   const word = phaseWord(phase);
@@ -225,7 +228,8 @@ function statusWidget(phase: DiagramPhase) {
       head.className = "nt-stream-head is-live";
       span.appendChild(head);
     }
-    span.appendChild(statusEl(phase));
+    const status = statusEl(phase);
+    if (status) span.appendChild(status);
     return span;
   };
 }

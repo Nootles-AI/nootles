@@ -4,9 +4,10 @@ import { useLayoutEffect, useRef } from "react";
 import { EdgeLayer } from "../canvas/render/EdgeLayer";
 import { ShapeView, toCss } from "../canvas/render/ShapeView";
 import type { EdgeId, Scene } from "../canvas/scene/types";
+import { EMPTY_BAND_H } from "../canvas/scene/band";
 import { COLUMN_WIDTH } from "@/app/lib/column";
 import { followFit, followWide } from "@/app/lib/columnScale";
-import { ghostBandHeight, type DiagramPhase } from "./diagramGhost";
+import { ghostBandHeight, PLANNING_LABEL, type DiagramPhase } from "./diagramGhost";
 import "../canvas/canvas.css";
 
 const NO_EDGES: ReadonlySet<EdgeId> = new Set();
@@ -50,6 +51,15 @@ export function GhostBand({ phase, scene }: { phase: DiagramPhase; scene: Scene 
       style={{ height: ghostBandHeight(phase, scene) }}
     >
       <div className="nt-diagram-ghost-grid" aria-hidden />
+      {/* Always mounted, so the first shape fades it out rather than cutting
+          it; held to the planning band's height so it stays put as the band grows. */}
+      <div
+        className="nt-diagram-ghost-label"
+        aria-hidden={phase !== "thinking"}
+        style={{ height: EMPTY_BAND_H }}
+      >
+        {PLANNING_LABEL}
+      </div>
       <div className="nt-canvas-viewport" style={scene ? toCss(scene.style) : undefined}>
         <div ref={layer} className="nt-canvas-scene">
           {scene && <EdgeLayer scene={scene} selected={NO_EDGES} hoverId={null} />}

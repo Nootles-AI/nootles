@@ -904,7 +904,8 @@ body:has(.nt-pane[data-drawing]) .nt-side-menu-anchor {
 /* ---- A suggested diagram, as ghost content on the page -----------------
    The band it would become, where it would land, and nothing around it: no
    box, no ground, no head line. It is to a diagram what ghost text is to
-   prose, so it is drawn faded and says its state on the caret line.
+   prose, so it is drawn faded and says its state on the caret line — or,
+   while it plans and has nothing drawn, in the band itself.
 
    The dot grid is the band's own — what a diagram shows while you work in it
    — standing here for the model working in it, breathing while it thinks and
@@ -978,6 +979,32 @@ body:has(.nt-pane[data-drawing]) .nt-side-menu-anchor {
   }
 }
 
+/* While the model plans, the empty band says so where the shapes will come,
+   in the empty diagram's "Add shapes" voice, its colour easing toward the
+   ghost caret's accent. The first shape fades it out as the shapes fade in. */
+.nt-diagram-ghost-label {
+  position: absolute;
+  inset: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-style: italic;
+  line-height: 26px;
+  white-space: nowrap;
+  color: var(--bn-colors-side-menu, var(--faint));
+  opacity: 0;
+  transition: opacity 360ms var(--ease);
+}
+.nt-diagram-ghost[data-phase="thinking"] .nt-diagram-ghost-label {
+  opacity: 1;
+  animation: nt-ghost-plan 1.6s ease-in-out infinite;
+}
+@keyframes nt-ghost-plan {
+  50% {
+    color: var(--accent);
+  }
+}
+
 /* What the suggestion is doing, on the caret line: the action chip's voice —
    a muted word, and a key when there is one to press. */
 .nt-ghost-status {
@@ -1006,13 +1033,15 @@ body:has(.nt-pane[data-drawing]) .nt-side-menu-anchor {
 
 @media (prefers-reduced-motion: reduce) {
   .nt-diagram-ghost-band,
-  .nt-diagram-ghost-grid {
+  .nt-diagram-ghost-grid,
+  .nt-diagram-ghost-label {
     transition: none;
   }
   .nt-diagram-ghost .nt-canvas-scene > [data-id],
   .nt-diagram-ghost .nt-edge,
   .nt-diagram-ghost .nt-edge-label,
-  .nt-diagram-ghost .nt-diagram-ghost-grid {
+  .nt-diagram-ghost .nt-diagram-ghost-grid,
+  .nt-diagram-ghost[data-phase] .nt-diagram-ghost-label {
     animation: none;
   }
 }

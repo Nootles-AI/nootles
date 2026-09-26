@@ -29,14 +29,14 @@ export function ghostBandHeight(phase: DiagramPhase, scene: Scene | null): numbe
   return bandHeight(scene);
 }
 
-/** The words the caret line says for a phase that has no key to offer yet. */
+/**
+ * The words the caret line says after the ghost caret. Thinking says none
+ * there: the band says it ({@link PLANNING_LABEL}), since there is nothing in
+ * it yet. Waiting has keys to offer instead of words.
+ */
 export function phaseWord(phase: DiagramPhase): string | null {
-  switch (phase) {
-    case "thinking":
-      return "Planning diagram";
-    case "drawing":
-      return "Drawing diagram";
-    case "waiting":
-      return null;
-  }
+  return phase === "drawing" ? "Drawing diagram" : null;
 }
+
+/** What the empty band says while the model plans, where the shapes will come. */
+export const PLANNING_LABEL = "Planning diagram";

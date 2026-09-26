@@ -5,7 +5,7 @@ import type { DecorationSet } from "prosemirror-view";
 import { bandHeight, EMPTY_BAND_H } from "../canvas/scene/band";
 import type { Scene, SceneNode } from "../canvas/scene/types";
 import type { Batch } from "@/convex/ai/operations";
-import { diagramPhase, ghostBandHeight, phaseWord } from "./diagramGhost";
+import { diagramPhase, ghostBandHeight, phaseWord, PLANNING_LABEL } from "./diagramGhost";
 import { ghostTextKey, ghostTextPlugin, type Suggestion } from "./ghostText";
 
 const DIAGRAM = `<nt-diagram><nt-rect id="a" x="24" y="40" w="120" h="64">A</nt-rect><nt-rect id="b" x="240" y="140" w="120" h="64">B</nt-rect></nt-diagram>`;
@@ -56,8 +56,9 @@ describe("ghostBandHeight", () => {
 });
 
 describe("phaseWord", () => {
-  it("names the work while there is no key to offer, and nothing once there is", () => {
-    expect(phaseWord("thinking")).toBe("Planning diagram");
+  it("names the drawing on the caret line, and leaves planning to the band", () => {
+    expect(phaseWord("thinking")).toBeNull();
+    expect(PLANNING_LABEL).toBe("Planning diagram");
     expect(phaseWord("drawing")).toBe("Drawing diagram");
     expect(phaseWord("waiting")).toBeNull();
   });

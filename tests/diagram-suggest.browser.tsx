@@ -268,6 +268,29 @@ const harness = {
     return el?.textContent?.replace(/\s+/g, " ").trim() ?? null;
   },
   phase: () => document.querySelector(".nt-diagram-ghost")?.getAttribute("data-phase") ?? null,
+  /** The band's own planning words, as a reader sees them: shown, centred in the band, and how they move. */
+  planning: () => {
+    const band = ghostBand();
+    const el = band?.querySelector<HTMLElement>(".nt-diagram-ghost-label");
+    if (!band || !el) return null;
+    const s = getComputedStyle(el);
+    const b = el.getBoundingClientRect();
+    const o = band.getBoundingClientRect();
+    const text = document.createRange();
+    text.selectNodeContents(el);
+    const t = text.getBoundingClientRect();
+    return {
+      text: el.textContent,
+      opacity: Number(s.opacity),
+      animation: s.animationName,
+      /** Distance of the words' centre from the planning band's centre, rounded. */
+      offset: [
+        Math.round(t.left + t.width / 2 - (o.left + o.width / 2)),
+        Math.round(t.top + t.height / 2 - (b.top + b.height / 2)),
+      ],
+      italic: s.fontStyle === "italic",
+    };
+  },
   /** Removes a landed diagram so the next scenario starts from the same page. */
   undoLanding() {
     const canvas = editor.document.find((b) => b.type === "canvas");
