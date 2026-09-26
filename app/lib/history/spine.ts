@@ -266,6 +266,9 @@ export class WorkspaceHistory {
 
   canUndo = (): boolean => this.past.some(live);
 
+  /** True while a step is being walked: what changes then is history's doing. */
+  walking = (): boolean => this.stepping;
+
   canRedo = (): boolean => this.future.some(live);
 
   /**

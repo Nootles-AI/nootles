@@ -85,6 +85,8 @@ export interface ConnectorToolProps {
   store: SceneStore;
   viewport: ViewportController;
   selection: SelectionStore;
+  /** An edge went in: the tool's one use is spent. */
+  onLanded?: () => void;
 }
 
 /** The nodes a connector may start from or land on at this level. */
@@ -94,7 +96,7 @@ function candidates(scene: Scene, enteredId: NodeId | null): SceneNode[] {
   return list.filter((node) => !node.hidden && !node.locked);
 }
 
-export function ConnectorTool({ store, viewport, selection }: ConnectorToolProps) {
+export function ConnectorTool({ store, viewport, selection, onLanded }: ConnectorToolProps) {
   // Laid out: everything below asks this scene where a shape IS — to aim a
   // plug, to decide what the pointer is over, to draw the preview. A child an
   // auto-layout group places is not at the `x`/`y` the model holds for it, so
@@ -338,6 +340,7 @@ export function ConnectorTool({ store, viewport, selection }: ConnectorToolProps
     // the edge actually landed before selecting it.
     if (store.getScene().edges.some((edge) => edge.id === id)) {
       selection.selectEdges([id]);
+      onLanded?.();
     }
   };
 

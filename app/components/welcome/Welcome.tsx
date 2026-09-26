@@ -343,7 +343,7 @@ export function Welcome() {
         {step === 0 ? (
           <ContextCard role={hoverRole ?? role} template={shown} />
         ) : (
-          <div className="nt-sheet" aria-hidden>
+          <div className="nt-miniature" aria-hidden>
             <div
               className="nt-sheet-page"
               key={`${shown.id}:${demo ?? "doc"}`}

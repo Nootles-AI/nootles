@@ -20,7 +20,7 @@
  *
  * The panels and the toolbar are *not* rendered here. They belong to the
  * screen, not to a document column, so the canvas publishes
- * {@link CanvasApi} instead and the shell mounts them.
+ * {@link CanvasApi} instead and the workspace mounts them.
  *
  * ## Two scenes, and which question each one answers
  *
@@ -41,7 +41,6 @@
  * reason to reach for the model and no excuse for the two to drift again.
  */
 
-import { takeHandedTool } from "../engine/handedTool";
 import {
   useCallback,
   useEffect,
@@ -56,6 +55,8 @@ import {
 } from "react";
 
 import { useContextMenu } from "../ContextMenu";
+import { CANVAS_CHROME } from "../page/PageCanvas";
+import type { PageToolControl } from "../page/tools";
 import { ConnectorTool } from "./ConnectorTool";
 import { EdgeLayer } from "./EdgeLayer";
 import {
@@ -114,11 +115,6 @@ import { PenTool } from "./PenTool";
 import { useSceneFonts } from "./fonts";
 import { ShapeView, toCss } from "./ShapeView";
 import "../canvas.css";
-
-/** The screen's canvas chrome. A press in it is not a press outside the canvas.
- *  The mention and inspector menus are portalled to the body but speak for a
- *  label or control being edited here, so a press on either remains inside. */
-const CANVAS_CHROME = ".nt-lyr, .nt-style-panel, .nt-toolbar, .nt-ctx, .nt-mention-anchor, .nt-menu";
 
 /** Scene px below which a drag was a click, and the shape takes its own size. */
 const DRAWN_MIN = 2;
@@ -245,10 +241,10 @@ function scrollParent(el: HTMLElement): Element | null {
  * The active tool, as an external store.
  *
  * A value would have to live on {@link CanvasApi}, and the api is published to
- * the shell — so every R, O or L would be a top-level state change re-rendering
- * the whole workspace to move a pressed state in the toolbar. Whoever draws the
- * tool subscribes to it instead, and the api keeps its identity for the life of
- * the canvas.
+ * the workspace — so every R, O or L would be a top-level state change
+ * re-rendering all of it to move a pressed state in the toolbar. Whoever draws
+ * the tool subscribes to it instead, and the api keeps its identity for the
+ * life of the canvas.
  */
 export interface ToolControl {
   get(): CanvasTool;
@@ -349,9 +345,8 @@ export interface CanvasSurfaceProps {
   onChange: (source: string, scene: Scene) => void;
   /**
    * Published on mount and whenever the canvas takes focus; `null` on unmount.
-   * The object keeps its identity for the life of the canvas, so claiming the
-   * shell is the only thing that moves state above it. The shell holds the
-   * latest and mounts the toolbar and the panels against it.
+   * The object keeps its identity for the life of the canvas; the host holds
+   * the latest and mounts the toolbar and the panels against it.
    */
   onApi?: (api: CanvasApi | null) => void;
   /**
@@ -381,6 +376,12 @@ export interface CanvasSurfaceProps {
    * and growing to hold what is drawn.
    */
   frame?: { w: number; h: number; scale: number };
+  /**
+   * The page's tool, shared with the bar and every other diagram on the page.
+   * Its host also owns what a press outside the diagram means. Absent — a
+   * shot, the share route, a harness — the surface keeps a tool of its own.
+   */
+  tools?: PageToolControl;
 }
 
 export function CanvasSurface({
@@ -390,6 +391,7 @@ export function CanvasSurface({
   readOnly = false,
   storeKey,
   frame,
+  tools,
 }: CanvasSurfaceProps) {
   const store = useScene({
     source,
@@ -504,30 +506,50 @@ export function CanvasSurface({
   /** The node whose double-click asked to edit its label, this event. */
   const asked = useRef<NodeId | null>(null);
 
-  // One starting tool for everyone. A reader used to start on the hand, back
-  // when reading meant panning; now the view is pinned and the only thing left
-  // to do with a pointer is point, which is what `move` does once the paths
-  // that move things are closed off below.
-  const [tool, setTool] = useState<CanvasTool>("move");
-  // The same tool, as the external store the shell reads it through. Written
+  // A surface of its own starts everyone on `move`. A reader used to start on
+  // the hand, back when reading meant panning; now the view is pinned and the
+  // only thing left to do with a pointer is point, which is what `move` does
+  // once the paths that move things are closed off below. The ref is written
   // before the listeners are told, so a subscriber woken by the notification
-  // reads the new value in the render that notification schedules — an effect
-  // would land after it. So `changeTool` is the only way to switch: a bare
-  // `setTool` moves the surface and leaves the toolbar and the keymap behind.
+  // reads the new value in the render it schedules.
   const toolRef = useRef<CanvasTool>("move");
   const toolListeners = useRef(new Set<() => void>());
+  const ownTools = useMemo<ToolControl>(
+    () => ({
+      get: () => toolRef.current,
+      set: (next) => {
+        if (toolRef.current === next) return;
+        toolRef.current = next;
+        for (const listener of toolListeners.current) listener();
+      },
+      subscribe: (listener) => {
+        toolListeners.current.add(listener);
+        return () => void toolListeners.current.delete(listener);
+      },
+    }),
+    [],
+  );
+  const toolSource = tools ?? ownTools;
+  const tool = useSyncExternalStore(toolSource.subscribe, toolSource.get, toolSource.get);
   const [editing, setEditing] = useState<NodeId | null>(null);
   /**
-   * Vector edit mode: the path whose points are open, if any.
+   * Vector edit mode: the path whose points are open, if any, and the tool it
+   * was opened under.
    *
    * It is surface state rather than a tool because the tool underneath it must
    * stay `"move"` — Escape leaves the points and lands back on the move tool
    * with the path itself selected, which a tool that had been *replaced* could
-   * not do. Resolved against the scene on every render so a delete or an undo
-   * closes it without an effect chasing the change.
+   * not do. Resolved on every render — against the scene, so a delete or an
+   * undo closes it, and against the tool, so one picked on the page's bar
+   * closes it too — without an effect chasing either.
    */
-  const [openPath, setOpenPath] = useState<NodeId | null>(null);
-  const editPath = openPath && findNode(scene, openPath) ? openPath : null;
+  const [openPath, setOpenPathState] = useState<{ id: NodeId; tool: CanvasTool } | null>(null);
+  const setOpenPath = useCallback(
+    (id: NodeId | null) => setOpenPathState(id ? { id, tool: toolSource.get() } : null),
+    [toolSource],
+  );
+  const editPath =
+    openPath && openPath.tool === tool && findNode(scene, openPath.id) ? openPath.id : null;
 
   /**
    * The two tools that work on what is already there. They part company at the
@@ -825,28 +847,24 @@ export function CanvasSurface({
       // rather than in the bar so the keymap's `h` and `c` cannot reach them.
       if (inFrame && (next === "hand" || next === "connector")) return;
       setOpenPath(null);
-      toolRef.current = next;
-      setTool(next);
-      for (const listener of toolListeners.current) listener();
+      toolSource.set(next);
     },
-    [inFrame],
+    [inFrame, setOpenPath, toolSource],
   );
+
+  /** One use of the tool is over: back to Move, unless the page's is locked. */
+  const settleTool = useCallback(() => {
+    setOpenPath(null);
+    if (tools) tools.settle();
+    else ownTools.set("move");
+  }, [setOpenPath, tools, ownTools]);
 
   const toolControl = useMemo<ToolControl>(
-    () => ({
-      get: () => toolRef.current,
-      set: changeTool,
-      subscribe: (listener) => {
-        toolListeners.current.add(listener);
-        return () => {
-          toolListeners.current.delete(listener);
-        };
-      },
-    }),
-    [changeTool],
+    () => ({ get: toolSource.get, set: changeTool, subscribe: toolSource.subscribe }),
+    [toolSource, changeTool],
   );
 
-  const pathControl = useMemo(() => ({ set: setOpenPath }), []);
+  const pathControl = useMemo(() => ({ set: setOpenPath }), [setOpenPath]);
 
   /** Enter on a text-bearing leaf: open its label, same as a double-click
    *  would once inside its group — `setEditing` alone is enough (`ShapeView`
@@ -868,7 +886,8 @@ export function CanvasSurface({
 
   // A press anywhere that is not this canvas or the panels speaking for it —
   // another block, another diagram, the page background — drops the selection.
-  const hasSelection = sel.ids.length > 0;
+  // On a page, the page decides that for all of its diagrams at once.
+  const hasSelection = sel.ids.length > 0 && !tools;
   useEffect(() => {
     if (!hasSelection) return;
     const onDown = (event: PointerEvent) => {
@@ -1059,7 +1078,7 @@ export function CanvasSurface({
   const select = (id: NodeId, kind: DrawKind) => {
     selection.select([id]);
     if (kind === "text") setEditing(id);
-    changeTool("move");
+    settleTool();
   };
 
   /**
@@ -1093,11 +1112,9 @@ export function CanvasSurface({
       mode.onPointerDown?.(event.nativeEvent, modeCtx());
       return;
     }
-    // A shape armed on the page's bar and pressed onto this canvas: this press
-    // draws it, and the bar shows it in hand while it does.
-    const handed = readOnly ? null : takeHandedTool();
-    if (handed) setTool(handed);
-    const using = handed ?? tool;
+    // Read now, not from the render: a storyboard hands a shot the page's
+    // shape in the capture phase of this very press, so that the press draws.
+    const using = toolSource.get();
     // Every branch below either captures the pointer or suppresses the default
     // drag, both of which would otherwise cost the canvas its focus — and with
     // it the keymap and the clipboard.
@@ -1365,10 +1382,10 @@ export function CanvasSurface({
   /** Escape, Enter, or a press on empty canvas: out of the points, onto the path. */
   const onPenFinish = useCallback(
     (id: NodeId | null) => {
-      changeTool("move");
+      settleTool();
       if (id) selection.select([id]);
     },
-    [selection, changeTool],
+    [selection, settleTool],
   );
 
   const height = sceneBlockHeight(scene);
@@ -1494,10 +1511,8 @@ export function CanvasSurface({
           />
         </div>
 
-        {/* The tool stays up after a connector lands — a diagram's edges come
-            in runs, and re-picking the tool for each one would make the run
-            the expensive part. The new edge is selected as it lands, and
-            Escape is the way back to the move tool. */}
+        {/* One connector per pick, like every tool, unless the tool is locked
+            for a run of them; the new edge is selected as it lands. */}
         {/* Neither overlay is offered while a mode (the eyedropper, today)
             owns the pointer — both cover the whole viewport with their own
             handlers, and a pick click landing on one would add an anchor or
@@ -1505,7 +1520,12 @@ export function CanvasSurface({
             at all is simpler and more certain than teaching either overlay
             about `data-mode` itself. */}
         {!activeMode && tool === "connector" && (
-          <ConnectorTool store={store} viewport={viewport} selection={selection} />
+          <ConnectorTool
+            store={store}
+            viewport={viewport}
+            selection={selection}
+            onLanded={settleTool}
+          />
         )}
 
         {!activeMode && (tool === "pen" || editPath) && (

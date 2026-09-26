@@ -17,6 +17,12 @@
   width: 100%;
   margin: 4px 0;
 }
+/* Where the text gives up width, a waterfall re-packs into whatever room it
+   has: an album widened past the text gives the width back as the pane narrows. */
+.nt-sheet[data-page="flow"] .nt-album,
+.nt-sheet[data-page="narrow"] .nt-album {
+  max-width: 100%;
+}
 
 .nt-album-stage {
   position: relative;

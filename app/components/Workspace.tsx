@@ -26,22 +26,23 @@ import {
   WorkspaceHistoryProvider,
 } from "@/app/lib/history/useWorkspaceHistory";
 import { LayersPanel } from "./editor/canvas/panels/LayersPanel";
-import { Toolbar } from "./editor/canvas/Toolbar";
+import { CanvasStylePanel } from "./editor/canvas/panels/CanvasStylePanel";
+import { FrameToolbar, PageToolbar, SHAPES } from "./editor/canvas/Toolbar";
 import { isApplePlatform, matchShortcut } from "./editor/canvas/engine/shortcuts";
-import { useEditorRegistry } from "./editor/EditorRegistry";
-import { PageToolbar, pageToolFor, usePageDraw, type PageTool } from "./PageDraw";
 import {
-  CanvasShellContext,
-  CanvasStylePanel,
-  type ActiveCanvas,
-} from "./editor/canvas/shell";
+  createPageCanvasHub,
+  PageCanvasHubContext,
+  useHubSnapshot,
+} from "./editor/canvas/page/PageCanvas";
+import { FrameClaimContext, type ActiveFrame } from "./editor/canvas/page/frameClaim";
+import { useEditorRegistry } from "./editor/EditorRegistry";
+import { pageToolFor, usePageDraw } from "./PageDraw";
 import { LocationPanel } from "./editor/location/LocationPanel";
 import { LocationShellContext, type ActiveLocation } from "./editor/location/shell";
 import { useOpenPage } from "./OpenPageContext";
 import { Sidebar } from "./Sidebar";
 import { PageSkeleton, PageSurface } from "./PageSurface";
 import { ReviewBar } from "./ReviewBar";
-import { BarMorph } from "./BarMorph";
 import { ResizeHandle } from "./ResizeHandle";
 import { COMPACT, DrawerScrim, LeftDrawer, drawerLayer } from "./Drawer";
 import { WorkspacePalette } from "./WorkspacePalette";
@@ -99,28 +100,23 @@ const FILL = "100%";
 const DRAWER_W = "288px";
 /** How long a rail takes to close; `.nt-rail-slot` in globals.css agrees. */
 const RAIL_MS = 220;
-/** How long the tool bar takes to leave; `nt-toolbar-out` agrees. */
-const TOOLS_MS = 170;
 
-/* Everything that belongs to the canvas being edited. A press anywhere else is
-   what "deselect" means — and the panels have to be in here, because a field in
-   one takes focus off the canvas without meaning to leave it. The mention menu
-   is portalled to the body but belongs to a label edit inside the canvas; the
-   storyboard's fullscreen shot is a whole canvas view portalled the same way.
+/* Everything that belongs to a held storyboard shot. A press anywhere else lets
+   it go — a diagram on the page included, which takes over. The panels have to
+   be in here, because a field in one takes focus off the shot without meaning
+   to leave it; so is the mention menu, portalled to the body but belonging to a
+   label edit in the shot, and the full-size view, portalled the same way.
 
    So is every menu (`.nt-menu`): the inspector's selects, the toolbar's
    settings, the canvas's own context menu are all portalled to the body.
-   Leaving them out made choosing from one a press "outside" — it let the
-   diagram go mid-choice. Counting any open menu is
-   safe: a menu is only open because its trigger was pressed, and a trigger
-   outside the canvas has already let the diagram go before its menu exists.
+   Counting any open menu is safe: a menu is only open because its trigger was
+   pressed, and a trigger outside the shot has already let it go.
 
-   And the rails the panels stand in, edges and resize handles included: while a
-   diagram is being edited both rails are its panels, so widening one — or a
-   press that lands on its border — is adjusting the diagram's tools, not
-   leaving it. The split between two pages (`.is-gap`) is the document's. */
-const CANVAS_SHELL =
-  ".nt-canvas, .nt-lyr, .nt-style-panel, .nt-toolbar, .nt-mention-anchor, .nt-sb-full, .nt-menu, " +
+   And the rails the panels stand in, edges and resize handles included:
+   widening one is adjusting the shot's tools, not leaving it. The split between
+   two pages (`.is-gap`) is the document's. */
+const FRAME_SHELL =
+  ".nt-canvas-shot, .nt-lyr, .nt-style-panel, .nt-toolbar, .nt-mention-anchor, .nt-sb-full, .nt-menu, " +
   ".nt-rail-slot, .nt-resize:not(.is-gap)";
 
 /* The same idea for a place card: a press inside the card or its panel — or a
@@ -129,9 +125,10 @@ const CANVAS_SHELL =
 const LOCATION_SHELL = ".nt-loc, .nt-style-panel, .nt-menu";
 
 /**
- * Where the shell has the pointer's attention — a claimed diagram, a chosen
- * place card, or neither. A focus stop on the workspace timeline, so undo
- * re-traces the way the user moved between surfaces (Figma's model).
+ * Where the shell has the pointer's attention — the diagram holding the
+ * selection or a held storyboard shot, a chosen place card, or neither. A focus
+ * stop on the workspace timeline, so undo re-traces the way the user moved
+ * between surfaces (Figma's model).
  */
 type WorkspaceFocus =
   | { kind: "none" }
@@ -165,23 +162,34 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   const find = () => setFinding(true);
   const [showingKeys, setShowingKeys] = useState(false);
 
-  const [canvas, setCanvas] = useState<ActiveCanvas | null>(null);
+  const [frame, setFrame] = useState<ActiveFrame | null>(null);
   const [place, setPlace] = useState<ActiveLocation | null>(null);
 
   // ---- The workspace history spine ---------------------------------------
-  // The shell's claims are focus history (a stop on the timeline), and the
+  // Where attention is, is focus history (a stop on the timeline), and the
   // spine's steps can lead to other pages — so the workspace supplies both
   // the recording wrappers around its own setters and the navigator.
   const spine = useWorkspaceHistory();
   const pageRef = useRef<string | null>(null);
   const openRef = useRef(open);
-  const canvasRef = useRef(canvas);
+  const frameRef = useRef(frame);
   const placeRef = useRef(place);
   useEffect(() => {
     openRef.current = open;
-    canvasRef.current = canvas;
+    frameRef.current = frame;
     placeRef.current = place;
   });
+
+  // The diagrams on the page: one tool for all of them, and which one holds
+  // the selection — what the panels and the bar speak for.
+  const hub = useMemo(
+    () =>
+      createPageCanvasHub(
+        spine ? { batch: spine.batch, quiet: spine.walking } : { batch: (fn) => fn() },
+      ),
+    [spine],
+  );
+  const held = useHubSnapshot(hub);
 
   // Through the sidebar's own selection: one way to choose a page.
   useLinkedPage(open);
@@ -197,16 +205,17 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
 
   const applyFocus = useCallback((state: WorkspaceFocus) => {
     if (state.kind === "none") {
-      setCanvas(null);
+      frameRef.current = null;
+      setFrame(null);
       setPlace(null);
       return;
     }
     if (state.pageId && pageRef.current !== state.pageId) {
       openRef.current(state.pageId as Id<"pages">);
     }
-    // The block claims the shell itself once it is mounted — after the
-    // navigation above, when the restore crossed a page.
-    void awaitSurface(state.blockId).then((claim) => claim?.());
+    // The block brings itself back once it is mounted — after the navigation
+    // above, when the restore crossed a page.
+    void awaitSurface(state.blockId).then((restore) => restore?.());
   }, []);
   // Held in a ref: only event handlers and the spine ever reach it, and the
   // linter rightly refuses render-phase access to ref-reading closures.
@@ -222,44 +231,76 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     };
   }, [spine, applyFocus]);
 
-  const describeFocus = useCallback(
-    (c: ActiveCanvas | null, p: ActiveLocation | null): WorkspaceFocus =>
-      c
-        ? { kind: "canvas", pageId: pageRef.current, blockId: c.blockId }
-        : p
-          ? { kind: "place", pageId: pageRef.current, blockId: p.blockId }
-          : { kind: "none" },
-    [],
-  );
-  const claimCanvas = useCallback(
-    (next: ActiveCanvas | null) => {
-      const domain = focusDomainRef.current;
-      const before = describeFocus(canvasRef.current, placeRef.current);
-      const after = describeFocus(next, placeRef.current);
-      if (domain && focusKey(before) !== focusKey(after)) {
-        domain.record(before, after);
+  /**
+   * One focus stop per move of attention, whoever moved it: a selection
+   * arriving in another diagram, a shot taken, a place card chosen. A held
+   * shot outranks the page's diagrams, and a diagram outranks a place card.
+   * Never while history is walking — a step putting a selection back is
+   * history's own move, not one to record.
+   */
+  const hubFocus = useRef<string | null>(null);
+  const lastFocus = useRef<WorkspaceFocus>({ kind: "none" });
+  const noteFocus = useCallback(() => {
+    const canvasKey = frameRef.current?.key ?? hubFocus.current;
+    const next: WorkspaceFocus = canvasKey
+      ? { kind: "canvas", pageId: pageRef.current, blockId: canvasKey }
+      : placeRef.current
+        ? { kind: "place", pageId: pageRef.current, blockId: placeRef.current.blockId }
+        : { kind: "none" };
+    const before = lastFocus.current;
+    lastFocus.current = next;
+    const domain = focusDomainRef.current;
+    if (domain && focusKey(before) !== focusKey(next) && !spine?.walking()) {
+      domain.record(before, next);
+    }
+  }, [spine]);
+
+  /**
+   * Taking a shot lets the page's selection go. A shape or text armed on the
+   * page's bar goes with the press into the shot, which draws it — the shot
+   * reads its tool at the press, after this has run in the press's capture.
+   */
+  const claimFrame = useCallback(
+    (next: ActiveFrame | null) => {
+      const arriving = next !== null && next.key !== frameRef.current?.key;
+      frameRef.current = next;
+      if (arriving) {
+        hub.clearAll();
+        const tool = hub.tools?.get();
+        if (tool && (SHAPES.has(tool) || tool === "text")) {
+          next.api.setTool(tool);
+          hub.tools?.settle();
+        }
       }
-      setCanvas(next);
+      noteFocus();
+      setFrame(next);
     },
-    [describeFocus],
+    [hub, noteFocus],
   );
   const claimPlace = useCallback(
     (next: ActiveLocation | null) => {
-      const domain = focusDomainRef.current;
-      const before = describeFocus(canvasRef.current, placeRef.current);
-      const after = describeFocus(canvasRef.current, next);
-      if (domain && focusKey(before) !== focusKey(after)) {
-        domain.record(before, after);
-      }
+      placeRef.current = next;
+      noteFocus();
       setPlace(next);
     },
-    [describeFocus],
+    [noteFocus],
   );
 
-  const shell = useMemo(
-    () => ({ active: canvas, set: claimCanvas }),
-    [canvas, claimCanvas],
+  // A selection arriving on the page lets a held shot go.
+  useEffect(
+    () =>
+      hub.subscribe(() => {
+        hubFocus.current = hub.getSnapshot().focused?.blockId ?? null;
+        if (hubFocus.current && frameRef.current) {
+          frameRef.current = null;
+          setFrame(null);
+        }
+        noteFocus();
+      }),
+    [hub, noteFocus],
   );
+
+  const frameClaim = useMemo(() => ({ frame, claim: claimFrame }), [frame, claimFrame]);
   const placeShell = useMemo(
     () => ({ active: place, set: claimPlace }),
     [place, claimPlace],
@@ -307,13 +348,20 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   const showLeft = leftOpen && !compact;
   const showRight = rightOpen && !compact;
   const openDrawer = compact ? drawer : null;
-  // Editing a diagram turns both rails over to it, collapsed or not — but only
-  // where there is room for them. The toolbar appears either way, and the
-  // diagram is fully editable without the panels.
-  const canvasPanels = compact ? null : canvas;
+  // A selection in a diagram — or a held shot — turns both rails over to it,
+  // collapsed or not, but only where there is room for them. The diagram is
+  // fully editable without the panels.
+  const focusedApi =
+    held.pane && held.focused ? (hub.pane(held.pane)?.get(held.focused.blockId)?.api ?? null) : null;
+  const panelTarget = frame
+    ? { id: frame.key, api: frame.api }
+    : focusedApi && held.focused
+      ? { id: `${held.pane}:${held.focused.blockId}`, api: focusedApi }
+      : null;
+  const canvasPanels = compact ? null : panelTarget;
   // A selected place card takes the right rail the same way, and yields to a
   // diagram: editing one is a whole mode, choosing what a card shows is not.
-  const placePanel = compact || canvas ? null : place;
+  const placePanel = compact || panelTarget ? null : place;
 
   // Restore persisted layout on the client. Defaults render first (so SSR and
   // the first client render match — no hydration mismatch), then we sync from
@@ -337,16 +385,16 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
     localStorage.setItem("nt:rightOpen", rightOpen ? "1" : "0");
   }, [leftWidth, rightWidth, leftOpen, rightOpen]);
 
-  const editing = canvas !== null;
+  const holdingFrame = frame !== null;
   useEffect(() => {
-    if (!editing) return;
+    if (!holdingFrame) return;
     const onDown = (event: PointerEvent) => {
       const target = event.target instanceof Element ? event.target : null;
-      if (!target?.closest(CANVAS_SHELL)) claimCanvas(null);
+      if (!target?.closest(FRAME_SHELL)) claimFrame(null);
     };
     window.addEventListener("pointerdown", onDown, true);
     return () => window.removeEventListener("pointerdown", onDown, true);
-  }, [editing, claimCanvas]);
+  }, [holdingFrame, claimFrame]);
 
   const chosen = place !== null;
   useEffect(() => {
@@ -485,77 +533,50 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   // close one rail and open another — the place stays, and what is in it turns
   // over. Every face stays mounted for as long as it takes to leave.
   //
-  // The panels a claim brings need the claim's API to render, and that is gone
-  // the moment the diagram is let go; the last one is kept for the way out.
+  // The panels a selection brings need the diagram's API to render, and that
+  // is gone the moment the selection is; the last one is kept for the way out.
   const [lastCanvas, setLastCanvas] = useState(canvasPanels);
-  if (canvasPanels && canvasPanels !== lastCanvas) setLastCanvas(canvasPanels);
+  if (canvasPanels && (canvasPanels.id !== lastCanvas?.id || canvasPanels.api !== lastCanvas.api)) {
+    setLastCanvas(canvasPanels);
+  }
   const [lastPlace, setLastPlace] = useState(placePanel);
   if (placePanel && placePanel !== lastPlace) setLastPlace(placePanel);
 
-  // The tool bar leaves the same way, a beat after the diagram is let go, and
-  // the review it shares the corner with waits until it has.
-  const [lastTools, setLastTools] = useState(canvas);
-  if (canvas && canvas !== lastTools) setLastTools(canvas);
-  const toolsOn = !!canvas;
-  const toolsHeld = useLinger(toolsOn, TOOLS_MS) && !!lastTools;
-
-  // With no diagram in hand the bar stays, holding the page's own tools: a
-  // shape armed there draws a new diagram onto the page. The page is only ever
-  // armed while nothing is being edited, so a claim disarms it by itself.
+  // Armed with a shape, the page itself draws: a new diagram where the drag
+  // was, or more of one it was drawn beside.
   const registry = useEditorRegistry();
-  const [heldPageTool, setPageTool] = useState<PageTool>("move");
-  const pageBarOn = !viewer && !compact && !toolsOn;
-  // Where the page bar is there to turn into, the diagram's bar morphs into it
-  // on the way out rather than first sinking away.
-  const canvasBarOn = toolsOn || (toolsHeld && !pageBarOn);
-  const pageTool: PageTool = pageBarOn ? heldPageTool : "move";
+  usePageDraw({ well: columnRef, tools: viewer ? null : hub.tools, hub, registry });
 
-  // A diagram just drawn onto the page opens with what was drawn selected.
-  const arriving = useRef<{ blockId: string; select: string } | null>(null);
+  // ⌥⇧ and a letter pick the page's tools from anywhere — the editor too,
+  // since the modifiers are what keep them from being typing. A held shot
+  // answers its own keys, and a diagram its own Escape.
   useEffect(() => {
-    const next = arriving.current;
-    if (!canvas || next?.blockId !== canvas.blockId) return;
-    arriving.current = null;
-    canvas.api.selection.select([next.select]);
-  }, [canvas]);
-  usePageDraw({
-    well: columnRef,
-    tool: pageTool,
-    registry,
-    onTool: setPageTool,
-    onDrawn: useCallback((blockId: string, nodeId: string) => {
-      arriving.current = { blockId, select: nodeId };
-      void awaitSurface(blockId).then((claim) => claim?.());
-    }, []),
-    onIntoDiagram: useCallback(() => setPageTool("move"), []),
-  });
-
-  // ⌥⇧ and a letter, the diagram's own keys, pick the page's tools — heard in
-  // the editor too, since the modifiers are what keep them from being typing.
-  // A diagram in hand answers them itself.
-  useEffect(() => {
-    if (!pageBarOn) return;
+    const tools = hub.tools;
+    if (viewer || !tools) return;
     const apple = isApplePlatform();
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented) return;
-      if (e.key === "Escape" && heldPageTool !== "move") {
+      if (e.defaultPrevented || frameRef.current) return;
+      const el = e.target as HTMLElement | null;
+      if (el?.closest?.(".nt-canvas-shot, .nt-sb-full")) return;
+      if (e.key === "Escape") {
+        if (tools.get() === "move" || el?.closest?.(".nt-canvas")) return;
         e.preventDefault();
-        setPageTool("move");
+        tools.set("move");
         return;
       }
-      // ⌥⇧ only: the tools' bare letters are the diagram's, and here they are typing.
+      // ⌥⇧ only: the tools' bare letters are a focused diagram's, and here
+      // they are typing.
       if (!e.altKey || !e.shiftKey) return;
-      const el = e.target as HTMLElement | null;
       if (el?.closest?.("input, textarea, math-field, [role='dialog']")) return;
       const next = pageToolFor(matchShortcut(e, apple));
-      if (!next) return;
+      if (!next || (next === "text" && !hub.getSnapshot().focused)) return;
       e.preventDefault();
       e.stopPropagation();
-      setPageTool(next);
+      tools.set(next);
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
-  }, [pageBarOn, heldPageTool]);
+  }, [viewer, hub]);
 
   const pagesOn = showLeft && !canvasPanels;
   const layersOn = !!canvasPanels;
@@ -600,7 +621,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   };
   // Inspector panels replace the rail visually, but must not unmount ChatPanel:
   // its hook owns the BrowserChat and its abort signal. `hidden` keeps it out
-  // of both layout and the accessibility tree while a canvas/location claims
+  // of both layout and the accessibility tree while a diagram or a place card has
   // the slot (or while the rail is collapsed), without mistaking that for Stop.
   const chatHidden = compact ? !chatAsDrawer : !chatOn && !chatHeld;
   // Mounted the first time it is shown, or once the open has gone idle, and
@@ -615,7 +636,8 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
   }, [chatMounted, viewer]);
 
   return (
-    <CanvasShellContext value={shell}>
+    <PageCanvasHubContext value={hub}>
+    <FrameClaimContext value={frameClaim}>
       <LocationShellContext value={placeShell}>
      <ReadOnlyContext value={viewer}>
      <CommentAccessContext value={commentAccessFor(role)}>
@@ -641,6 +663,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
                   {...undoScope}
                 >
                   <LayersPanel
+                    key={lastCanvas.id}
                     store={lastCanvas.api.store}
                     selection={lastCanvas.api.selection}
                   />
@@ -786,36 +809,34 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
           )}
         </div>
 
-        {/* One bar, one corner. The tool palette is transient and the review is a
-            standing question, so while a diagram is being edited the palette has
-            the slot and the review comes back the moment the diagram is let go.
-            The page's bar and the diagram's turn into one another. */}
-        <BarMorph mode={toolsOn ? "canvas" : "page"}>
-          {canvasBarOn && lastTools ? (
-            <Toolbar
-              key={lastTools.blockId}
-              store={lastTools.api.store}
-              tools={lastTools.api.tools}
-              refocus={lastTools.api.focus}
-              board={lastTools.api.board}
-              onPalette={find}
-              leaving={!toolsOn}
-            />
-          ) : (
-            <>
-              {pageBarOn && (
-                <PageToolbar
-                  tool={pageTool}
-                  onTool={setPageTool}
-                  onPalette={find}
-                />
-              )}
-              {/* Here rather than under the editor: the changes it answers for
-                  can span pages, and the agent opens pages on its own. */}
-              <ReviewBar />
-            </>
-          )}
-        </BarMorph>
+        {/* One bar, one corner, always there for a writer: the page's tools,
+            or a held shot's own. The review is a standing question and stacks
+            above the page's bar; a shot's bar has the corner to itself while
+            it is held. */}
+        {frame ? (
+          <FrameToolbar
+            key={frame.key}
+            store={frame.api.store}
+            tools={frame.api.tools}
+            focus={frame.api.focus}
+            board={frame.api.board}
+            onPalette={find}
+          />
+        ) : (
+          <>
+            {!viewer && hub.tools && (
+              <PageToolbar
+                tools={hub.tools}
+                focused={held.focused !== null}
+                refocus={focusedApi?.focus}
+                onPalette={find}
+              />
+            )}
+            {/* Here rather than under the editor: the changes it answers for
+                can span pages, and the agent opens pages on its own. */}
+            <ReviewBar />
+          </>
+        )}
 
         {openDrawer === "left" ? (
           <LeftDrawer label="Close panel" onClose={() => setDrawer(null)}>
@@ -866,7 +887,8 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
      </CommentAccessContext>
      </ReadOnlyContext>
       </LocationShellContext>
-    </CanvasShellContext>
+    </FrameClaimContext>
+    </PageCanvasHubContext>
   );
 }
 

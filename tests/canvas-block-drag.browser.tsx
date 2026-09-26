@@ -1,4 +1,3 @@
-import { useMemo, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
@@ -12,10 +11,6 @@ import {
   BlockSideMenu,
   editorPortalElements,
 } from "../app/components/editor/BlockSideMenu";
-import {
-  CanvasShellContext,
-  type ActiveCanvas,
-} from "../app/components/editor/canvas/shell";
 import { CurrentPageProvider } from "../app/components/OpenPageContext";
 import { WorkspaceHistoryProvider } from "../app/lib/history/useWorkspaceHistory";
 import {
@@ -101,40 +96,36 @@ const source = (): NmlDocument => ({
 });
 
 function Page() {
-  const [active, setActive] = useState<ActiveCanvas | null>(null);
-  const shell = useMemo(() => ({ active, set: setActive }), [active]);
   return (
-    <CanvasShellContext value={shell}>
-      <main style={{ height: "100vh", overflow: "auto" }}>
-        {/* Matches Workspace's isolated document column. A test-created
-            z-index 10 sibling can therefore prove that the escaped menu still
-            paints above it, as NT-52 requires. */}
-        <div
-          id="document-column"
-          style={{
-            isolation: "isolate",
-            position: "relative",
-            zIndex: 1,
-            width: 760,
-            marginLeft: 220,
-            padding: "48px 56px",
-            boxSizing: "border-box",
-          }}
+    <main style={{ height: "100vh", overflow: "auto" }}>
+      {/* Matches Workspace's isolated document column. A test-created
+          z-index 10 sibling can therefore prove that the escaped menu still
+          paints above it, as NT-52 requires. */}
+      <div
+        id="document-column"
+        style={{
+          isolation: "isolate",
+          position: "relative",
+          zIndex: 1,
+          width: 760,
+          marginLeft: 220,
+          padding: "48px 56px",
+          boxSizing: "border-box",
+        }}
+      >
+        <BlockNoteView
+          editor={editor}
+          theme="light"
+          className="nt-editor"
+          sideMenu={false}
+          slashMenu={false}
+          formattingToolbar={false}
+          portalElements={editorPortalElements}
         >
-          <BlockNoteView
-            editor={editor}
-            theme="light"
-            className="nt-editor"
-            sideMenu={false}
-            slashMenu={false}
-            formattingToolbar={false}
-            portalElements={editorPortalElements}
-          >
-            <BlockSideMenu />
-          </BlockNoteView>
-        </div>
-      </main>
-    </CanvasShellContext>
+          <BlockSideMenu />
+        </BlockNoteView>
+      </div>
+    </main>
   );
 }
 

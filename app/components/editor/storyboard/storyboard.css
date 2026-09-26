@@ -118,6 +118,12 @@
 .nt-sb-shot.is-active > .nt-canvas-shot {
   border-color: var(--border-strong);
 }
+/* Held, a shot shows its dots — the tile the bar speaks for, or the full-size
+   view while it is open for drawing. */
+.nt-sb-shot.is-active > .nt-canvas-shot .nt-canvas-grid,
+.nt-sb-full[data-live] .nt-canvas-shot .nt-canvas-grid {
+  opacity: 1;
+}
 
 .nt-sb-num {
   padding-top: 6px;

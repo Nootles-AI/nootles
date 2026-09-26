@@ -16,28 +16,23 @@
    column is exactly where it was and the gutter is now inside the box that
    hears the press.
 
-   The two values are `PageSurface`'s own `px-6 sm:px-14`. If that column ever
-   changes, set `--nt-page-gutter` on this element rather than editing here.
+   The gutter is the page column's own `--nt-page-gutter` (`.nt-column` in
+   globals.css), inherited, so the two cannot disagree. A host with no page
+   column around it — a harness — is taken to lay the wide one.
 
    Deliberately layout-neutral and UNPOSITIONED: the band draws itself on
    `document.body`, so this box never needs to be a containing block — and not
    being one means it can wrap the editor's overlays as well as the editor
    without moving anything. */
 .nt-marquee-surface {
-  --nt-page-gutter: 24px;
   /* Reaches back over the page's own gutter, where the drag handle floats and
      where a band down the margin starts. */
-  margin-inline: calc(-1 * var(--nt-page-gutter));
-  padding-inline: var(--nt-page-gutter);
+  margin-inline: calc(-1 * var(--nt-page-gutter, 56px));
+  padding-inline: var(--nt-page-gutter, 56px);
   /* ...and down over whatever room is left under the last block, so pressing
      in the empty page below the text starts a band rather than hitting the
      scroller behind it. */
   flex: 1 1 auto;
-}
-@media (min-width: 640px) {
-  .nt-marquee-surface {
-    --nt-page-gutter: 56px;
-  }
 }
 
 /* The band. Fixed rather than absolute — it is drawn on `document.body`, so

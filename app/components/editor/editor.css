@@ -443,11 +443,11 @@ body:has(.nt-well[data-drawing]) .nt-side-menu-anchor {
 }
 
 /* ---- Table --------------------------------------------------------------
-   A table takes the document column and then keeps going, like the canvas, the
-   album and the storyboard: none of them carries a width of its own, so a
-   fresh one fits the column and leaves no margin beside it, and none of them is
-   fenced in at that edge, so a widened one runs on into the pane and the pane
-   scrolls after it. BlockNote's is content-sized (`width: auto`, and
+   A table takes the document column and then keeps going, like the album and
+   the storyboard: none of them carries a width of its own, so a fresh one fits
+   the column and leaves no margin beside it, and none of them is fenced in at
+   that edge, so a widened one runs on into the pane and the pane scrolls after
+   it. BlockNote's is content-sized (`width: auto`, and
    `!important`, hence the answer in kind) inside a scroller of its own.
 
    That scroller is what cut a widened table off flat at the column's edge:

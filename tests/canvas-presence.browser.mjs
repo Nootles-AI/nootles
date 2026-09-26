@@ -266,11 +266,9 @@ try {
   await pages.b.evaluate(() => window.probe.start({ name: "Bram", color: "#cc3366" }, false));
   await sleep(1500);
 
-  // A takes the diagram — only the person on it broadcasts — by pressing an
-  // empty spot on it.
-  const empty = await pages.a.evaluate(() => window.probe.clientOf(880, 20));
-  await pages.a.mouse.click(empty.x, empty.y);
-  await pages.a.waitForFunction(() => window.probe.claimed());
+  // Only the person on the diagram broadcasts: whoever holds a selection in
+  // it. A's selections below are what put A there.
+  await pages.a.waitForFunction(() => window.probe.ready());
   console.log(`latency ${LATENCY} ms`);
 
   console.log("\n— control: A has nothing selected");
@@ -291,6 +289,7 @@ try {
   console.log("\n— move: A has `a` selected, B drags it");
   {
     await select(pages.a, ["a"]);
+    check(await pages.a.evaluate(() => window.probe.broadcasting()), "move: A's selection puts A's diagram in focus, so A broadcasts");
     await settled(pages.b, "a");
     const from = await point(pages.b, "a");
     const { a, b } = await recording(pages, "a", () => drag(pages.b, from, offset(from, 60, 200)), 2500);

@@ -4,7 +4,7 @@
    on it was the product's name. A name is not an argument. So the screen is
    composed the same way first run is — something said on the left, a page
    answering it on the right — and the two are seen back to back, which is why
-   the sheet is `.nt-sheet` in `globals.css` rather than a second copy of it.
+   the sheet is `.nt-miniature` in `globals.css` rather than a second copy of it.
 
    The page on the right is a real document, built from the same template that
    seeds a real project, so the thing being promised at the door is the thing
@@ -293,7 +293,7 @@
   background: var(--background);
   border-left: 0;
 }
-.nt-si.is-bleed .nt-sheet {
+.nt-si.is-bleed .nt-miniature {
   flex: none;
   border-radius: var(--radius-lg) 0 0 var(--radius-lg);
 }

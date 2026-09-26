@@ -8,7 +8,8 @@ import {
   commentRanges,
   subscribeComments,
 } from "@/app/components/editor/comments/commentDecorations";
-import { CARD_GAP, stackCards } from "@/app/lib/comments/marginLayout";
+import { CARD_GAP, stackCards, type Span } from "@/app/lib/comments/marginLayout";
+import { ZOOM_EVENT } from "@/app/lib/docZoom";
 import type { Thread } from "@/app/lib/comments/types";
 import { commentsScope } from "@/app/lib/history/undoRoute";
 import { ThreadCard, type CardContext, type Register } from "./ThreadCard";
@@ -113,6 +114,9 @@ export function CommentMargin({
     const settle: HTMLElement[] = [];
     // A draft whose words were edited away keeps its place: its box still has the keyboard.
     let draftTop: number | null = null;
+    // Cards are placed against the text as it stood at the last pass; a zoomed
+    // page also scrolls sideways, and the track carries that difference.
+    let leftAtRun = 0;
 
     const run = () => {
       frame = 0;
@@ -129,6 +133,7 @@ export function CommentMargin({
         : new DOMRect(0, 0, window.innerWidth, window.innerHeight);
       const text = view.dom.getBoundingClientRect();
       const scrollTop = scroller ? scroller.scrollTop : 0;
+      leftAtRun = scroller ? scroller.scrollLeft : 0;
       const room = pane.right - EDGE - (text.right + GUTTER);
       const want: MarginMode = room >= CARD_WIDTH ? "cards" : "dots";
       const ranges = commentRanges(view.state);
@@ -143,14 +148,21 @@ export function CommentMargin({
         if (!el || top === null) return [];
         return [{ id, top, height: mode === "cards" ? el.offsetHeight : DOT }];
       });
-      const tops = stackCards(wanted, hasDraft ? DRAFT : focused, mode === "cards" ? CARD_GAP : DOT_GAP);
+      const x = mode === "cards" ? text.right + GUTTER - pane.left : Math.min(text.right + 20, pane.right - DOT - 8) - pane.left;
+      // A wide diagram reaches under the margin: nothing is stacked over one.
+      const bands: Span[] = [];
+      for (const band of view.dom.querySelectorAll(".nt-canvas[data-wide]")) {
+        const r = band.getBoundingClientRect();
+        if (r.height === 0 || r.right <= pane.left + x) continue;
+        bands.push({ top: r.top - pane.top + scrollTop, bottom: r.bottom - pane.top + scrollTop });
+      }
+      const tops = stackCards(wanted, hasDraft ? DRAFT : focused, mode === "cards" ? CARD_GAP : DOT_GAP, bands);
 
       // Writes.
       layer.style.transform = `translate(${pane.left}px, ${pane.top}px)`;
       layer.style.width = `${pane.width}px`;
       layer.style.height = `${pane.height}px`;
-      track.style.transform = `translateY(${-scrollTop}px)`;
-      const x = mode === "cards" ? text.right + GUTTER - pane.left : Math.min(text.right + 20, pane.right - DOT - 8) - pane.left;
+      track.style.transform = `translate(0px, ${-scrollTop}px)`;
       for (const [id, el] of items.current) {
         const top = tops.get(id);
         el.hidden = top === undefined;
@@ -178,7 +190,9 @@ export function CommentMargin({
     // Scrolling the pane moves the track alone; nothing is measured again.
     const onScroll = () => {
       if (!scroller) return kick();
-      if (trackRef.current) trackRef.current.style.transform = `translateY(${-scroller.scrollTop}px)`;
+      if (trackRef.current) {
+        trackRef.current.style.transform = `translate(${leftAtRun - scroller.scrollLeft}px, ${-scroller.scrollTop}px)`;
+      }
     };
     pass.current = run;
     const observer = new ResizeObserver(kick);
@@ -189,6 +203,8 @@ export function CommentMargin({
     const unsubscribe = subscribeComments(view, kick);
     window.addEventListener("resize", kick);
     (scroller ?? window).addEventListener("scroll", onScroll, { passive: true });
+    // A zoom resizes nothing the observer watches: the pane keeps its box.
+    scroller?.addEventListener(ZOOM_EVENT, kick);
     return () => {
       if (frame) cancelAnimationFrame(frame);
       unsubscribe();
@@ -196,6 +212,7 @@ export function CommentMargin({
       resize.current = null;
       window.removeEventListener("resize", kick);
       (scroller ?? window).removeEventListener("scroll", onScroll);
+      scroller?.removeEventListener(ZOOM_EVENT, kick);
       pass.current = () => {};
     };
   }, [view]);

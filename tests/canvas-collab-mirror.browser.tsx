@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
@@ -18,7 +17,6 @@ import { canvasMapName, hasCanvasState, materializeCanvas } from "../app/compone
 import { peekSceneStore } from "../app/components/editor/canvas/engine/useScene";
 import { migrateLegacyCanvas } from "../app/components/editor/canvas/scene/migrate";
 import { walk, type Scene } from "../app/components/editor/canvas/scene/types";
-import { CanvasShellContext, type ActiveCanvas } from "../app/components/editor/canvas/shell";
 import { CurrentPageProvider } from "../app/components/OpenPageContext";
 import { useTextUndoDomain, type UndoHostEditor } from "../app/lib/history/textDomain";
 import { undoScope, useWorkspaceHistory, WorkspaceHistoryProvider } from "../app/lib/history/useWorkspaceHistory";
@@ -109,30 +107,16 @@ function wire(target: Y.Doc) {
   });
 }
 
-/** The workspace's half of the canvas shell: one claimed diagram, let go by a press anywhere else. */
+/** The page around the diagram: its text history, and the column it stands in. */
 function Page({ editor }: { editor: Editor }) {
   const spine = useWorkspaceHistory();
   useTextUndoDomain(spine, editor as unknown as UndoHostEditor, "doc", PAGE);
-  const [canvas, setCanvas] = useState<ActiveCanvas | null>(null);
-  const shell = useMemo(() => ({ active: canvas, set: setCanvas }), [canvas]);
-  const editing = canvas !== null;
-  useEffect(() => {
-    if (!editing) return;
-    const onDown = (event: PointerEvent) => {
-      const target = event.target instanceof Element ? event.target : null;
-      if (!target?.closest(".nt-canvas-viewport")) setCanvas(null);
-    };
-    window.addEventListener("pointerdown", onDown, true);
-    return () => window.removeEventListener("pointerdown", onDown, true);
-  }, [editing]);
   return (
-    <CanvasShellContext value={shell}>
-      <main style={{ height: "100vh", overflow: "auto" }}>
-        <div {...undoScope} style={{ maxWidth: 760, padding: "48px 56px", boxSizing: "border-box" }}>
-          <BlockNoteView editor={editor} theme="light" className="nt-editor" sideMenu={false} slashMenu={false} formattingToolbar={false} />
-        </div>
-      </main>
-    </CanvasShellContext>
+    <main style={{ height: "100vh", overflow: "auto" }}>
+      <div {...undoScope} style={{ maxWidth: 760, padding: "48px 56px", boxSizing: "border-box" }}>
+        <BlockNoteView editor={editor} theme="light" className="nt-editor" sideMenu={false} slashMenu={false} formattingToolbar={false} />
+      </div>
+    </main>
   );
 }
 

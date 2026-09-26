@@ -71,6 +71,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import type { RefObject } from "react";
+import { effectiveScale } from "@/app/lib/columnScale";
 import { raiseVeil } from "@/app/lib/veil";
 import { type BlockSelectionStore } from "./blockSelection";
 import "./blockSelection.css";
@@ -356,6 +357,7 @@ export function useBlockMarquee({
         const page = surface.getBoundingClientRect();
         const pageLeft = page.left + across;
         const pageRight = page.right + across;
+        const scale = effectiveScale(surface);
         rows = [];
         for (const el of surface.querySelectorAll<HTMLElement>(
           ".bn-block-outer[data-id]",
@@ -373,10 +375,11 @@ export function useBlockMarquee({
             // diagram draws at its own inline width — the box measured here
             // stays the column's and the diagram OVERFLOWS it, which is why
             // `scrollWidth` is asked as well as the rect. For a block that
-            // fits, the two agree to the pixel.
+            // fits, the two agree to the pixel. It is in the page's own px,
+            // and a zoomed page's rects are not: hence `scale`.
             right: Math.max(
               rect.right + across,
-              rect.left + across + el.scrollWidth,
+              rect.left + across + el.scrollWidth * scale,
               pageRight,
             ),
           });

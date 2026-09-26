@@ -93,7 +93,7 @@ export function SignInScreen({ variant }: { variant: Variant }) {
       <aside className="nt-si-desk">
         {/* No caption. A still picture needs one because it cannot say what it
             is a picture of; a recording says it by happening. */}
-        <div className="nt-sheet">
+        <div className="nt-miniature">
           <Recording />
         </div>
       </aside>

@@ -1,8 +1,8 @@
-import { StrictMode, useMemo, useState } from "react";
+import { StrictMode, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { PagesProvider } from "../app/components/PagesContext";
 import { CanvasSurface, type CanvasApi } from "../app/components/editor/canvas/render/CanvasSurface";
-import { CanvasShellContext, CanvasStylePanel, type ActiveCanvas } from "../app/components/editor/canvas/shell";
+import { CanvasStylePanel } from "../app/components/editor/canvas/panels/CanvasStylePanel";
 import { colorPick, type PickDestination, type PickResult, type PickSource } from "../app/components/editor/canvas/panels/controls/colorPick";
 import { serializeScene } from "../app/components/editor/canvas/scene/serialize";
 import type { NodeId, RectNode, Scene, StyleMap } from "../app/components/editor/canvas/scene/types";
@@ -16,9 +16,9 @@ import "./canvas-harness.browser.css";
 
 /**
  * The COLOR browser harness: `CanvasSurface` and `CanvasStylePanel` mounted
- * together through the real `CanvasShellContext`, exactly as `Workspace.tsx`
- * wires them — so `ColorField`'s `useCanvasShell().active?.api` resolves to
- * a live `CanvasApi` the same way it does in the app, `modes`, `store` and
+ * together against the api the surface publishes, exactly as `Workspace.tsx`
+ * wires them — so `ColorField`'s `usePickHost()` resolves to a live
+ * `CanvasApi` the same way it does in the app, `modes`, `store` and
  * `selection` included.
  *
  * Most cases below drive `colorPick.start(...)` directly with a
@@ -82,35 +82,32 @@ function fixtureScene(): Scene {
 // ---------------------------------------------------------------------------
 
 function Harness({ readOnly, onReady }: { readOnly: boolean; onReady: (api: CanvasApi) => void }) {
-  const [active, setActive] = useState<ActiveCanvas | null>(null);
-  const shell = useMemo(() => ({ active, set: setActive }), [active]);
+  const [active, setActive] = useState<CanvasApi | null>(null);
   const [source, setSource] = useState(() => serializeScene(fixtureScene()));
 
   return (
-    <CanvasShellContext value={shell}>
-      <div style={{ display: "flex", gap: "16px" }}>
-        <CanvasSurface
-          source={source}
-          onChange={(next) => {
-            setSource(next);
-            lastSource = next;
-          }}
-          readOnly={readOnly}
-          onApi={(next) => {
-            if (next) {
-              api = next;
-              setActive({ blockId: "fixture", api: next });
-              onReady(next);
-            } else {
-              setActive(null);
-            }
-          }}
-        />
-        <div className="nt-lyr" style={{ width: 260 }}>
-          {active && <CanvasStylePanel api={active.api} />}
-        </div>
+    <div style={{ display: "flex", gap: "16px" }}>
+      <CanvasSurface
+        source={source}
+        onChange={(next) => {
+          setSource(next);
+          lastSource = next;
+        }}
+        readOnly={readOnly}
+        onApi={(next) => {
+          if (next) {
+            api = next;
+            setActive(next);
+            onReady(next);
+          } else {
+            setActive(null);
+          }
+        }}
+      />
+      <div className="nt-lyr" style={{ width: 260 }}>
+        {active && <CanvasStylePanel api={active} />}
       </div>
-    </CanvasShellContext>
+    </div>
   );
 }
 

@@ -21,7 +21,7 @@
  * for the viewport instead.
  */
 
-import { useSyncExternalStore } from "react";
+import { createContext, useContext, useSyncExternalStore } from "react";
 import type { SurfaceMode, SurfaceModeContext, SurfaceModes } from "../../engine/surfaceMode";
 import type { SceneStore } from "../../engine/useScene";
 import type { SelectionStore } from "../../engine/useSelection";
@@ -67,6 +67,17 @@ export interface PickHost {
   store: SceneStore;
   selection: SelectionStore;
   viewport: ViewportController;
+}
+
+/**
+ * The diagram a field's eyedropper samples: the one whose panel the field is
+ * in. Provided with that panel; a field anywhere else has no canvas to pick
+ * from, and offers the screen alone.
+ */
+export const PickHostContext = createContext<PickHost | null>(null);
+
+export function usePickHost(): PickHost | null {
+  return useContext(PickHostContext);
 }
 
 export type ColorPickState =

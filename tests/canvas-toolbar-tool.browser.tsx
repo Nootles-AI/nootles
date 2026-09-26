@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { ConvexProvider, ConvexReactClient } from "convex/react";
 import type { Id } from "../convex/_generated/dataModel";
 import { CurrentPageProvider, OpenPageProvider } from "../app/components/OpenPageContext";
 import { CanvasSurface, type CanvasApi } from "../app/components/editor/canvas/render/CanvasSurface";
-import { Toolbar } from "../app/components/editor/canvas/Toolbar";
+import { PageToolbar } from "../app/components/editor/canvas/Toolbar";
+import { createPageTools, type PageToolControl } from "../app/components/editor/canvas/page/tools";
 import { walk } from "../app/components/editor/canvas/scene/types";
 
 const PAGE = "page" as Id<"pages">;
@@ -13,10 +15,19 @@ const DIAGRAM = `<nt-diagram w="640" h="360">
   <nt-rect id="a" x="24" y="24" w="200" h="80" style="background: #eee"><nt-ref page="other">Launch plan</nt-ref></nt-rect>
 </nt-diagram>`;
 
+const convex = new ConvexReactClient("https://canvas-toolbar-tool.invalid", {
+  skipConvexDeploymentUrlCheck: true,
+});
+
 let root: Root | undefined;
 let api: CanvasApi | null = null;
+let tools: PageToolControl = createPageTools();
 
-/** The shell's half, as `Workspace` does it: hold the published api, mount the toolbar against it. */
+/**
+ * The workspace's half, as `Workspace` does it: one page tool, handed to the
+ * diagram and to the page's bar. The one diagram here stands for the focused
+ * one, so the bar offers Text and shows the bare letters.
+ */
 function Shell() {
   const [source, setSource] = useState(DIAGRAM);
   const [live, setLive] = useState<CanvasApi | null>(null);
@@ -26,15 +37,14 @@ function Shell() {
         <CanvasSurface
           source={source}
           onChange={setSource}
+          tools={tools}
           onApi={(next) => {
             api = next;
             setLive(next);
           }}
         />
       </main>
-      {live && (
-        <Toolbar store={live.store} tools={live.tools} refocus={live.focus} />
-      )}
+      {live && <PageToolbar tools={tools} focused refocus={live.focus} />}
     </>
   );
 }
@@ -42,13 +52,16 @@ function Shell() {
 function mount() {
   root?.unmount();
   api = null;
+  tools = createPageTools();
   root = createRoot(document.getElementById("app")!);
   root.render(
-    <OpenPageProvider>
-      <CurrentPageProvider pageId={PAGE}>
-        <Shell />
-      </CurrentPageProvider>
-    </OpenPageProvider>,
+    <ConvexProvider client={convex}>
+      <OpenPageProvider>
+        <CurrentPageProvider pageId={PAGE}>
+          <Shell />
+        </CurrentPageProvider>
+      </OpenPageProvider>
+    </ConvexProvider>,
   );
 }
 
@@ -65,6 +78,8 @@ const harness = {
   ready: () => api !== null && document.querySelector(".nt-toolbar") !== null,
   /** What the toolbar shows as the active tool. */
   pressed: () => toolbarButtons().filter((b) => b.getAttribute("aria-pressed") === "true").map((b) => b.getAttribute("aria-label")),
+  /** Which tool wears the lock's dot, if any. */
+  locked: () => toolbarButtons().filter((b) => b.hasAttribute("data-locked")).map((b) => b.getAttribute("aria-label")),
   /** What the surface is actually doing. */
   surfaceTool: () => document.querySelector<HTMLElement>(".nt-canvas-viewport")?.dataset.tool ?? null,
   labels: () => toolbarButtons().map((b) => b.getAttribute("aria-label")),

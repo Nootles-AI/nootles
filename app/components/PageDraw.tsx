@@ -1,19 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { useEffect, useSyncExternalStore, type RefObject } from "react";
 import { track } from "@/app/lib/telemetry";
 import { COLUMN_WIDTH } from "@/app/lib/column";
-import { useColumnEdges } from "@/app/lib/columnEdges";
-import { useSpineState, useWorkspaceHistory } from "@/app/lib/history/useWorkspaceHistory";
 import type { LiveEditor, EditorRegistry } from "./editor/EditorRegistry";
-import { useAutocomplete } from "./editor/ai/useAutocomplete";
-import { ReachPopover, SPARK_PATH as SPARK } from "./editor/ai/ReachSlider";
-import { Button, PaletteButton, REDO, TOOLS, ToolRow, UNDO } from "./editor/canvas/Toolbar";
-import { isApplePlatform, shortcutHint, type CanvasTool, type ShortcutId } from "./editor/canvas/engine/shortcuts";
-import { handTool } from "./editor/canvas/engine/handedTool";
+import type { CanvasTool, ShortcutId } from "./editor/canvas/engine/shortcuts";
+import type { DiagramEntry, PageCanvas, PageCanvasHub } from "./editor/canvas/page/PageCanvas";
+import type { PageToolControl } from "./editor/canvas/page/tools";
 import { defaultBox, newNode, type DrawKind } from "./editor/canvas/render/newShape";
-import { BAND, bandFloor, bandHeight } from "./editor/canvas/scene/band";
-import { emptyScene, migrateLegacyCanvas } from "./editor/canvas/scene/migrate";
+import { BAND, bandFloor } from "./editor/canvas/scene/band";
+import { emptyScene } from "./editor/canvas/scene/migrate";
 import { mintId } from "./editor/canvas/scene/ops";
 import { serializeScene } from "./editor/canvas/scene/serialize";
 import type { Scene } from "./editor/canvas/scene/types";
@@ -21,12 +17,11 @@ import type { Scene } from "./editor/canvas/scene/types";
 /**
  * Drawing on the page itself.
  *
- * The tool bar stays at the foot of the page when no diagram is being edited,
- * holding the tools that make sense there: Move, which leaves the page a
- * document, and the shapes. Arm a shape and a drag on the page draws it; on
- * release a diagram is made where it was drawn — between the blocks nearest
- * the top of the drag, or in place of an empty line — holding exactly that
- * shape, and what you drew settles into it.
+ * Arm a shape on the page's bar and a drag on the page draws it; on release a
+ * diagram is made where it was drawn — between the blocks nearest the top of
+ * the drag, or in place of an empty line — holding exactly that shape, and
+ * what you drew settles into it. A press on a diagram already on the page is
+ * that diagram's own draw, with the same tool.
  *
  * It is an insertion, never an annotation: a shape lives only inside a canvas
  * block, so a shape drawn across a paragraph becomes a diagram beside it, not
@@ -35,119 +30,13 @@ import type { Scene } from "./editor/canvas/scene/types";
  * tools use — so nothing here is a path the assistant could not also take.
  */
 
-/** The tools the page offers. Text, the pen and connectors need a diagram. */
-const MOVE = TOOLS.filter((t) => t.tool === "move");
+/** The tools that draw on the page. Text, the pen and connectors need a diagram. */
 const PAGE_KINDS: ReadonlySet<CanvasTool> = new Set(["rect", "ellipse", "polygon", "diamond"]);
 
-export type PageTool = "move" | DrawKind;
-
-/** The page tool a key picks, if it is one of the page's. */
-export function pageToolFor(id: ShortcutId | null): PageTool | null {
-  if (id === "tool.move") return "move";
+/** The page tool a key picks: any tool on the page's bar. */
+export function pageToolFor(id: ShortcutId | null): CanvasTool | null {
   const tool = id?.startsWith("tool.") ? (id.slice(5) as CanvasTool) : null;
-  return tool && PAGE_KINDS.has(tool) ? (tool as PageTool) : null;
-}
-
-const glyph = {
-  width: 17,
-  height: 17,
-  viewBox: "0 0 24 24",
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 1.7,
-  strokeLinecap: "round" as const,
-  strokeLinejoin: "round" as const,
-};
-const AUTOCOMPLETE_ON = (
-  <svg {...glyph}>
-    <path d={SPARK} />
-  </svg>
-);
-const AUTOCOMPLETE_OFF = (
-  <svg {...glyph}>
-    <path d={SPARK} />
-    <path d="M4 4l16 16" />
-  </svg>
-);
-
-const neverChanges = () => () => {};
-const notApple = () => false;
-
-/** The bar, for a page with no diagram in hand. */
-export function PageToolbar({
-  tool,
-  onTool,
-  onPalette,
-}: {
-  tool: PageTool;
-  onTool: (tool: PageTool) => void;
-  onPalette: () => void;
-}) {
-  const apple = useSyncExternalStore(neverChanges, isApplePlatform, notApple);
-  const hint = (id: ShortcutId) => shortcutHint(id, apple);
-  const spine = useWorkspaceHistory();
-  const history = useSpineState(spine);
-  const autocomplete = useAutocomplete();
-  /** Where the switch was when a right-click asked for its reach. */
-  const [reachAt, setReachAt] = useState<DOMRect | null>(null);
-  const dock = useRef<HTMLDivElement>(null);
-  useColumnEdges(dock);
-
-  return (
-    <div ref={dock} className="nt-toolbar-dock is-page" data-armed={tool !== "move" || undefined}>
-      <div className="nt-toolbar" role="toolbar" aria-label="Page tools">
-        <ToolRow
-          tool={tool}
-          lead={MOVE}
-          tail={[]}
-          grouped={false}
-          hint={hint}
-          onTool={(next) => onTool(pageToolFor(`tool.${next}` as ShortcutId) ?? "move")}
-        />
-        {spine && (
-          <>
-            <span className="nt-toolbar-sep" aria-hidden />
-            <Button
-              label="Undo"
-              hint={hint("edit.undo")}
-              disabled={!history.canUndo}
-              onClick={() => void spine.undo()}
-            >
-              {UNDO}
-            </Button>
-            <Button
-              label="Redo"
-              hint={hint("edit.redo")}
-              disabled={!history.canRedo}
-              onClick={() => void spine.redo()}
-            >
-              {REDO}
-            </Button>
-          </>
-        )}
-        {autocomplete.loaded && (
-          <>
-            <span className="nt-toolbar-sep" aria-hidden />
-            <Button
-              label="Autocomplete"
-              hint={autocomplete.on ? "On" : "Off"}
-              pressed={autocomplete.on}
-              toggle
-              onClick={() => autocomplete.setOn(!autocomplete.on)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setReachAt(e.currentTarget.getBoundingClientRect());
-              }}
-            >
-              {autocomplete.on ? AUTOCOMPLETE_ON : AUTOCOMPLETE_OFF}
-            </Button>
-            {reachAt && <ReachPopover anchor={reachAt} onClose={() => setReachAt(null)} />}
-          </>
-        )}
-        <PaletteButton apple={apple} onOpen={onPalette} />
-      </div>
-    </div>
-  );
+  return tool && tool !== "hand" ? tool : null;
 }
 
 type Box = { x: number; y: number; w: number; h: number };
@@ -261,15 +150,11 @@ function sceneFor(kind: DrawKind, drawn: Box, column: { left: number } | null) {
  * the shape is part of that diagram's picture, not the start of another one
  * underneath it. Diagram blocks only — a storyboard's frames are fixed.
  */
-function besideDiagram(editor: LiveEditor, drawn: Box) {
-  const root = editor.domElement as HTMLElement | undefined;
-  for (const block of editor.document as { id: string; type: string; props: { data?: string } }[]) {
-    if (block.type !== "canvas") continue;
-    const el = root?.querySelector<HTMLElement>(`[data-id="${block.id}"] .nt-canvas`);
-    const r = el?.getBoundingClientRect();
-    if (!el || !r) continue;
-    if (drawn.x >= r.right && drawn.y >= r.top && drawn.y + drawn.h <= r.bottom) {
-      return { block, el };
+function besideDiagram(canvas: PageCanvas | null, drawn: Box): DiagramEntry | null {
+  for (const entry of canvas?.entries() ?? []) {
+    const r = entry.readOnly ? null : entry.api.band.current?.getBoundingClientRect();
+    if (r && drawn.x >= r.right && drawn.y >= r.top && drawn.y + drawn.h <= r.bottom) {
+      return entry;
     }
   }
   return null;
@@ -277,39 +162,28 @@ function besideDiagram(editor: LiveEditor, drawn: Box) {
 
 /**
  * Puts the shape into that diagram where it was drawn, making it wide: beside
- * it is past its right edge. Screen to scene through the view the diagram is
- * showing, so it lands under the pointer at whatever pan and zoom it has;
- * written as the block's whole scene — the same write an edit from outside the
- * canvas makes, which the diagram's own shapes merge through untouched.
+ * it is past its right edge. Through the diagram's own store, as one step of
+ * its history — its block prop trails its edits by seconds, and a write built
+ * from the prop would put back whatever it had not caught up with yet.
  */
-function extendDiagram(
-  editor: LiveEditor,
-  { block, el }: NonNullable<ReturnType<typeof besideDiagram>>,
-  kind: DrawKind,
-  drawn: Box,
-): string {
-  const scene = migrateLegacyCanvas(block.props.data ?? "");
-  const view = el.querySelector<HTMLElement>(".nt-canvas-viewport");
-  const layer = el.querySelector<HTMLElement>(".nt-canvas-scene");
-  const frame = el.getBoundingClientRect();
-  const origin = view?.getBoundingClientRect() ?? frame;
-  const m = new DOMMatrixReadOnly(layer ? getComputedStyle(layer).transform : "none");
-  const zoom = m.a || 1;
-  const nodeId = mintId(scene);
-  const grown: Scene = {
-    ...scene,
-    nodes: [
-      ...scene.nodes,
-      newNode(kind, nodeId, {
-        x: Math.round((drawn.x - origin.left - (view?.clientLeft ?? 0) - m.e) / zoom),
-        y: Math.round((drawn.y - origin.top - (view?.clientTop ?? 0) - m.f) / zoom),
-        w: Math.round(drawn.w / zoom),
-        h: Math.round(drawn.h / zoom),
-      }),
-    ],
-    wide: true,
-  };
-  editor.updateBlock(block, { props: { data: serializeScene({ ...grown, h: bandHeight(grown) }) } });
+function extendDiagram({ api }: DiagramEntry, kind: DrawKind, drawn: Box): string {
+  const a = api.viewport.clientToScene({ x: drawn.x, y: drawn.y });
+  const b = api.viewport.clientToScene({ x: drawn.x + drawn.w, y: drawn.y + drawn.h });
+  const nodeId = mintId(api.store.getScene());
+  api.store.dispatch([
+    {
+      type: "insert",
+      nodes: [
+        newNode(kind, nodeId, {
+          x: Math.round(a.x),
+          y: Math.round(a.y),
+          w: Math.round(b.x - a.x),
+          h: Math.round(b.y - a.y),
+        }),
+      ],
+    },
+    { type: "setDiagram", wide: true },
+  ]);
   return nodeId;
 }
 
@@ -327,36 +201,34 @@ function when<T>(find: () => T | null, ms: number): Promise<T | null> {
   });
 }
 
-/** `--ease`-family curve the stage morph uses, so both settle alike. */
+/** The `--ease` family, so the settle moves like the rest of the page. */
 const SETTLE = "cubic-bezier(0.25, 0, 0, 1)";
 
 /**
  * Arms the page for drawing while a shape tool is in hand. A press over the
  * page's text or between its blocks draws; a press on a diagram that is
- * already there draws in that diagram instead, since more shapes belong in
- * the one you pointed at rather than in a new one beside it.
+ * already there is left to it, since it draws with the same tool.
  */
 export function usePageDraw({
   well,
-  tool,
+  tools,
+  hub,
   registry,
-  onTool,
-  onDrawn,
-  onIntoDiagram,
 }: {
   well: RefObject<HTMLElement | null>;
-  tool: PageTool;
+  tools: PageToolControl | null;
+  hub: PageCanvasHub;
   registry: EditorRegistry;
-  onTool: (tool: PageTool) => void;
-  /** The diagram made, and the shape in it — to be opened and selected. */
-  onDrawn: (blockId: string, nodeId: string) => void;
-  /** A press went through to a diagram already on the page, to draw there. */
-  onIntoDiagram: () => void;
 }) {
+  const tool = useSyncExternalStore(
+    tools?.subscribe ?? noSubscribe,
+    () => tools?.get() ?? "move",
+    () => "move" as const,
+  );
   useEffect(() => {
     const el = well.current;
-    if (!el || tool === "move") return;
-    const kind = tool;
+    if (!el || !tools || !PAGE_KINDS.has(tool)) return;
+    const kind = tool as DrawKind;
     el.setAttribute("data-drawing", "");
 
     const onDown = (e: PointerEvent) => {
@@ -365,17 +237,10 @@ export function usePageDraw({
       const pane = target.closest<HTMLElement>(".nt-pane[data-page-id]");
       // The page's own controls — the mode switch, the corner buttons — still work.
       if (!pane || target.closest("button, a, input, textarea, select, [role='menu']")) return;
-      // On a diagram — a canvas block or a storyboard's shot — the press goes
-      // through to it carrying the shape: it opens as it would for any press,
-      // and its own draw takes over from there.
-      if (target.closest(".nt-canvas")) {
-        handTool(kind);
-        onIntoDiagram();
-        return;
-      }
+      // A diagram — a canvas block or a storyboard's shot — draws for itself.
+      if (target.closest(".nt-canvas")) return;
       e.preventDefault();
       e.stopPropagation();
-
       const pageId = pane.dataset.pageId!;
       const origin = { x: e.clientX, y: e.clientY };
       const ghost = makeGhost(kind);
@@ -434,16 +299,17 @@ export function usePageDraw({
 
     /** Make the diagram, then let what was drawn settle into it. */
     const land = async (pageId: string, drawn: Box, ghost: HTMLElement) => {
-      onTool("move");
+      tools.settle();
+      const canvas = hub.forPage(pageId);
       let blockId: string;
       let nodeId: string;
       try {
-        const editor = await registry.editorFor(pageId);
-        const beside = besideDiagram(editor, drawn);
+        const beside = besideDiagram(canvas, drawn);
         if (beside) {
-          nodeId = extendDiagram(editor, beside, kind, drawn);
-          blockId = beside.block.id;
+          nodeId = extendDiagram(beside, kind, drawn);
+          blockId = beside.blockId;
         } else {
+          const editor = await registry.editorFor(pageId);
           const place = placeAt(editor, drawn.y);
           const made = sceneFor(kind, drawn, place.column);
           nodeId = made.nodeId;
@@ -464,9 +330,11 @@ export function usePageDraw({
         () => document.querySelector<HTMLElement>(`[data-id="${blockId}"] .nt-canvas-scene [data-id="${nodeId}"]`),
         1500,
       );
+      const select = () =>
+        void canvas?.whenRegistered(blockId).then((entry) => entry?.api.selection.select([nodeId]));
       if (!shape) {
         ghost.remove();
-        onDrawn(blockId, nodeId);
+        select();
         return;
       }
       shape.style.visibility = "hidden";
@@ -483,7 +351,7 @@ export function usePageDraw({
         )
         .finished.catch(() => {});
       shape.style.visibility = "";
-      onDrawn(blockId, nodeId);
+      select();
       // Held a beat longer, over the real shape, until the selection frame is up
       // in the place of its own.
       requestAnimationFrame(() => requestAnimationFrame(() => ghost.remove()));
@@ -494,5 +362,7 @@ export function usePageDraw({
       el.removeEventListener("pointerdown", onDown, true);
       el.removeAttribute("data-drawing");
     };
-  }, [well, tool, registry, onTool, onDrawn, onIntoDiagram]);
+  }, [well, tool, tools, hub, registry]);
 }
+
+const noSubscribe = () => () => {};

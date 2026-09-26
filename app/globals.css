@@ -124,9 +124,10 @@
   --text-page-title: 42px; /* a document's own title      */
   --tracking-meta: 0.06em;
 
-  /* The content column, --measure, and the body type, --text-body and
+  /* The text's measure, --measure, and the body type, --text-body and
      --leading-body, are set on <html> from COLUMN_VARS (app/lib/column.ts) by
-     every root that renders this sheet — the one copy TS and CSS both read. */
+     every root that renders this sheet — the one copy TS and CSS both read.
+     The column around the measure, and its gutter, are `.nt-column`. */
 
   /* Control geometry */
   --inset: 8px;
@@ -640,6 +641,46 @@ body {
 .nt-pane {
   background: var(--background);
   transition: background var(--dur) var(--ease);
+  /* The page's layout is decided by this box's width; a classic scrollbar
+     arriving with the first long page must not move it. */
+  scrollbar-gutter: stable;
+}
+
+/* ---- The page -----------------------------------------------------------
+   Pane → sheet → column. The sheet is what the document zoom magnifies
+   (`docZoom`): CSS zoom, with its width scaled to match, so the text never
+   reflows and the unzoomed pane scrolls over the result. It stays
+   unpositioned, unclipped and untransformed — any of those would make it the
+   containing block of every fixed overlay in the page, and the clipper the
+   block handle measures against.
+
+   The column is the measure plus a gutter the block handle stands in. Which
+   gutter is the pane's call, not the viewport's: `usePageFit` writes
+   `data-page` from the pane's width — `wide` with the full measure beside the
+   wide gutter, `flow` where the wide gutter holds and the text gives up width
+   (diagrams scale down with it), `narrow` where only the narrow gutter fits.
+   The media query is only the answer before that has run. */
+.nt-sheet {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+.nt-column {
+  --nt-page-gutter: 24px;
+  max-width: calc(var(--measure) + 2 * var(--nt-page-gutter));
+  padding-inline: var(--nt-page-gutter);
+}
+@media (min-width: 640px) {
+  .nt-column {
+    --nt-page-gutter: 56px;
+  }
+}
+.nt-sheet[data-page="narrow"] > .nt-column {
+  --nt-page-gutter: 24px;
+}
+.nt-sheet[data-page="wide"] > .nt-column,
+.nt-sheet[data-page="flow"] > .nt-column {
+  --nt-page-gutter: 56px;
 }
 
 /* ---- The well ------------------------------------------------------------
@@ -681,15 +722,6 @@ body {
     0 1px 2px oklch(0.25 0.005 90 / 0.04),
     0 12px 32px -16px oklch(0.25 0.005 90 / 0.12);
 }
-/* With the interface hidden there is no well to lie in: the page is the window. */
-.nt-shell[data-bare] > .nt-well {
-  padding: 0;
-}
-.nt-shell[data-bare] .nt-pane {
-  border-radius: 0;
-  box-shadow: none;
-}
-
 /* A rail's place in the shell. Putting a rail away closes this over it — the
    rail keeps its width and slides out toward its own edge of the window while
    the sheet takes the room — and the workspace keeps the rail mounted for as
@@ -814,10 +846,6 @@ body[data-resizing] .nt-rail-face {
     transform: scale(0.8);
   }
 }
-.nt-shell[data-bare] .nt-corner {
-  top: 10px;
-}
-
 /* A divider with nothing drawn at rest. It shows a hairline to a hand that has
    found it and ink to one that is pulling it — never the amber, which is spoken
    for. Inset from the ends so the line stops short of the sheet's corners. */
@@ -1487,7 +1515,7 @@ textarea.nt-input {
 
    Everything inside is `aria-hidden` at the call site: it is a picture, and
    nothing in it is text meant to be read at this size. */
-.nt-sheet {
+.nt-miniature {
   position: relative;
   width: calc(600px * var(--page-scale, 0.78));
   /* Tall enough to hold a diagram whole. Cropping mid-drawing reads as a broken
@@ -1504,7 +1532,7 @@ textarea.nt-input {
 }
 
 /* The page does not end at the crop, so it fades rather than being cut mid-line. */
-.nt-sheet::after {
+.nt-miniature::after {
   content: "";
   position: absolute;
   inset-inline: 0;

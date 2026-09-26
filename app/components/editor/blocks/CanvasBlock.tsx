@@ -41,7 +41,7 @@ import { peekSceneStore, sceneStoreKey } from "../canvas/engine/useScene";
 import { serializeScene } from "../canvas/scene/serialize";
 import type { Scene } from "../canvas/scene/types";
 import { CanvasSurface, type CanvasApi } from "../canvas/render/CanvasSurface";
-import { useCanvasShell } from "../canvas/shell";
+import { usePageCanvas } from "../canvas/page/PageCanvas";
 
 /** How many preceding blocks of page text to hand the canvas for context. */
 const CONTEXT_BLOCKS = 4;
@@ -54,7 +54,8 @@ const CONTEXT_BLOCKS = 4;
  * serialized diagram, and putting that into the page's update log on the
  * store's own 500ms cadence writes a copy of the drawing per edit pause. The
  * mirror is display-grade by contract (see `canvas/collab/binding.ts`), so it
- * waits — and lands early whenever the diagram is let go or the tab is.
+ * waits — and lands early whenever the diagram's selection is let go, or the
+ * tab is.
  */
 const MIRROR_MS = 5000;
 
@@ -63,6 +64,7 @@ type HostEditor = {
   prosemirrorState: unknown;
   getExtension: (key: string) => unknown;
   getBlock: (id: string) => { props?: unknown } | undefined;
+  removeBlocks: (ids: string[]) => unknown;
 };
 
 type ForkStore = {
@@ -138,9 +140,8 @@ function CanvasBlockView({
   /** Surrounding page text, used to inform shape-label completion. */
   getDocContext: () => string;
 }) {
-  const shell = useCanvasShell();
+  const page = usePageCanvas();
   const readOnly = useReadOnly();
-  const mine = shell.active?.blockId === blockId;
   const api = useRef<CanvasApi | null>(null);
   const [liveApi, setLiveApi] = useState<CanvasApi | null>(null);
   const host = useColumnAnchor();
@@ -330,11 +331,12 @@ function CanvasBlockView({
   // it up to date, on the same cadence as its own edits.
   useEffect(() => collab.onStaleMirror(scheduleMirror), [collab, scheduleMirror]);
 
-  // Letting the diagram go, hiding the tab, and unmounting are all moments a
-  // reader of the prop — a thumbnail, `read_page`, a copy — may come next.
+  // Letting the diagram's selection go, hiding the tab, and unmounting are all
+  // moments a reader of the prop — a thumbnail, `read_page`, a copy — may
+  // come next.
   useEffect(() => {
-    if (!mine) writeMirror();
-  }, [mine, writeMirror]);
+    if (!engaged) writeMirror();
+  }, [engaged, writeMirror]);
   useEffect(() => {
     const onHide = () => {
       if (document.visibilityState === "hidden") writeMirror();
@@ -359,13 +361,33 @@ function CanvasBlockView({
   }, [liveApi, yDoc, blockId]);
 
   // Only the person actually ON the diagram broadcasts — the leaf is
-  // attention, not an open tab.
+  // attention, not an open tab. The awareness field names one diagram, so on
+  // a page that is the one holding the page's focus. A press that brings the
+  // selection here is under way before the selection is, and the broadcaster
+  // has to be up in the press's capture to stream the drag it starts.
+  const focused = useSyncExternalStore(
+    page.selection.subscribe,
+    () => page.selection.getSnapshot().focused === blockId,
+    () => false,
+  );
+  const [pressing, setPressing] = useState(false);
   useEffect(() => {
-    if (!mine || !liveApi || !yDoc) return;
+    if (!pressing) return;
+    const release = () => setPressing(false);
+    window.addEventListener("pointerup", release, true);
+    window.addEventListener("pointercancel", release, true);
+    return () => {
+      window.removeEventListener("pointerup", release, true);
+      window.removeEventListener("pointercancel", release, true);
+    };
+  }, [pressing]);
+  const broadcasting = pressing || (page.pane ? focused : engaged);
+  useEffect(() => {
+    if (!broadcasting || !liveApi || !yDoc) return;
     const provider = providerForDoc(yDoc);
     if (!provider) return;
     return broadcastCanvasPresence(provider.awareness, blockId, liveApi);
-  }, [mine, liveApi, yDoc, blockId]);
+  }, [broadcasting, liveApi, yDoc, blockId]);
 
   const surfaceSource = yDoc ? seed : source;
   const surfaceChange = yDoc ? collabChange : legacyChange;
@@ -444,34 +466,32 @@ function CanvasBlockView({
   });
   const ai = useMemo(() => ({ getDocContext: () => context.current() }), []);
 
-  // Not on mount: a page can hold several diagrams, and none of them should
-  // take the screen's panels for being on it. Claimed on the way DOWN, and on
-  // pointer rather than focus — the block is a void node, so ProseMirror keeps
-  // the selection and the focus the canvas would otherwise be waiting for.
-  const claim = () => {
-    if (!mine && api.current) shell.set({ blockId, api: api.current });
-  };
-
   // The workspace history spine: this diagram is one undo domain, and the
-  // surface registry is how a focus restore re-claims it — after navigating
-  // back to this page, if that is where the undo led.
+  // surface registry is how a focus restore finds it — after navigating back
+  // to this page, if that is where the undo led.
   const spine = useWorkspaceHistory();
   const pageId = useCurrentPage();
   useCanvasUndoDomain(spine, liveApi?.store ?? null, blockId, pageId);
-  const claimRef = useRef(claim);
-  useEffect(() => {
-    claimRef.current = claim;
-  });
   useEffect(() => {
     if (readOnly) return;
-    return registerSurface(blockId, () => claimRef.current());
-  }, [blockId, readOnly]);
+    return registerSurface(blockId, () => page.focus(blockId));
+  }, [page, blockId, readOnly]);
+
+  // One of the page's diagrams, for as long as its surface is up.
+  const flushMirror = useCallback(() => {
+    liveApi?.store.flush();
+    writeMirror();
+  }, [liveApi, writeMirror]);
+  const remove = useCallback(() => editor.removeBlocks([blockId]), [editor, blockId]);
+  useEffect(() => {
+    if (!liveApi) return;
+    return page.register({ blockId, api: liveApi, readOnly, flushMirror, remove });
+  }, [page, blockId, liveApi, readOnly, flushMirror, remove]);
 
   if (readOnly) {
     // The surface's own view-only mode: a click still picks out one shape, and
-    // everything that would move one — or move the view — is off, as is the
-    // shell, which is never claimed. The api is still captured so remote edits
-    // keep flowing into the store.
+    // everything that would move one is off. The api is still captured so
+    // remote edits keep flowing into the store.
     return (
       <div ref={host} className="nt-canvas-block relative w-full">
         <CanvasAiContext value={ai}>
@@ -481,7 +501,7 @@ function CanvasBlockView({
             storeKey={sceneStoreKey(blockId)}
             readOnly
             // Captured so remote edits flow in and co-presence paints; a
-            // viewer never claims the shell, so they never broadcast.
+            // viewer never broadcasts.
             onApi={(next) => {
               setLiveApi(next);
               collab.setStore(next?.store ?? null);
@@ -499,23 +519,18 @@ function CanvasBlockView({
     <div
       ref={host}
       className="nt-canvas-block relative w-full"
-      onPointerDownCapture={claim}
-      onFocus={claim}
+      onPointerDownCapture={() => setPressing(true)}
     >
       <CanvasAiContext value={ai}>
         <CanvasSurface
           source={surfaceSource}
           onChange={surfaceChange}
           storeKey={sceneStoreKey(blockId)}
-          // Published once and withdrawn on unmount; either way it speaks for
-          // this block only while this block holds the shell.
+          tools={page.tools ?? undefined}
           onApi={(next) => {
             api.current = next;
             setLiveApi(next);
             collab.setStore(next?.store ?? null);
-            if (mine && shell.active?.api !== next) {
-              shell.set(next ? { blockId, api: next } : null);
-            }
           }}
         />
       </CanvasAiContext>

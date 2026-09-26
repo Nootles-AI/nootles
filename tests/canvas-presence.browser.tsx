@@ -3,7 +3,7 @@
 // updates cross between the two on the provider's own cadence (200ms awareness
 // throttle, 500ms flush) plus the runner's network latency. See the runner,
 // `canvas-presence.browser.mjs`, for what is checked and why.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import * as Y from "yjs";
 import { getFunctionName } from "convex/server";
@@ -20,7 +20,13 @@ import { arrivalFlashExtension } from "../app/components/editor/arrivalFlash";
 import { blockSelectionExtension } from "../app/components/editor/blockSelection";
 import { serializeScene } from "../app/components/editor/canvas/scene/serialize";
 import { findNode, type Scene, type SceneNode } from "../app/components/editor/canvas/scene/types";
-import { CanvasShellContext, type ActiveCanvas } from "../app/components/editor/canvas/shell";
+import {
+  createPageCanvasHub,
+  PageCanvasContext,
+  PageCanvasHubContext,
+  usePaneCanvas,
+  type PageCanvas,
+} from "../app/components/editor/canvas/page/PageCanvas";
 import { CurrentPageProvider } from "../app/components/OpenPageContext";
 import { useTextUndoDomain, type UndoHostEditor } from "../app/lib/history/textDomain";
 import { undoScope, useWorkspaceHistory, WorkspaceHistoryProvider } from "../app/lib/history/useWorkspaceHistory";
@@ -157,34 +163,36 @@ const replica = new Replica();
 const convexReact = new ConvexReactClient("https://canvas-presence-test.invalid", { skipConvexDeploymentUrlCheck: true });
 let editor: Editor;
 let provider: YConvexProvider;
-let active: ActiveCanvas | null = null;
+/** The page's diagrams, as the workspace holds them: one hub, one pane. */
+let page: PageCanvas | null = null;
+const diagram = () => page?.entries()[0] ?? null;
 
 function Page({ editor }: { editor: Editor }) {
   const spine = useWorkspaceHistory();
   useTextUndoDomain(spine, editor as unknown as UndoHostEditor, "doc", PAGE);
-  const [canvas, setCanvas] = useState<ActiveCanvas | null>(null);
-  const shell = useMemo(() => ({ active: canvas, set: setCanvas }), [canvas]);
-  useEffect(() => {
-    active = canvas;
-  }, [canvas]);
-  const editing = canvas !== null;
-  useEffect(() => {
-    if (!editing) return;
-    const onDown = (event: PointerEvent) => {
-      const target = event.target instanceof Element ? event.target : null;
-      if (!target?.closest(".nt-canvas-viewport")) setCanvas(null);
-    };
-    window.addEventListener("pointerdown", onDown, true);
-    return () => window.removeEventListener("pointerdown", onDown, true);
-  }, [editing]);
+  const [hub] = useState(() =>
+    createPageCanvasHub(spine ? { batch: spine.batch, quiet: spine.walking } : { batch: (fn) => fn() }),
+  );
   return (
-    <CanvasShellContext value={shell}>
+    <PageCanvasHubContext value={hub}>
+      <Pane editor={editor} />
+    </PageCanvasHubContext>
+  );
+}
+
+function Pane({ editor }: { editor: Editor }) {
+  const canvas = usePaneCanvas("main", PAGE);
+  useEffect(() => {
+    page = canvas;
+  }, [canvas]);
+  return (
+    <PageCanvasContext value={canvas}>
       <main style={{ height: "100vh", overflow: "auto" }}>
         <div {...undoScope} style={{ maxWidth: 1100, padding: "32px 40px", boxSizing: "border-box" }}>
           <BlockNoteView editor={editor} theme="light" className="nt-editor" sideMenu={false} slashMenu={false} formattingToolbar={false} />
         </div>
       </main>
-    </CanvasShellContext>
+    </PageCanvasContext>
   );
 }
 
@@ -322,7 +330,7 @@ function stop() {
   return samples;
 }
 
-const scene = () => active?.api.store.getScene() ?? null;
+const scene = () => diagram()?.api.store.getScene() ?? null;
 
 const probe = {
   start,
@@ -332,15 +340,18 @@ const probe = {
   /** The centre of an overlay handle: `edges`/`zones` group, nth rect (1-based). */
   handle: (group: string, nth: number) =>
     centreOf(document.querySelector(`.nt-editor .nt-ov-${group} rect:nth-child(${nth})`)),
-  claimed: () => active !== null,
+  /** The diagram is on the page, registered with it. */
+  ready: () => diagram() !== null,
+  /** This screen's diagram holds the page's focus, so it is the one broadcasting. */
+  broadcasting: () => page?.selection.getSnapshot().focused != null,
   select: (ids: string[], edgeIds: string[] = []) => {
-    const selection = active!.api.selection;
+    const selection = diagram()!.api.selection;
     selection.select(ids);
     if (edgeIds.length) selection.selectEdges(edgeIds);
   },
   /** An edit made on this screen: move a shape by a scene-px offset. */
   nudge: (id: string, dx: number, dy: number) =>
-    active!.api.store.dispatch({ type: "move", ids: [id], dx, dy }),
+    diagram()!.api.store.dispatch({ type: "move", ids: [id], dx, dy }),
   ghosts: () => ghosts().map((g) => sceneRect(g)),
   halos: () => document.querySelectorAll(".nt-editor .nt-copresence-edges path").length,
   shape: (id: string) => sceneRect(shapeEl(id)),

@@ -3,7 +3,7 @@ import { useLayoutEffect, type RefObject } from "react";
 /**
  * The document column's edges, as distances from the window's left and right,
  * for the boxes fixed to the window that fill or centre on the column: the
- * tool dock, the expanded stage, a storyboard shot at full size.
+ * tool dock, a storyboard shot at full size.
  *
  * The shell publishes them; each such box follows them, and they are written
  * onto that box alone as `--nt-stage-l` / `--nt-stage-r`. Not onto `:root`:

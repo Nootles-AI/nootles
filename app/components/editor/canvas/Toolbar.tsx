@@ -1,16 +1,13 @@
 "use client";
 
 /**
- * The canvas toolbar — floating over the diagram it serves.
+ * The bar at the foot of the page column.
  *
- * It is not inside the block: a canvas block is one document column wide, and
- * the panels it belongs with are the window's. So it is a fixed pill that
- * *tracks* the canvas instead, and it stands down while a review is open — two
- * bars asking for the same corner is one bar too many, and the unanswered
- * question outranks the tool palette.
- *
- * It takes the stores rather than values, and subscribes to the scalars it
- * shows rather than to whole history objects.
+ * One bar, always there: the page's tools are the diagrams' tools, since a
+ * shape can be drawn onto the page as readily as into a diagram already on it.
+ * A storyboard shot, a fixed frame with tools and keys of its own, brings its
+ * own bar while it is held. Both take stores rather than values and subscribe
+ * to the scalars they show.
  */
 
 import {
@@ -24,12 +21,15 @@ import { Check, FountainPen } from "@/app/components/Icons";
 import { Menu, MenuItem } from "@/app/components/Menu";
 import { Tooltip } from "@/app/components/Tooltip";
 import { useColumnEdges } from "@/app/lib/columnEdges";
+import { useAutocomplete } from "../ai/useAutocomplete";
+import { ReachPopover, SPARK_PATH as SPARK } from "../ai/ReachSlider";
 import {
   isSnapEnabled,
   setSnapEnabled,
   subscribe as subscribeSnap,
 } from "./engine/snapping";
 import { isGridShown, setGridShown, subscribeGrid } from "./engine/dotGrid";
+import type { WorkspaceHistory } from "@/app/lib/history/spine";
 import {
   useSpineState,
   useWorkspaceHistory,
@@ -43,6 +43,7 @@ import {
   type ShortcutId,
 } from "./engine/shortcuts";
 import type { BoardApi, ToolControl } from "./render/CanvasSurface";
+import type { PageToolControl } from "./page/tools";
 import { BoardControls } from "../storyboard/BoardControls";
 import "./canvas.css";
 
@@ -57,8 +58,7 @@ const svg = {
   strokeLinejoin: "round" as const,
 };
 
-// Exported for the page's bar, which shows a subset of the same tools — one
-// drawing of each glyph, however many bars carry it.
+// No hand: it is a key and the space bar, never a button — the page scrolls.
 export const TOOLS: readonly { tool: CanvasTool; id: ShortcutId; icon: ReactNode }[] = [
   {
     tool: "move",
@@ -78,15 +78,6 @@ export const TOOLS: readonly { tool: CanvasTool; id: ShortcutId; icon: ReactNode
       <svg {...svg}>
         <path d="M4 3.2 14.5 10l-4.5 1-2.1 4.6z" />
         <path d="M14 20h6v-6M20 20l-5.5-5.5" />
-      </svg>
-    ),
-  },
-  {
-    tool: "hand",
-    id: "tool.hand",
-    icon: (
-      <svg {...svg}>
-        <path d="M9 13V5.5a1.5 1.5 0 0 1 3 0V11m0-.5V4.5a1.5 1.5 0 0 1 3 0V11m0-.5V6.5a1.5 1.5 0 0 1 3 0V14a6 6 0 0 1-6 6h-1a6 6 0 0 1-5-2.7l-2-3a1.6 1.6 0 0 1 2.6-1.8L9 15" />
       </svg>
     ),
   },
@@ -136,6 +127,13 @@ export const TOOLS: readonly { tool: CanvasTool; id: ShortcutId; icon: ReactNode
     ),
   },
   {
+    tool: "pen",
+    id: "tool.pen",
+    // Smaller than its neighbours on purpose: it is the one solid glyph in a
+    // row of outlines, and a filled shape carries more weight at the same size.
+    icon: <FountainPen {...svg} width={15} height={15} />,
+  },
+  {
     tool: "connector",
     id: "tool.connector",
     // An elbow with a plug at each end: the shape the tool actually draws.
@@ -147,13 +145,6 @@ export const TOOLS: readonly { tool: CanvasTool; id: ShortcutId; icon: ReactNode
       </svg>
     ),
   },
-  {
-    tool: "pen",
-    id: "tool.pen",
-    // Smaller than its neighbours on purpose: it is the one solid glyph in a
-    // row of outlines, and a filled shape carries more weight at the same size.
-    icon: <FountainPen {...svg} width={15} height={15} />,
-  },
 ];
 
 /** The shape tools, drawn as one tool in the bar. */
@@ -161,10 +152,8 @@ export const SHAPES: ReadonlySet<CanvasTool> = new Set(["rect", "ellipse", "poly
 const SHAPE_TOOLS = TOOLS.filter((t) => SHAPES.has(t.tool));
 const LEAD_TOOLS = TOOLS.slice(0, TOOLS.findIndex((t) => SHAPES.has(t.tool)));
 const TAIL_TOOLS = TOOLS.filter((t) => !SHAPES.has(t.tool) && !LEAD_TOOLS.includes(t));
-/** A storyboard shot's: no hand, since a shot is a fixed frame with nothing to
- *  pan to, and no connector — a board's relations are its shot order, not
- *  arrows between drawings. */
-const SHOT_LEAD = LEAD_TOOLS.filter((t) => t.tool !== "hand");
+/** A storyboard shot's: no connector — a board's relations are its shot
+ *  order, not arrows between drawings. */
 const SHOT_TAIL = TAIL_TOOLS.filter((t) => t.tool !== "connector");
 
 /** The slot's disclosure: a small chevron, as Figma draws it. */
@@ -197,14 +186,18 @@ const GEAR = (
 const neverChanges = () => () => {};
 const notApple = () => false;
 
+/** `navigator` does not exist on the server; read as the external value it is. */
+const useApple = () => useSyncExternalStore(neverChanges, isApplePlatform, notApple);
+
 export function Button({
   label,
   hint,
   pressed,
   toggle,
+  locked,
   disabled,
-  shape,
   onClick,
+  onDoubleClick,
   onContextMenu,
   children,
 }: {
@@ -217,10 +210,11 @@ export function Button({
    * tool left armed. The icon says which way it stands.
    */
   toggle?: boolean;
-  /** One of the four shapes — what the bar's morph folds into their slot. */
-  shape?: boolean;
+  /** A tool kept in hand past one use: a dot under it, in ink, never the accent. */
+  locked?: boolean;
   disabled?: boolean;
   onClick: () => void;
+  onDoubleClick?: () => void;
   /** A button with more to it than its click: the rest, on a right-click. */
   onContextMenu?: (e: React.MouseEvent<HTMLButtonElement>) => void;
   children: ReactNode;
@@ -233,12 +227,13 @@ export function Button({
         aria-label={label}
         aria-pressed={pressed}
         data-toggle={toggle || undefined}
-        data-shape={shape || undefined}
+        data-locked={locked || undefined}
         disabled={disabled}
         // The canvas keeps its focus, so the keymap and the clipboard keep working
         // with a tool picked by mouse.
         onPointerDown={(e) => e.preventDefault()}
         onClick={onClick}
+        onDoubleClick={onDoubleClick}
         onContextMenu={onContextMenu}
       >
         {children}
@@ -262,8 +257,7 @@ const COMMAND = (
 export function PaletteButton({ apple, onOpen }: { apple: boolean; onOpen: () => void }) {
   return (
     <>
-      {/* Named for the bar's morph, which otherwise pairs rules by position. */}
-      <span className="nt-toolbar-sep" data-morph="palette-rule" aria-hidden />
+      <span className="nt-toolbar-sep" aria-hidden />
       <Button label="Command palette" hint={apple ? "⌘K" : "Ctrl+K"} onClick={onOpen}>
         {COMMAND}
       </Button>
@@ -271,57 +265,224 @@ export function PaletteButton({ apple, onOpen }: { apple: boolean; onOpen: () =>
   );
 }
 
-export interface ToolbarProps {
+const AUTOCOMPLETE_ON = (
+  <svg {...svg}>
+    <path d={SPARK} />
+  </svg>
+);
+const AUTOCOMPLETE_OFF = (
+  <svg {...svg}>
+    <path d={SPARK} />
+    <path d="M4 4l16 16" />
+  </svg>
+);
+
+/** The account's autocomplete, a switch on the bar; its reach on a right-click. */
+function AutocompleteButton() {
+  const autocomplete = useAutocomplete();
+  /** Where the switch was when a right-click asked for its reach. */
+  const [reachAt, setReachAt] = useState<DOMRect | null>(null);
+  if (!autocomplete.loaded) return null;
+  return (
+    <>
+      <span className="nt-toolbar-sep" aria-hidden />
+      <Button
+        label="Autocomplete"
+        hint={autocomplete.on ? "On" : "Off"}
+        pressed={autocomplete.on}
+        toggle
+        onClick={() => autocomplete.setOn(!autocomplete.on)}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setReachAt(e.currentTarget.getBoundingClientRect());
+        }}
+      >
+        {autocomplete.on ? AUTOCOMPLETE_ON : AUTOCOMPLETE_OFF}
+      </Button>
+      {reachAt && <ReachPopover anchor={reachAt} onClose={() => setReachAt(null)} />}
+    </>
+  );
+}
+
+/**
+ * Undo and redo. One timeline: with the workspace spine present the buttons
+ * walk it, the diagrams' entries included, in order; without it — the share
+ * route, the legacy pipeline — a surface's buttons walk its store's own history.
+ */
+function History({ store, hint }: { store?: SceneStore; hint: (id: ShortcutId) => string }) {
+  const spine = useWorkspaceHistory();
+  if (spine) return <SpineHistory spine={spine} hint={hint} />;
+  return store ? <StoreHistory store={store} hint={hint} /> : null;
+}
+
+function SpineHistory({ spine, hint }: { spine: WorkspaceHistory; hint: (id: ShortcutId) => string }) {
+  const { canUndo, canRedo } = useSpineState(spine);
+  return (
+    <UndoRedo
+      hint={hint}
+      canUndo={canUndo}
+      canRedo={canRedo}
+      undo={() => void spine.undo()}
+      redo={() => void spine.redo()}
+    />
+  );
+}
+
+function StoreHistory({ store, hint }: { store: SceneStore; hint: (id: ShortcutId) => string }) {
+  const { canUndo, canRedo } = useSceneHistory(store);
+  return (
+    <UndoRedo
+      hint={hint}
+      canUndo={canUndo}
+      canRedo={canRedo}
+      undo={() => void store.undo()}
+      redo={() => void store.redo()}
+    />
+  );
+}
+
+function UndoRedo({
+  hint,
+  canUndo,
+  canRedo,
+  undo,
+  redo,
+}: {
+  hint: (id: ShortcutId) => string;
+  canUndo: boolean;
+  canRedo: boolean;
+  undo: () => void;
+  redo: () => void;
+}) {
+  return (
+    <>
+      <span className="nt-toolbar-sep" aria-hidden />
+      <Button label="Undo" hint={hint("edit.undo")} disabled={!canUndo} onClick={undo}>
+        {UNDO}
+      </Button>
+      <Button label="Redo" hint={hint("edit.redo")} disabled={!canRedo} onClick={redo}>
+        {REDO}
+      </Button>
+    </>
+  );
+}
+
+/** Snapping and the dot grid: the snapper and the grid own them; this mirrors. */
+function Settings() {
+  const snap = useSyncExternalStore(subscribeSnap, isSnapEnabled, () => true);
+  const grid = useSyncExternalStore(subscribeGrid, isGridShown, () => true);
+  return (
+    <Menu
+      label="Canvas settings"
+      side="top"
+      align="end"
+      trigger={(props) => (
+        <Tooltip label="Settings">
+          <button
+            type="button"
+            {...props}
+            className="nt-toolbar-btn"
+            aria-label="Settings"
+            onPointerDown={(e) => e.preventDefault()}
+          >
+            {GEAR}
+          </button>
+        </Tooltip>
+      )}
+    >
+      {/* Left open on click: a toggle you cannot watch flip is a toggle you
+        have to reopen the menu to read. */}
+      {() => (
+        <>
+          <ToggleRow on={grid} onToggle={() => setGridShown(!grid)}>
+            Dot grid
+          </ToggleRow>
+          <ToggleRow on={snap} onToggle={() => setSnapEnabled(!snap)}>
+            Snap to guides
+          </ToggleRow>
+        </>
+      )}
+    </Menu>
+  );
+}
+
+/**
+ * The page's bar. Its tools are every diagram's: a shape picked here draws on
+ * the page, or in whichever diagram the press lands on. Text needs a diagram
+ * to be written in, so it waits for one to be focused.
+ */
+export function PageToolbar({
+  tools,
+  focused,
+  refocus,
+  onPalette,
+}: {
+  tools: PageToolControl;
+  /** Whether a diagram holds the selection — it has the keyboard, so its keys are bare. */
+  focused: boolean;
+  /** Hands the keyboard back to the focused diagram after a pick from a list. */
+  refocus?: () => void;
+  onPalette?: () => void;
+}) {
+  const { tool, locked } = useSyncExternalStore(tools.subscribe, tools.snapshot, tools.snapshot);
+  const apple = useApple();
+  const dock = useRef<HTMLDivElement>(null);
+  useColumnEdges(dock);
+  // A diagram with the keyboard answers the bare letter; the page, where a
+  // bare letter is typing, answers ⌥⇧ and the letter.
+  const hint = (id: ShortcutId) =>
+    shortcutHint(id, apple, focused && id.startsWith("tool.") ? 1 : 0);
+
+  return (
+    <div ref={dock} className="nt-toolbar-dock is-page">
+      <div className="nt-toolbar" role="toolbar" aria-label="Page tools">
+        <ToolRow
+          tool={tool}
+          locked={locked}
+          lead={LEAD_TOOLS}
+          tail={TAIL_TOOLS}
+          disabled={focused ? undefined : NEEDS_A_DIAGRAM}
+          hint={hint}
+          onTool={tools.set}
+          onLock={tools.lock}
+          onPicked={refocus}
+        />
+        <History hint={hint} />
+        <span className="nt-toolbar-sep" aria-hidden />
+        <Settings />
+        <AutocompleteButton />
+        {onPalette && <PaletteButton apple={apple} onOpen={onPalette} />}
+      </div>
+    </div>
+  );
+}
+
+const NEEDS_A_DIAGRAM: ReadonlySet<CanvasTool> = new Set(["text"]);
+
+/**
+ * A storyboard shot's bar, while the shot is held: the shot's own tools, the
+ * board's controls where the page's zoom would be, and the same settings.
+ */
+export function FrameToolbar({
+  store,
+  tools,
+  board,
+  focus,
+  onPalette,
+}: {
   store: SceneStore;
   /** Subscribed to rather than passed as a value: see {@link ToolControl}. */
   tools: ToolControl;
-  /**
-   * Hands the keyboard back to the canvas after a shape is picked from the
-   * list, so the next key is a shortcut and the next press draws.
-   */
-  refocus?: () => void;
-  /** Set for the moment it is on its way out, after the diagram was let go. */
-  leaving?: boolean;
-  /** The storyboard the canvas is a shot of, whose verbs get the bar's end. */
   board?: BoardApi;
-  /** Opens the workspace's palette; absent where there is none to open. */
+  /** Hands the keyboard back to the shot after a shape is picked from the list. */
+  focus?: () => void;
   onPalette?: () => void;
-}
-
-export function Toolbar({
-  store,
-  tools,
-  refocus,
-  leaving,
-  board,
-  onPalette,
-}: ToolbarProps) {
+}) {
   const tool = useSyncExternalStore(tools.subscribe, tools.get, tools.get);
-  // One timeline: with the workspace spine present the buttons walk it (the
-  // diagram's entries included, in order); without it — the share route, the
-  // legacy pipeline — they walk the store's own history as they always did.
-  const spine = useWorkspaceHistory();
-  const local = useSceneHistory(store);
-  const global = useSpineState(spine);
-  const { canUndo, canRedo } = spine ? global : local;
-  const undo = spine ? () => void spine.undo() : () => void store.undo();
-  const redo = spine ? () => void spine.redo() : () => void store.redo();
-
-  // `navigator` does not exist on the server, and a glyph that differed between
-  // the two renders would be a hydration mismatch. Read as an external value,
-  // which is exactly what the platform is.
-  const apple = useSyncExternalStore(neverChanges, isApplePlatform, notApple);
-
-  // The snapper owns the setting; this only mirrors it so the box can redraw.
-  // Read from the module rather than mirrored in state: anything else that ever
-  // toggles snapping would leave a mirrored copy showing the wrong answer.
-  const snap = useSyncExternalStore(subscribeSnap, isSnapEnabled, () => true);
-  const grid = useSyncExternalStore(subscribeGrid, isGridShown, () => true);
-
+  const apple = useApple();
   const dock = useRef<HTMLDivElement>(null);
   useColumnEdges(dock);
-
-  // The diagram has the keyboard while this bar is up, so its tools show the
+  // The shot has the keyboard while this bar is up, so its tools show the
   // bare letter they answer to there.
   const hint = (id: ShortcutId) => shortcutHint(id, apple, id.startsWith("tool.") ? 1 : 0);
 
@@ -329,76 +490,25 @@ export function Toolbar({
     // Docked to the foot of the page column, centred on it: the dock follows
     // the column's edges, and nothing here has to follow a scroll. Never a
     // transform on the dock — see `.nt-toolbar-dock`.
-    <div ref={dock} className="nt-toolbar-dock" data-leaving={leaving || undefined} inert={leaving}>
+    <div ref={dock} className="nt-toolbar-dock">
       <div className="nt-toolbar" role="toolbar" aria-label="Canvas">
         <ToolRow
           tool={tool}
-          lead={board ? SHOT_LEAD : LEAD_TOOLS}
-          tail={board ? SHOT_TAIL : TAIL_TOOLS}
+          lead={LEAD_TOOLS}
+          tail={SHOT_TAIL}
           hint={hint}
           onTool={(next) => tools.set(next)}
-          onPicked={refocus}
+          onPicked={focus}
         />
-
-        <span className="nt-toolbar-sep" aria-hidden />
-
-        <Button
-          label="Undo"
-          hint={hint("edit.undo")}
-          disabled={!canUndo}
-          onClick={undo}
-        >
-          {UNDO}
-        </Button>
-        <Button
-          label="Redo"
-          hint={hint("edit.redo")}
-          disabled={!canRedo}
-          onClick={redo}
-        >
-          {REDO}
-        </Button>
-
+        <History store={store} hint={hint} />
         {board && (
           <>
             <span className="nt-toolbar-sep" aria-hidden />
             <BoardControls board={board} />
           </>
         )}
-
         <span className="nt-toolbar-sep" aria-hidden />
-
-        <Menu
-          label="Canvas settings"
-          side="top"
-          align="end"
-          trigger={(props) => (
-            <Tooltip label="Settings">
-              <button
-                type="button"
-                {...props}
-                className="nt-toolbar-btn"
-                aria-label="Settings"
-                onPointerDown={(e) => e.preventDefault()}
-              >
-                {GEAR}
-              </button>
-            </Tooltip>
-          )}
-        >
-          {/* Left open on click: a toggle you cannot watch flip is a toggle you
-            have to reopen the menu to read. */}
-          {() => (
-            <>
-              <ToggleRow on={snap} onToggle={() => setSnapEnabled(!snap)}>
-                Snap to guides
-              </ToggleRow>
-              <ToggleRow on={grid} onToggle={() => setGridShown(!grid)}>
-                Dot grid
-              </ToggleRow>
-            </>
-          )}
-        </Menu>
+        <Settings />
         {onPalette && <PaletteButton apple={apple} onOpen={onPalette} />}
       </div>
     </div>
@@ -442,27 +552,32 @@ function ToggleRow({
 type ToolDef = (typeof TOOLS)[number];
 
 /**
- * A bar's tools: the ones it offers, the four shapes between them, and the one
- * ink mark that travels to the tool in hand. The canvas's bar folds the shapes
- * into one Figma-style slot to make room for its other tools; the page's bar,
- * with room to spare, lays them out loose. Both bars are this.
+ * A bar's tools: the ones it offers, the four shapes folded into one
+ * Figma-style slot between them, and the one ink mark that travels to the tool
+ * in hand. A double-click keeps a tool in hand past one use; Move is where one
+ * use ends, so it never is.
  */
 export function ToolRow({
   tool,
+  locked = false,
   lead,
   tail,
+  disabled,
   hint,
   onTool,
+  onLock,
   onPicked,
-  grouped = true,
 }: {
   tool: CanvasTool;
+  locked?: boolean;
   lead: readonly ToolDef[];
   tail: readonly ToolDef[];
-  /** The shapes as one slot with a list, or as four buttons of their own. */
-  grouped?: boolean;
+  /** Tools on the bar that cannot be picked right now. */
+  disabled?: ReadonlySet<CanvasTool>;
   hint: (id: ShortcutId) => string;
   onTool: (tool: CanvasTool) => void;
+  /** A double-click: keep this tool in hand. Absent, no tool locks. */
+  onLock?: (tool: CanvasTool) => void;
   /** After a shape is chosen from the list — where focus should go next. */
   onPicked?: () => void;
 }) {
@@ -509,8 +624,10 @@ export function ToolRow({
       label={SHORTCUTS_BY_ID[shortcut].label}
       hint={hint(shortcut)}
       pressed={tool === id}
-      shape={SHAPES.has(id)}
+      locked={locked && tool === id && id !== "move"}
+      disabled={disabled?.has(id)}
       onClick={() => onTool(id)}
+      onDoubleClick={onLock && id !== "move" ? () => onLock(id) : undefined}
     >
       {icon}
     </Button>
@@ -520,71 +637,68 @@ export function ToolRow({
     <div ref={row} className="nt-toolbar-tools">
       <span className="nt-toolbar-mark" aria-hidden />
       {lead.map(toolButton)}
-      {!grouped && SHAPE_TOOLS.map(toolButton)}
 
-      {grouped && (
-        /* The four shapes are one tool with four heads, as in Figma: the button
-           is whichever was used last, and the caret — or a right click on the
-           button — lists all four. Their keys still pick any one directly. */
-        <span
-          className="nt-toolbar-shapes"
-          data-on={SHAPES.has(tool) || undefined}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            e.currentTarget.querySelector<HTMLButtonElement>(".nt-toolbar-caret")?.click();
-            byPointer();
-          }}
+      {/* The four shapes are one tool with four heads, as in Figma: the button
+          is whichever was used last, and the caret — or a right click on the
+          button — lists all four. Their keys still pick any one directly. */}
+      <span
+        className="nt-toolbar-shapes"
+        data-on={SHAPES.has(tool) || undefined}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.currentTarget.querySelector<HTMLButtonElement>(".nt-toolbar-caret")?.click();
+          byPointer();
+        }}
+      >
+        {toolButton(shape)}
+        <Menu
+          label="Shapes"
+          side="top"
+          align="start"
+          className="nt-tool-flyout"
+          trigger={(props) => (
+            <button
+              type="button"
+              {...props}
+              // A click with a `detail` came from a pointer; Enter and Space
+              // click with none, and those keep the keyboard ring.
+              onClick={(e) => {
+                props.onClick();
+                if (e.detail > 0) byPointer();
+              }}
+              aria-label="All shapes"
+              className="nt-toolbar-caret"
+              onPointerDown={(e) => e.preventDefault()}
+            >
+              {CARET}
+            </button>
+          )}
         >
-          {toolButton(shape)}
-          <Menu
-            label="Shapes"
-            side="top"
-            align="start"
-            className="nt-tool-flyout"
-            trigger={(props) => (
-              <button
-                type="button"
-                {...props}
-                // A click with a `detail` came from a pointer; Enter and Space
-                // click with none, and those keep the keyboard ring.
-                onClick={(e) => {
-                  props.onClick();
-                  if (e.detail > 0) byPointer();
+          {(close) =>
+            SHAPE_TOOLS.map((t) => (
+              <MenuItem
+                key={t.tool}
+                onClick={() => {
+                  onTool(t.tool);
+                  close({ restoreFocus: false });
+                  onPicked?.();
                 }}
-                aria-label="All shapes"
-                className="nt-toolbar-caret"
-                onPointerDown={(e) => e.preventDefault()}
               >
-                {CARET}
-              </button>
-            )}
-          >
-            {(close) =>
-              SHAPE_TOOLS.map((t) => (
-                <MenuItem
-                  key={t.tool}
-                  onClick={() => {
-                    onTool(t.tool);
-                    close({ restoreFocus: false });
-                    onPicked?.();
-                  }}
-                >
-                  <Check
-                    width={12}
-                    height={12}
-                    strokeWidth={2.5}
-                    className="nt-tool-flyout-check"
-                    data-on={tool === t.tool || undefined}
-                  />
-                  <span className="nt-tool-flyout-icon">{t.icon}</span>
-                  <span className="nt-tool-flyout-name">{SHORTCUTS_BY_ID[t.id].label}</span>
-                  <kbd className="nt-tool-flyout-key">{hint(t.id)}</kbd>
-                </MenuItem>
-              ))
-            }
-          </Menu>
-        </span>
-      )}
+                <Check
+                  width={12}
+                  height={12}
+                  strokeWidth={2.5}
+                  className="nt-tool-flyout-check"
+                  data-on={tool === t.tool || undefined}
+                />
+                <span className="nt-tool-flyout-icon">{t.icon}</span>
+                <span className="nt-tool-flyout-name">{SHORTCUTS_BY_ID[t.id].label}</span>
+                <kbd className="nt-tool-flyout-key">{hint(t.id)}</kbd>
+              </MenuItem>
+            ))
+          }
+        </Menu>
+      </span>
 
       {tail.map(toolButton)}
     </div>

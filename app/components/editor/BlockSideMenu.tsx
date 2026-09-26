@@ -17,7 +17,9 @@ import {
   type Middleware,
   type MiddlewareState,
 } from "@floating-ui/react";
-import type { ReactElement, SVGProps } from "react";
+import { useEffect, type ReactElement, type SVGProps } from "react";
+import { effectiveScale } from "@/app/lib/columnScale";
+import { onZoomWithin } from "@/app/lib/docZoom";
 
 import * as Icon from "../Icons";
 import { duplicateAndSelect } from "./blockKeys";
@@ -43,11 +45,15 @@ import {
 type Any = any;
 
 /* ---- Geometry -----------------------------------------------------------
-   The handle lives in the page's own left padding — `PageSurface` reserves
-   24px below 640px and 56px above. Two 24px controls plus this gap is 52px,
-   which clears the wide gutter; the narrow one cannot hold them, so the
-   cluster is clamped into the pane and wears a backdrop instead of sitting
-   naked on the words (see `gutterFit`). */
+   The handle lives in the page's own left padding — the column's gutter,
+   56px unless the pane is narrower than `NARROW_BREAKPOINT`, then 24px.
+   Two 24px controls plus this gap is 52px, which clears the wide gutter; the
+   narrow one cannot hold them, so the cluster is clamped into the pane and
+   wears a backdrop instead of sitting naked on the words (see `gutterFit`).
+
+   The cluster is portalled to the body and never zoomed; the page under it
+   may be. So the gutter it measures against is in client px, and the block
+   heights it compares are scaled into them. */
 const GUTTER_GAP = 4;
 /** Keeps the cluster off the pane's own edge. The wide gutter has to hold the
     whole budget — 24 + 24 of controls, the gap, and this — inside its 56px, or
@@ -55,7 +61,8 @@ const GUTTER_GAP = 4;
 const EDGE_PAD = 2;
 /* A block taller than this is a code block, an image or a diagram: align to
    the top of it rather than its middle. Sized to clear an h1's line box, so a
-   heading still centres on its text the way a paragraph does. */
+   heading still centres on its text the way a paragraph does. In the page's
+   own px — scaled by its zoom before it meets a client rect. */
 const MAX_ALIGN_SPAN = 56;
 
 /** The block element the handle is positioned against. */
@@ -156,13 +163,14 @@ const gutterFit: Middleware = {
        line near its top (a diagram, an image and its caption) aligns to the
        top instead, where the block starts. */
     const box = anchor.getBoundingClientRect();
+    const span = MAX_ALIGN_SPAN * effectiveScale(anchor);
     let centre = box.top + box.height / 2;
-    if (box.height > MAX_ALIGN_SPAN) {
+    if (box.height > span) {
       const line = firstLineBox(anchor);
       centre =
-        line && line.top - box.top <= MAX_ALIGN_SPAN
-          ? line.top + Math.min(line.height, MAX_ALIGN_SPAN) / 2
-          : box.top + MAX_ALIGN_SPAN / 2;
+        line && line.top - box.top <= span
+          ? line.top + Math.min(line.height, span) / 2
+          : box.top + span / 2;
     }
     const y = state.y + (centre - box.top) - state.rects.floating.height / 2;
 
@@ -431,6 +439,14 @@ function SideMenuBody() {
 export const editorPortalElements: PortalElementsMap = { default: null };
 
 export function BlockSideMenu() {
+  const editor = useBlockNoteEditor();
+  const sideMenu = useExtension(SideMenuExtension);
+  // Placement tracks the pointer, not the page, so after a zoom the handle
+  // would stand where its block used to be until the next move.
+  useEffect(
+    () => onZoomWithin(() => editor.domElement, () => sideMenu.hideMenuIfNotFrozen()),
+    [editor, sideMenu],
+  );
   return (
     <SideMenuController
       sideMenu={SideMenuBody}
