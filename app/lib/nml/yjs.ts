@@ -276,13 +276,16 @@ function stringAttr(node: Y.XmlElement, key: string, path: Array<string | number
 
 /**
  * A canvas root's attrs as the NML copy holds them: `wide` rides inside, as
- * `wide: ""`, rather than as a key of its own. The attrs map is free-form to
- * every decoder, so a tab from before `wide` still reads the scene (and writes
- * it back as `wide=""`, which the parser takes by presence), and neither the
- * encoding version nor `updateCanvas`'s patchable fields had to move.
+ * `wide: ""` — or `wide: "pinned"` — rather than as a key of its own. The
+ * attrs map is free-form to every decoder, so a tab from before `wide` still
+ * reads the scene (and writes it back as the attribute, which the parser
+ * reads as the root's), a tab from before pinning reads a pinned band as
+ * wide, and neither the encoding version nor `updateCanvas`'s patchable
+ * fields had to move.
  */
 export function nmlCanvasAttrs(scene: Pick<Scene, "attrs" | "wide">): Scene["attrs"] {
-  return scene.wide ? { ...scene.attrs, wide: "" } : scene.attrs;
+  if (!scene.wide) return scene.attrs;
+  return { ...scene.attrs, wide: scene.wide === "pinned" ? "pinned" : "" };
 }
 
 function canvasToY(scene: Scene): Y.Map<unknown> {
@@ -422,7 +425,7 @@ function canvasFromY(value: unknown, path: Array<string | number>): Scene {
   return {
     w: expectNumber(root.get("w"), [...path, "w"]),
     h: expectNumber(root.get("h"), [...path, "h"]),
-    ...(wide === undefined ? {} : { wide: true as const }),
+    ...(wide === undefined ? {} : { wide: wide === "pinned" ? ("pinned" as const) : true }),
     style: plainValue(expectMap(root.get("style"), [...path, "style"])) as Record<string, string>,
     nodes: build(null),
     edges: edges.map(({ edge }) => edge),

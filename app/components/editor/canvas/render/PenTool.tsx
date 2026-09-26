@@ -25,7 +25,9 @@ import {
   type PointerEvent as ReactPointerEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { fitOf } from "@/app/lib/columnScale";
+import { COLUMN_WIDTH } from "@/app/lib/column";
+import { wideMarginOf } from "@/app/lib/columnScale";
+import type { MarginWash } from "../engine/gestures";
 import type { SceneStore } from "../engine/useScene";
 import type { ViewportController } from "../engine/useViewport";
 import {
@@ -35,7 +37,6 @@ import {
   toLocal,
   toWorld,
 } from "../scene/geometry";
-import { WIDE_MARGIN } from "../scene/bandSpan";
 import { roomFor, roomOps } from "../scene/bandRoom";
 import { mintId } from "../scene/ops";
 import {
@@ -136,18 +137,29 @@ export interface PenToolProps {
 }
 
 /**
- * The column band's margins, washed in (`.nt-canvas-margins`, the same wash a
- * shape dragged against the column's side shows): what the pen has drawn, or
- * is about to, reaches past the column, and the band turns wide to hold it.
+ * A column band's margins, washed in (`.nt-canvas-margins`): faintly while a
+ * drag is held at the column's side, deeper on the side where letting go —
+ * or the pen's next point — turns the band wide. One wash for the drag and
+ * the pen, so the two say the same thing the same way.
  */
-export function tintMargins(band: Element | null | undefined, on: boolean): void {
+export function tintMargins(band: Element | null | undefined, wash: MarginWash): void {
   if (!band) return;
   const tint = band.querySelector<HTMLElement>(":scope > .nt-canvas-margins");
-  if (on && tint) {
-    // As wide as the wide band will draw them, in this band's px.
-    tint.style.setProperty("--nt-margin", `${(WIDE_MARGIN * fitOf(band, "wide")) / fitOf(band, "normal")}px`);
-  }
-  band.toggleAttribute("data-edge", on && !!tint);
+  const shown = tint ? wash : null;
+  const widen = shown === "held" ? null : shown;
+  if (band.hasAttribute("data-edge") === !!shown && band.getAttribute("data-widen") === widen) return;
+  // As wide as the wide band would show them, in this band's px.
+  if (shown) tint!.style.setProperty("--nt-margin", `${wideMarginOf(band)}px`);
+  band.toggleAttribute("data-edge", !!shown);
+  if (widen) band.setAttribute("data-widen", widen);
+  else band.removeAttribute("data-widen");
+}
+
+/** Which of a column band's margins `box` reaches into: the pen's deep wash. */
+function sidesOf(box: { x: number; w: number }): MarginWash {
+  const left = box.x < 0;
+  const right = box.x + box.w > COLUMN_WIDTH;
+  return left && right ? "both" : left ? "left" : right ? "right" : null;
 }
 
 /** Each mounted pen's hover, by its overlay — see {@link hoverPen}. */
@@ -297,7 +309,7 @@ export function PenTool({
   const bracketRef = useRef(false);
   const svgRef = useRef<SVGSVGElement>(null);
   /** Whether this pen washed the margins in, so only it takes them out. */
-  const tintedRef = useRef(false);
+  const tintedRef = useRef<MarginWash>(null);
   const curveRef = useRef<SVGPathElement>(null);
   const draftRef = useRef<SVGPathElement>(null);
   const closeRingRef = useRef<SVGCircleElement>(null);
@@ -375,12 +387,11 @@ export function PenTool({
         : live && tip && anchorsRef.current.length
           ? [...anchorsRef.current, { point: tip, handleIn: ZERO, handleOut: ZERO, kind: "corner" as const }]
           : null;
-      const past =
-        !!reach &&
-        !!roomFor(store.getScene(), pathBounds({ anchors: reach, closed: closedRef.current }))?.wide;
-      if (past !== tintedRef.current) {
-        tintedRef.current = past;
-        tintMargins(svgRef.current?.closest(".nt-canvas"), past);
+      const box = reach && pathBounds({ anchors: reach, closed: closedRef.current });
+      const wash = box && roomFor(store.getScene(), box)?.wide ? sidesOf(box) : null;
+      if (wash !== tintedRef.current) {
+        tintedRef.current = wash;
+        tintMargins(svgRef.current?.closest(".nt-canvas"), wash);
       }
     }
 
@@ -509,8 +520,8 @@ export function PenTool({
     if (!room) return;
     if (tintedRef.current) {
       // The wash previewed exactly this; a wide band has no margins to wash.
-      tintedRef.current = false;
-      tintMargins(svgRef.current?.closest(".nt-canvas"), false);
+      tintedRef.current = null;
+      tintMargins(svgRef.current?.closest(".nt-canvas"), null);
     }
     store.dispatch(roomOps(scene, room));
     if (!room.dx && !room.dy) return;
@@ -633,8 +644,8 @@ export function PenTool({
     return () => {
       HOVERS.delete(svg);
       if (!tintedRef.current) return;
-      tintedRef.current = false;
-      tintMargins(svg.closest(".nt-canvas"), false);
+      tintedRef.current = null;
+      tintMargins(svg.closest(".nt-canvas"), null);
     };
   }, [viewport, schedule]);
 

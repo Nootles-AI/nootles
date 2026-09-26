@@ -16,16 +16,20 @@ import {
   readGestureMods,
   resetGestureRotation,
   scaleAllowed,
-  settleWiden,
-  WIDEN_PUSH,
-  widenGesture,
+  pullOf,
+  spillGesture,
+  spillNext,
+  springOut,
+  washOf,
   writeGesture,
   type Allowed,
   type GestureSession,
   type PointerLike,
   type TransformGestureOptions,
 } from "../engine/gestures";
-import { boxLines, type SnapGuide, type SnapLine } from "../engine/snapping";
+import { wideMarginOf } from "@/app/lib/columnScale";
+import { boxLines, columnLines, type SnapExtra, type SnapGuide, type SnapLine } from "../engine/snapping";
+import { sceneBlockHeight } from "../types";
 import type { OverlayApi } from "../render/Overlay";
 import { laidOutScene } from "../scene/autoLayout";
 import { absoluteBounds, nodeBounds, normalizeRect, type Handle } from "../scene/geometry";
@@ -58,8 +62,9 @@ type PageGestureMode = "move" | "resize" | "scale" | "rotate";
  * hold the whole gesture: a move stops where the first of them would leave its
  * band, and a resize or a rotation that would take any of them out is refused
  * for all. A move held at a column band's side is the lead's to push past, as
- * a diagram's own is: every column band in it shows its margins, then turns
- * wide. The landing is one undo step.
+ * a diagram's own is: every column band in it washes its margins in, lets the
+ * drag into them together, and turns wide where the drop leaves something
+ * there. The landing is one undo step.
  */
 export interface PageGesture {
   /** Whether a selection spans more than one diagram — the gesture is the page's, not the diagram's. */
@@ -86,7 +91,7 @@ type Lane = {
   /** Screen px per scene px, at the press. */
   scale: number;
   min: number;
-  /** How far this diagram's own band lets the selection move, in its px. */
+  /** How far this diagram's own band lets the selection move, in its px — its margins' room while the drag is past its side. */
   room: Allowed | null;
 };
 
@@ -140,21 +145,41 @@ function foreignLines(
     const band = entry.api.band.current;
     if (entry === lead || !band || !visible(band)) continue;
     const scene = laidOutScene(entry.api.store.getScene());
-    const staying = new Set<NodeId>();
+    const moved = new Set<NodeId>();
     for (const id of moving.get(entry.blockId) ?? []) {
       const top = nodePath(scene, id)[0];
-      if (top) staying.add(top.id);
+      if (top) moved.add(top.id);
     }
     // Scale and offset are all that separate two bands' px: measured once a
     // band, not through the screen for every shape.
     const o = across(entry, lead, { x: 0, y: 0, w: 1, h: 1 });
     for (const node of scene.nodes) {
-      if (node.hidden || staying.has(node.id)) continue;
+      if (node.hidden || moved.has(node.id)) continue;
       const b = absoluteBounds(scene, node.id);
       lines.push(...boxLines({ x: o.x + b.x * o.w, y: o.y + b.y * o.h, w: b.w * o.w, h: b.h * o.h }));
     }
   }
   return lines;
+}
+
+/**
+ * What a gesture in `lead` snaps to beyond its own shapes, on a page: its
+ * band's column — the text's edges and centre, and a wide band's shown
+ * margins — and every other diagram's shapes on screen, carried into its px
+ * through the screen, those `moving` excepted. The one answer a gesture
+ * in one diagram and one across several both ask.
+ */
+export function snapExtraFor(
+  lead: DiagramEntry,
+  entries: readonly DiagramEntry[],
+  moving: ReadonlyMap<string, readonly NodeId[]>,
+): SnapExtra {
+  const scene = lead.api.store.getScene();
+  const band = lead.api.band.current;
+  return {
+    column: columnLines(scene.wide && band ? wideMarginOf(band) : null, sceneBlockHeight(scene)),
+    foreign: foreignLines(lead, entries, moving),
+  };
 }
 
 export function createPageGesture(deps: {
@@ -205,20 +230,29 @@ export function createPageGesture(deps: {
 
     const point = lead.o.clientToScene(state.client);
     let { decision, guides } = decideGesture(lead.session, lead.o, point);
-    if (lead.o.widen && !lead.session.widened) {
-      const push = lead.session.push;
-      if (push > WIDEN_PUSH) {
+    // Where each lane's shapes were drawn before a push lets them past, to spring from.
+    let was: number[][] | null = null;
+    if (lead.session.spill) {
+      const spilling = spillNext(lead.session);
+      if (spilling !== lead.session.spilling) {
+        if (spilling) was = lanes.map((lane) => lane.session.frames.map((f) => f.sx));
         for (const lane of lanes) {
-          if (!lane.o.widen) continue;
-          widenGesture(lane.session, lane.o);
+          if (!lane.session.spill) continue;
+          spillGesture(lane.session, spilling);
           lane.room = lane.session.allowed;
         }
+        // The lead's push is still read against every band's column, and its
+        // move held by every band's room.
         lead.session.allowed = sharedRoom(lanes, lead);
         ({ decision, guides } = decideGesture(lead.session, lead.o, point));
-      } else {
-        for (const lane of lanes) lane.o.pushing?.(push > 0);
       }
+      const wash = washOf(lead.session);
+      for (const lane of lanes) if (lane.session.spill) lane.o.pushing?.(wash);
     }
+    // The lead's rubber band, drawn by every lane alike.
+    const pull = pullOf(lead.session);
+    const from = lanes.map((lane) => lane.session.shown);
+    for (const lane of lanes) lane.session.pull = pull;
     if (decision.kind === "scale") {
       let k = decision.k;
       for (const lane of lanes) k = capScale(lane.session, k);
@@ -237,6 +271,7 @@ export function createPageGesture(deps: {
     }
 
     for (const lane of lanes) writeGesture(lane.session, lane.o, guides, false);
+    if (was) lanes.forEach((lane, i) => springOut(lane.session, was[i], from[i]));
     const union = liveUnion(lanes, lead);
     if (union) lead.entry.api.gesture.overlay.current?.update(union, 0, guides);
     for (const lane of lanes) {
@@ -260,21 +295,17 @@ export function createPageGesture(deps: {
     }
     const { lanes, lead } = state;
     if (cancelled || !state.active) {
-      for (const lane of lanes) {
-        finishGesture(lane.session, lane.o, true);
-        settleWiden(lane.session, lane.o, { cancelled: true, landed: false });
-      }
+      for (const lane of lanes) finishGesture(lane.session, lane.o, true);
     } else {
       deps.batch(() => {
         for (const lane of lanes) {
           const { ops, select } = finishGesture(lane.session, lane.o, false);
           // The copies an Alt-drag leaves are this diagram's selection, and
           // the others' copies stay theirs.
-          const landed = landGesture(lane.o, ops);
+          const landed = landGesture(lane.o, ops, lane.session.spilling);
           if (landed && select?.length) {
             deps.selection.selectIn(lane.blockId, select, { keep: true });
           }
-          settleWiden(lane.session, lane.o, { cancelled: false, landed });
         }
       });
       deps.selection.focus(lead.blockId);
@@ -307,7 +338,7 @@ export function createPageGesture(deps: {
           bounds: bounds ?? undefined,
           sole: false,
           lockstep: true,
-          foreign: entry === leader ? foreignLines(leader, deps.entries(), moving) : undefined,
+          foreign: entry === leader ? snapExtraFor(leader, deps.entries(), moving).foreign : undefined,
         });
         // A child of an auto-layout group would be reordered, which is a
         // question about its own group alone; across diagrams it stays put.
@@ -325,6 +356,8 @@ export function createPageGesture(deps: {
       if (!lanes.length) return false;
       const lead = lanes.find((lane) => lane.entry === leader) ?? lanes[0];
       lead.session.allowed = sharedRoom(lanes, lead);
+      // What the lead's push past a side is measured against: every column's.
+      lead.session.column = { fence: lead.session.fence, allowed: lead.session.allowed };
 
       event.preventDefault();
       const state: Run = {

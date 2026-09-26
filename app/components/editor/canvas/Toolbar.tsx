@@ -386,7 +386,7 @@ const SNAP_TARGETS: readonly { kind: SnapTargetKind; label: string }[] = [
 function Settings({ targets = false }: { targets?: boolean }) {
   const snap = useSyncExternalStore(subscribeSnap, isSnapEnabled, () => true);
   const on = useSyncExternalStore(subscribeSnap, getSnapTargets, getSnapTargets);
-  const grid = useSyncExternalStore(subscribeGrid, isGridShown, () => true);
+  const grid = useSyncExternalStore(subscribeGrid, isGridShown, () => false);
   return (
     <Menu
       label="Canvas settings"

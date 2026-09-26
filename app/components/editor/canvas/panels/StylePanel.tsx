@@ -21,7 +21,7 @@ import {
   type StylePatch,
   isBoolean,
 } from "../scene/types";
-import { bandFloor, bandHeight } from "../scene/band";
+import { bandFloor, bandHeight, hasSlack } from "../scene/band";
 import { canBoolean } from "../scene/boolean";
 import {
   ColorVariablesContext,
@@ -297,9 +297,9 @@ const radiusCss = (n: number) => (n > 0 ? `${n}px` : undefined);
 /**
  * The diagram itself: how wide its band is, how tall, and what it paints
  * behind its shapes. A band states no width of its own — it is the column's,
- * or wide — and is never shorter than what it holds: its height follows the
- * content until a height is typed (or the grip dragged), which pins it, and
- * Auto height lets go of the pin. A painted ground can be rounded. A
+ * or wide — and is never shorter than what it holds: the content raises its
+ * height, and it comes down only when a height is typed (or the grip dragged)
+ * or Fit to content is pressed. A painted ground can be rounded. A
  * storyboard shot's size is its board's, so a frame shows its background
  * alone.
  */
@@ -315,7 +315,6 @@ function DiagramFields({
   onPreviewStyle?: (decls: StylePatch) => void;
 }) {
   const framed = scene.w > 0;
-  const pinned = scene.h > 0;
   return (
     <PanelSection title={framed ? "Frame" : "Diagram"}>
       {!framed && (
@@ -337,12 +336,12 @@ function DiagramFields({
               onChange={(h) => onChange({ h: Math.max(bandFloor(scene), h) })}
               onPreview={onPreviewSize}
             />
-            <Tooltip label="Auto height" className="nt-ctl-slot">
+            <Tooltip label="Fit to content" className="nt-ctl-slot">
               <button
                 className="nt-icon-btn is-sm"
-                aria-pressed={!pinned}
-                aria-label="Auto height"
-                onClick={() => onChange({ h: pinned ? 0 : bandHeight(scene) })}
+                aria-label="Fit to content"
+                disabled={!hasSlack(scene)}
+                onClick={() => onChange({ h: bandFloor(scene) })}
               >
                 <AutoHeight />
               </button>

@@ -147,6 +147,16 @@ function booleanOp(el: Element): BooleanOp | undefined {
   return (BOOLEAN_OPS as readonly string[]).includes(op) ? (op as BooleanOp) : "union";
 }
 
+/**
+ * The root's `wide`: `wide="pinned"` pinned, and otherwise read as `locked` is,
+ * so `wide=""` — what a tab from before `wide` was modelled writes back
+ * through `attrs` — is wide, and `wide="false"` not.
+ */
+function wideOf(root: Element): Pick<Scene, "wide"> {
+  if (root.getAttribute("wide")?.trim().toLowerCase() === "pinned") return { wide: "pinned" };
+  return bool(root, "wide") ? { wide: true } : {};
+}
+
 /** `locked`, `locked=""` and `locked="true"` are all true; `"false"`/`"0"` are not. */
 function bool(el: Element, name: string): boolean {
   const raw = el.getAttribute(name);
@@ -566,9 +576,7 @@ export function parseFragment(
   const scene: Scene = {
     w: num(root, ["w", "width"]),
     h: num(root, ["h", "height"]),
-    // Read as `locked` is, so `wide=""` — what a tab from before `wide` was
-    // modelled writes back through `attrs` — is wide, and `wide="false"` not.
-    ...(wrapped && bool(root, "wide") ? { wide: true as const } : {}),
+    ...(wrapped ? wideOf(root) : {}),
     style: parseStyleAttr(root.getAttribute("style") ?? ""),
     nodes: childNodes(root, mint),
     edges: collectEdges(root, mint, []),

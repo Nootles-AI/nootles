@@ -9,7 +9,9 @@ import type { SceneStore } from "../engine/useScene";
 import { selectionFrame, type SelectionStore } from "../engine/useSelection";
 import type { CanvasApi } from "../render/CanvasSurface";
 import type { RotatedRect } from "../scene/geometry";
-import { createPageGesture, type PageGesture } from "./pageGesture";
+import type { SnapExtra } from "../engine/snapping";
+import type { NodeId } from "../scene/types";
+import { createPageGesture, snapExtraFor, type PageGesture } from "./pageGesture";
 import { attachPageDraw } from "./pageDraw";
 import { attachPageKeymap } from "./pageKeymap";
 import {
@@ -76,6 +78,11 @@ export interface PageCanvas {
    */
   frameIn(blockId: string): RotatedRect | null;
   subscribeFrame(listener: () => void): () => void;
+  /**
+   * What a gesture in this diagram snaps to beyond its own shapes: its band's
+   * column and the other diagrams' shapes, `moving` excepted (`snapExtraFor`).
+   */
+  snapExtraFor(blockId: string, moving: ReadonlyMap<string, readonly NodeId[]>): SnapExtra;
   register(entry: DiagramEntry): () => void;
   /** Told each diagram that registers — a new one, or one back with a new api. */
   onRegister(listener: (blockId: string) => void): () => void;
@@ -193,8 +200,11 @@ export function createPageCanvas({
   let pressed = false;
 
   // The frame around a selection spanning diagrams moves when any of them
-  // changes, and when the text between them reflows — so while there is one,
-  // and someone is drawing it, the stores and the editor are watched.
+  // changes, when the text between them reflows, and when a band is placed
+  // anew under its shapes — turned wide or back, rescaled, its shown margin
+  // changed — which the union, carried between bands through the screen,
+  // reads. So while there is one, and someone is drawing it, the stores, the
+  // editor and every band's viewport are watched.
   const frameListeners = new Set<() => void>();
   const frames = new Map<string, { version: number; frame: RotatedRect | null }>();
   let version = 0;
@@ -210,7 +220,10 @@ export function createPageCanvas({
     watching?.();
     watching = null;
     if (!wanted) return;
-    const offs = [...registry.values()].map((entry) => entry.api.store.subscribe(bump));
+    const offs = [...registry.values()].flatMap((entry) => [
+      entry.api.store.subscribe(bump),
+      entry.api.viewport.subscribe(bump),
+    ]);
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(bump);
     const roots = new Set<Element>();
     for (const entry of registry.values()) {
@@ -272,6 +285,10 @@ export function createPageCanvas({
       const frame = held && sameFrame(held.frame, next) ? held.frame : next;
       frames.set(blockId, { version, frame });
       return frame;
+    },
+    snapExtraFor: (blockId, moving) => {
+      const lead = registry.get(blockId);
+      return lead ? snapExtraFor(lead, entries(), moving) : {};
     },
     subscribeFrame: (listener) => {
       frameListeners.add(listener);
@@ -496,6 +513,7 @@ export const NO_PAGE_CANVAS: PageCanvas = {
   targets: () => [],
   frameIn: nothing,
   subscribeFrame: () => noop,
+  snapExtraFor: () => ({}),
   register: () => noop,
   onRegister: () => noop,
   get: () => undefined,

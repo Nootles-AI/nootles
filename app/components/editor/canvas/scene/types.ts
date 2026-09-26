@@ -483,11 +483,14 @@ export interface Scene {
   /** Height in scene px: a frame's, or a band's floor the content can raise. */
   h: number;
   /**
-   * Drawn `WIDE_W` wide and centred on the column rather than in it. A literal
-   * so that no scene can hold `wide: false`, a document the parser never
-   * produces.
+   * Drawn `WIDE_W` wide and centred on the column rather than in it. `true`
+   * (the bare attribute) is wide for what it holds: a drag or the pen turned it
+   * wide, and an edit that leaves its margins empty folds it back to the
+   * column. `"pinned"` (`wide="pinned"`) is wide because someone asked for it,
+   * and stays wide until someone asks for the column. No scene holds
+   * `wide: false`, a document the parser never produces.
    */
-  wide?: true;
+  wide?: Wide;
   /** Parsed `style` of `<nt-diagram>` — the surface's own background etc. */
   style: StyleMap;
   nodes: SceneNode[];
@@ -505,6 +508,9 @@ export interface Scene {
   /** Root attributes outside {@link RESERVED_ATTRS} and {@link ROOT_ATTRS}, verbatim. */
   attrs: Record<string, string>;
 }
+
+/** How a band is wide: see {@link Scene.wide}. */
+export type Wide = true | "pinned";
 
 /**
  * Attributes the root owns beyond {@link RESERVED_ATTRS}. Root-only: a shape's
@@ -724,7 +730,8 @@ export type SceneOp =
   /**
    * The diagram's own fields — its height, whether it is wide, the surface's
    * `style`, and its root attributes. Merge semantics throughout, `undefined`
-   * removing a declaration or attribute; `wide: false` unsets it. `w` is a
+   * removing a declaration or attribute; `wide: false` unsets it, `"pinned"`
+   * pins it, and `true` makes it wide without unpinning one pinned. `w` is a
    * frame's (a band states none). An op rather than a block-prop write so the
    * surface's size and background take the same undoable path as everything
    * else on it.
@@ -733,7 +740,7 @@ export type SceneOp =
       type: "setDiagram";
       w?: number;
       h?: number;
-      wide?: boolean;
+      wide?: boolean | "pinned";
       style?: StylePatch;
       attrs?: Record<string, string | undefined>;
     };

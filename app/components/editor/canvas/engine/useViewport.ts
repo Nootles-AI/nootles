@@ -13,8 +13,9 @@
  * the host:
  *
  *  - `{0, 0, 1}` for a band, whose origin is the text column's left edge;
- *  - `{WIDE_MARGIN, 0, 1}` for a wide band, whose container reaches past the
- *    column on both sides while the scene's origin stays on the text edge;
+ *  - `{margin, 0, 1}` for a wide band, whose container reaches past the
+ *    column by the margin the page shows (`followWide`) while the scene's
+ *    origin stays on the text edge;
  *  - `{0, 0, scale}` for a storyboard shot, drawn at whatever size its column
  *    asks for.
  *
@@ -217,14 +218,15 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
   function flush(): void {
     frame = 0;
     keepPromoted();
-    paint();
     for (const fn of subscribers) fn();
   }
 
   /**
-   * The value updates immediately — a gesture reading `get()` mid-frame must
-   * see where it just put things — while the DOM write and the notification
-   * are batched to one per frame.
+   * The value and the transform change together, at once: anything that reads
+   * a shape's element and converts it through `clientToScene` in between —
+   * a connector re-routed off the DOM, a hit test — would otherwise pair the
+   * new placement with the old pixels. Only the notification waits for the
+   * frame, batched to one.
    */
   function commit(next: Viewport): void {
     const zoom = next.zoom > 0 ? next.zoom : vp.zoom;
@@ -232,6 +234,7 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
     vp = { x: next.x, y: next.y, zoom };
     // A new placement can come with a new fit — a band turning wide.
     ambientStale = true;
+    paint();
     if (frame === 0) frame = requestAnimationFrame(flush);
   }
 

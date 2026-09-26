@@ -27,7 +27,7 @@ export interface Room {
 }
 
 export function roomFor(scene: Pick<Scene, "wide">, box: Rect): Room | null {
-  const wide = scene.wide !== true && (box.x < -EPS || box.x + box.w > COLUMN_WIDTH + EPS);
+  const wide = !scene.wide && (box.x < -EPS || box.x + box.w > COLUMN_WIDTH + EPS);
   const left = bandLeft({ wide: scene.wide || wide });
   const { dx, dy } = leastMove(box, left, left + bandWidth({ wide: scene.wide || wide }));
   return wide || dx || dy ? { wide, dx, dy } : null;

@@ -12,8 +12,9 @@ describe("the grammar's size and placement", () => {
 
   it("states the column, the wide band and its range", () => {
     expect(placement).toContain("720 wide");
-    expect(placement).toContain("1200 when it has the bare wide attribute");
+    expect(placement).toContain("1200 when it has the wide attribute");
     expect(placement).toContain("x = -240 … 960");
+    expect(placement).toContain('wide="pinned" keeps the\ndiagram wide');
   });
 
   it("states the margin above, and the body type to match", () => {
@@ -22,12 +23,12 @@ describe("the grammar's size and placement", () => {
   });
 
   it("tells the model the read's w is not its to write", () => {
-    expect(placement).toMatch(/A read shows w and h on <nt-diagram>: w is the page's width, never yours to write/);
+    expect(placement).toMatch(/A read shows w on <nt-diagram>: it is the page's width, never yours to write/);
   });
 
-  it("tells the model the height follows the content, and a larger h pins it", () => {
-    expect(placement).toMatch(/height follows its content, growing and\nshrinking with it/);
-    expect(placement).toMatch(/write a larger h only to\nadd room below the lowest shape/);
+  it("tells the model h is the height, raised by content that needs more", () => {
+    expect(placement).toMatch(/h is the diagram's height; content that needs more room\nraises it/);
+    expect(placement).toContain("Leave h out to fit the content.");
   });
 
   it("no longer teaches the old frame: no x=40 start, no w/h to set", () => {

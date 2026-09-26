@@ -168,16 +168,16 @@ export type SerializeSceneOptions = {
 
 /**
  * The root: `id`, then `w` only when one is held (a frame's; a band states
- * none), `h` for a frame always and for a band only when pinned, a bare
- * `wide`, the carried attributes and `style`.
+ * none), `h` always, `wide` —
+ * bare, or `wide="pinned"` — the carried attributes and `style`.
  */
 export function serializeScene(scene: Scene, opts: SerializeSceneOptions = {}): string {
   const w = scene.w > 0 ? scene.w : opts.readWidth ? bandWidth(scene) : 0;
   const head =
     (scene.id ? attr("id", scene.id) : "") +
     (w > 0 ? numAttr("w", w) : "") +
-    (scene.h > 0 || scene.w > 0 ? numAttr("h", scene.h) : "") +
-    (scene.wide ? " wide" : "") +
+    numAttr("h", scene.h) +
+    (scene.wide === "pinned" ? ' wide="pinned"' : scene.wide ? " wide" : "") +
     extraAttrs(scene.attrs, isReservedRootAttr) +
     styleAttr(scene.style);
 

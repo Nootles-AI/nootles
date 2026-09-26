@@ -179,6 +179,35 @@ describe("a band's root", () => {
     expect(materializeCanvas(root)).toEqual(band());
   });
 
+  test("a pinned wide is its own value of the one key", () => {
+    const pinned = band({ wide: "pinned" });
+    const { doc, root } = fresh(pinned);
+    expect(meta(root).get("wide")).toBe("pinned");
+    expect(materializeCanvas(root)).toEqual(pinned);
+    doc.transact(() => applySceneDiff(root, pinned, band({ wide: true })));
+    expect(materializeCanvas(root)).toEqual(band({ wide: true }));
+    doc.transact(() => applySceneDiff(root, band({ wide: true }), band()));
+    expect(meta(root).has("wide")).toBe(false);
+  });
+
+  test("a pin and a concurrent Column settle on one of them, and a root attribute beside either survives", () => {
+    const base = band({ wide: true });
+    const a = fresh(base);
+    const b = new Y.Doc();
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a.doc));
+    const rootB = b.getMap(canvasMapName("b1"));
+
+    a.doc.transact(() => applySceneDiff(a.root, base, band({ wide: "pinned" })));
+    b.transact(() => applySceneDiff(rootB, base, band({ attrs: { "data-legacy-edges": "[]" } })));
+    connect(a.doc, b);
+
+    const settled = materializeCanvas(a.root);
+    expect(materializeCanvas(rootB)).toEqual(settled);
+    expect(settled.attrs).toEqual({ "data-legacy-edges": "[]" });
+    // One value, one winner: never a pin without the band being wide.
+    expect([undefined, "pinned"]).toContain(settled.wide);
+  });
+
   test("wide and a root attribute written concurrently both survive", () => {
     const base = band();
     const a = fresh(base);

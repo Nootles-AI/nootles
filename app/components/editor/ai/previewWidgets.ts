@@ -355,7 +355,7 @@ function diagramPreview(source: string, head: PreviewHead) {
 
 /** The preview, following its page's fit while it is mounted — by then it is in the page. */
 function BandPreview({ scene, band }: { scene: Scene; band: HTMLElement }) {
-  useLayoutEffect(() => followFit(band, "normal"), [band]);
+  useLayoutEffect(() => followFit(band), [band]);
   return createElement(ScenePreview, { scene });
 }
 

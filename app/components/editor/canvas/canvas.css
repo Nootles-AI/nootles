@@ -85,9 +85,11 @@
 .nt-canvas[data-target] .nt-canvas-grid {
   opacity: 1;
 }
-/* A drag held at a column band's side: both margins wash in, where a further
-   push takes the band wide and the drag into them. The system's answer to the
-   push, so the accent, at a whisper. `--nt-margin` is written with the wash. */
+/* A drag held at a column band's side: both margins wash in, at a whisper,
+   where a further push lets the drag into them. Past that — or where the pen's
+   next point lands — the side a drop would take the band wide into deepens
+   (`data-widen`). The system's answer to the push, so the accent. `--nt-margin`
+   is written with the wash: as much margin as the wide band would show. */
 .nt-canvas-margins {
   position: absolute;
   inset: 0;
@@ -102,6 +104,18 @@
   inset-block: 0;
   width: var(--nt-margin, 240px);
   background: color-mix(in oklab, var(--nt-select) 7%, transparent);
+}
+/* Deep on the side a drop would take the band wide into, flat, arriving with
+   one quick pulse past its depth — the drop will widen. No pulse leaving it. */
+.nt-canvas:is([data-widen="left"], [data-widen="both"]) > .nt-canvas-margins::before,
+.nt-canvas:is([data-widen="right"], [data-widen="both"]) > .nt-canvas-margins::after {
+  background: color-mix(in oklab, var(--nt-select) 16%, transparent);
+  animation: nt-widen-pulse 220ms var(--ease);
+}
+@keyframes nt-widen-pulse {
+  40% {
+    background-color: color-mix(in oklab, var(--nt-select) 26%, transparent);
+  }
 }
 .nt-canvas-margins::before {
   right: 100%;
@@ -124,6 +138,11 @@
   .nt-canvas-grid,
   .nt-canvas-margins {
     transition: none;
+  }
+  /* Straight to the deep wash: as specific as the rule it quiets, and after it. */
+  .nt-canvas[data-widen] > .nt-canvas-margins::before,
+  .nt-canvas[data-widen] > .nt-canvas-margins::after {
+    animation: none;
   }
 }
 
@@ -164,6 +183,13 @@
 .nt-canvas:not(.nt-canvas-shot) > .nt-canvas-viewport {
   overflow: visible;
   touch-action: pan-y;
+}
+/* A wide band shows only as much of its margins as the pane has room for
+   (`followWide`), and whatever lies past that is clipped at its sides — never
+   above or below, where the band draws past itself as a column band does. The
+   sides give a grip's worth, so a shape on the shown edge keeps its handles. */
+.nt-canvas[data-wide]:not(.nt-canvas-shot) > .nt-canvas-viewport {
+  clip-path: inset(-100vmax -8px);
 }
 .nt-canvas:not(.nt-canvas-shot) > .nt-canvas-viewport:is([data-mode], :not([data-tool="move"], [data-tool="scale"])),
 .nt-canvas-scene [data-id],
@@ -279,13 +305,13 @@
   }
 }
 
-/* An empty diagram's line, in the empty paragraph's placeholder voice and
-   where that paragraph's words would sit: one line down a band. The words
-   are a button — a press arms the rectangle. */
+/* An empty diagram's line, in the empty paragraph's placeholder voice,
+   centred in the band. The words are a button — a press arms the rectangle. */
 .nt-canvas-placeholder {
   position: absolute;
-  top: 24px;
-  left: 0;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   padding: 0;
   border: 0;
   background: none;

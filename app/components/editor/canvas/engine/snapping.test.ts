@@ -43,14 +43,16 @@ afterEach(() => {
 
 describe("the column a band snaps to", () => {
   it("is the text's two edges and its centre", () => {
-    const lines = columnLines(false, 300);
+    const lines = columnLines(null, 300);
     expect(xs(lines)).toEqual([0, 360, 720]);
     expect(lines.every((l) => l.axis === "x" && l.from === 0 && l.to === 300)).toBe(true);
     expect(lines.find((l) => l.at === 360)?.kind).toBe("centre");
   });
 
   it("reaches the wide edges on a wide band", () => {
-    expect(xs(columnLines(true, 300))).toEqual([-240, 0, 360, 720, 960]);
+    expect(xs(columnLines(240, 300))).toEqual([-240, 0, 360, 720, 960]);
+    // A wide band shows what the pane has room for, and snaps to the edges it shows.
+    expect(xs(columnLines(116, 300))).toEqual([-116, 0, 360, 720, 836]);
   });
 });
 
@@ -65,7 +67,7 @@ describe("what a gesture may snap to", () => {
   });
 
   it("adds the column behind its own switch", () => {
-    const column = columnLines(false, 400);
+    const column = columnLines(null, 400);
     expect(xs(collectSnapScope(scene, moving, { column }).lines)).toContain(720);
     setSnapTarget("column", false);
     expect(xs(collectSnapScope(scene, moving, { column }).lines)).not.toContain(720);
@@ -73,7 +75,7 @@ describe("what a gesture may snap to", () => {
 
   it("turns the shapes off, lines and gaps together", () => {
     setSnapTarget("shapes", false);
-    const scope = collectSnapScope(scene, moving, { column: columnLines(false, 400) });
+    const scope = collectSnapScope(scene, moving, { column: columnLines(null, 400) });
     expect(xs(scope.lines)).toEqual([0, 360, 720]);
     expect(scope.boxes).toEqual([]);
   });
@@ -115,7 +117,7 @@ describe("a snapper built from a band's scope", () => {
   it("pulls a shape's edge onto the column", () => {
     const moving = { x: 100, y: 24, w: 100, h: 60 };
     const snapper = createSnapper(
-      collectSnapScope(band([rect("a", 100, 24)]), new Set(["a"]), { column: columnLines(false, 400) }),
+      collectSnapScope(band([rect("a", 100, 24)]), new Set(["a"]), { column: columnLines(null, 400) }),
       { moving },
     );
     // Right edge at 200 + 517 = 717: three px short of the column's edge.

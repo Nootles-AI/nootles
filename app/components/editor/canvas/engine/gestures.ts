@@ -36,10 +36,16 @@
  * move is clamped exactly, a scale's factor is capped, and a resize that would
  * leave is clamped where the maths is linear and refused where it is not.
  *
- * A column band held against its side shows its margins, and a push well past
- * the side turns it wide for the rest of the drag, which goes on into the
- * margin. The band stays wide only if the drop leaves something past the
- * column, and then as one step with the move; a cancel takes both back.
+ * A column band held against its side washes its margins in, faintly. A push
+ * well past the side — still pushing out — lets the drag go on into the
+ * margin, over the page, and the wash on that side deepens: let go there and
+ * the band turns wide, as one step with the move. The band itself never
+ * changes under the hand; brought back inside the column, the drag is held
+ * by its side again, and a cancel leaves nothing to take back. Held, a moved
+ * selection gives a little, and stretches a touch toward the pull, like a
+ * rubber band — {@link elasticGive} — and let past, it springs out under the
+ * pointer. Both are pictures on the elements; nothing lands but the move. A
+ * push only just past the side is a hard stop first: see {@link HOLD_PUSH}.
  *
  * ## Modifiers, as Figma has trained everyone to expect
  *
@@ -169,6 +175,13 @@ export interface BandRange {
   maxX: number;
 }
 
+/**
+ * A column band's margins, as a drag or the pen answers them: washed in
+ * faintly while held at the side (`held`), and deeper on the side a drop — or
+ * the pen's next point — would take the band wide into. `null` is no wash.
+ */
+export type MarginWash = null | "held" | "left" | "right" | "both";
+
 export interface TransformGestureOptions {
   store: TransformStore;
   /** Event coordinates → scene px. Asked every frame. */
@@ -178,13 +191,13 @@ export interface TransformGestureOptions {
   /** The band the selection is held in, or `null` for a frame, which has none. */
   band?(): BandRange | null;
   /**
-   * A column band's way past its sides: turns the band wide, by an op
-   * dispatched inside the bracket the gesture opened for it, and says the wide
-   * band's range. Absent for a wide band and for a frame.
+   * A column band's range were it wide, as far as the page shows it: what a
+   * push past its side opens to the drag, and a drop there makes the band.
+   * Absent for a wide band and for a frame; `null` where no margin shows.
    */
-  widen?(): BandRange;
-  /** Whether the band's side is holding the selection this frame — its margins show while it is. */
-  pushing?(held: boolean): void;
+  wideBand?(): BandRange | null;
+  /** How a column band's margins show this frame. */
+  pushing?(wash: MarginWash): void;
   /** Selection ids. Ids nested inside another selected node are ignored. */
   getSelection(): readonly NodeId[];
   /** A node's rendered element. The surface finds and caches it; we only read. */
@@ -306,8 +319,40 @@ export type PointerLike = {
 /** Screen px of travel before a press becomes a drag rather than a click. */
 const DRAG_THRESHOLD = 3;
 
-/** Screen px the pointer goes on past a column band's side before the band turns wide. */
-export const WIDEN_PUSH = 40;
+/**
+ * The side of a column band, pushed against, in three phases of how far the
+ * pointer has gone on past where it holds the selection (screen px): up to
+ * `HOLD_PUSH` a hard stop, the selection dead still at the edge; up to
+ * `WIDEN_PUSH` it gives, like a rubber band ({@link elasticGive}, measured from
+ * `HOLD_PUSH`); past that — still pushing out — it snaps over into the
+ * margin. Generous on purpose: the column is where things belong, and a shape
+ * nudged to its edge should stay.
+ */
+export const HOLD_PUSH = 32;
+export const WIDEN_PUSH = 96;
+
+/** Screen px a selection held at the column's side gives past it, at most. */
+export const ELASTIC_R = 14;
+/** How much it stretches along the pull at most, as a fraction of its width. */
+export const ELASTIC_STRETCH = 0.04;
+/** The spring out past the side: short, and a touch past where it lands. */
+const SNAP_MS = 140;
+const SNAP_EASE = "cubic-bezier(0.34, 1.45, 0.64, 1)";
+const SNAP_ID = "nt-snap";
+
+/**
+ * Screen px a held selection gives for a pull `overshoot` px into the sprung
+ * phase — past the hard stop: a rubber band's `R·(1 − e^(−x/R))`, so it creeps
+ * at first and then hardly moves, never reaching `r`.
+ */
+export function elasticGive(overshoot: number, r = ELASTIC_R): number {
+  return overshoot > 0 ? r * (1 - Math.exp(-overshoot / r)) : 0;
+}
+
+/** The stretch along the pull for the same overshoot: 1, easing up toward `1 + ELASTIC_STRETCH`. */
+export function elasticStretch(overshoot: number, r = ELASTIC_R): number {
+  return 1 + (ELASTIC_STRETCH * elasticGive(overshoot, r)) / r;
+}
 
 /** Shift-rotate quantum, Figma's. Unshifted, rotation still lands on a degree. */
 const ROTATE_STEP = 15;
@@ -368,6 +413,16 @@ interface Fence {
   left: number;
   right: number;
   top: number;
+}
+
+/** A fence, and the room it leaves a move. */
+interface Hold {
+  fence: Fence | null;
+  allowed: Allowed | null;
+}
+
+function holdFor(band: BandRange | null, reach: Rect): Hold {
+  return { fence: fenceFor(band, reach), allowed: moveAllowed(band, reach) };
 }
 
 function fenceFor(band: BandRange | null, box: Rect): Fence | null {
@@ -527,10 +582,28 @@ interface Session {
   allowed: Allowed | null;
   /** The last decision that stayed inside the fence, for a resize or a rotation to fall back on. */
   accepted: Decision;
-  /** Screen px the pointer is past where the band's side holds the selection, this frame. */
+  /** What the band itself holds the selection inside — the column's, for a column band. */
+  column: Hold;
+  /** What a push past a column band's side opens: its margins' hold. `null` where none is offered. */
+  spill: Hold | null;
+  /** The drag has been let past the column's side, and the fence is {@link spill}'s. */
+  spilling: boolean;
+  /** Screen px the pointer is past where the column's side holds the selection, this frame. */
   push: number;
-  /** The band was made wide during this gesture, in a bracket the landing closes. */
-  widened: boolean;
+  /** Last frame's {@link push}: the push past the threshold has to be outward. */
+  lastPush: number;
+  /** Which side it is pushing past: -1 left, 1 right, 0 neither. */
+  side: -1 | 0 | 1;
+  /**
+   * The rubber band this frame: screen px past the column's hold, signed by
+   * side, that a held move shows as give and stretch; 0 for none. A picture
+   * only — the frames are where the side holds them.
+   */
+  pull: number;
+  /** The give (scene px) and stretch last drawn, which a spring out starts from. */
+  shown: { give: number; stretch: number };
+  /** Reduced motion asked for: a plain hold, then a jump. */
+  calm: boolean;
   centre: Point;
   startAngle: number;
   /** Accumulated rotation, unwrapped so a full turn keeps counting. */
@@ -998,7 +1071,8 @@ export function createGestureSession(
   const bounds = overrides.bounds ?? selectionBounds(scratch);
   const reach = unionBounds(scratch);
   const targets = boxTargets(bounds);
-  const band = o.band?.() ?? null;
+  const column = holdFor(o.band?.() ?? null, reach);
+  const wideBand = o.wideBand?.() ?? null;
   const extra = o.snapExtra?.() ?? {};
 
   const session: Session = {
@@ -1032,12 +1106,19 @@ export function createGestureSession(
     })),
     scratch,
     bounds,
-    fence: fenceFor(band, reach),
+    fence: column.fence,
     reach,
-    allowed: moveAllowed(band, reach),
+    allowed: column.allowed,
     accepted: IDENTITY[mode],
+    column,
+    spill: wideBand ? holdFor(wideBand, reach) : null,
+    spilling: false,
     push: 0,
-    widened: false,
+    lastPush: 0,
+    side: 0,
+    pull: 0,
+    shown: { give: 0, stretch: 1 },
+    calm: typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches,
     centre: { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 },
     startAngle: angleOf(
       { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 },
@@ -1170,52 +1251,131 @@ export function pastThreshold(start: Point, client: Point): boolean {
 }
 
 /**
- * A column band holding the selection at its side: its margins show while it
- * holds, and a push past {@link WIDEN_PUSH} turns it wide so the drag goes on
- * into them. True when it has just widened — the frame is then decided again,
- * against the wide band.
+ * A column band holding the selection at its side: its margins wash in while
+ * it holds, and a push past {@link WIDEN_PUSH}, still outward, lets the drag
+ * into them ({@link spillGesture}); brought back until nothing is past the
+ * side, the column holds it again. True when that changed — the frame is then
+ * decided again, against the new fence.
  */
 export function pushEdge(session: Session, o: TransformGestureOptions): boolean {
-  if (!o.widen || session.widened) return false;
-  if (session.push > WIDEN_PUSH) {
-    widenGesture(session, o);
-    return true;
-  }
-  o.pushing?.(session.push > 0);
-  return false;
+  const next = spillNext(session);
+  const changed = next !== session.spilling;
+  if (changed) spillGesture(session, next);
+  o.pushing?.(washOf(session));
+  return changed;
 }
 
 /**
- * The band made wide mid-gesture, in a bracket of its own that
- * {@link settleWiden} closes once the gesture has landed, so the widening and
- * the drag are one step — or none, on a cancel.
+ * Whether the drag should be past the column's side from this frame: once it
+ * has pushed {@link WIDEN_PUSH} on past the side and is still pushing out, and
+ * until nothing of it is past the side any more. Records the push it read.
  */
-export function widenGesture(session: Session, o: TransformGestureOptions): void {
-  if (!o.widen || session.widened) return;
-  o.pushing?.(false);
-  o.store.begin();
-  const band = o.widen();
-  session.widened = true;
-  session.fence = fenceFor(band, session.reach);
-  session.allowed = moveAllowed(band, session.reach);
+export function spillNext(session: Session): boolean {
+  const { push, lastPush } = session;
+  session.lastPush = push;
+  if (!session.spill) return false;
+  if (session.spilling) return push > 0;
+  return push >= WIDEN_PUSH && push > lastPush;
+}
+
+/** Let the drag past the column's side into the margins, or hold it at the side again. */
+export function spillGesture(session: Session, on: boolean): void {
+  const hold = on && session.spill ? session.spill : session.column;
+  session.spilling = on && !!session.spill;
+  session.fence = hold.fence;
+  session.allowed = hold.allowed;
 }
 
 /**
- * The widening's bracket, closed after the landing. The band keeps its width
- * only where the drop left something past the column: brought back in, it was
- * only ever wide for the drag, and nothing landed at all is no step.
+ * The rubber band a held move shows this frame (see {@link Session.pull}):
+ * nothing through the hard stop, then the push past {@link HOLD_PUSH}.
  */
-export function settleWiden(
+export function pullOf(session: Session): number {
+  if (!session.spill || session.spilling || session.mode !== "move" || session.calm) return 0;
+  return Math.max(0, session.push - HOLD_PUSH) * session.side;
+}
+
+/**
+ * Let past the side this frame: each element starts from where it was just
+ * drawn — held, given, stretched — and springs to where the pointer has it.
+ * `was` is each frame's scene x before this one placed it.
+ */
+export function springOut(
   session: Session,
-  o: TransformGestureOptions,
-  { cancelled, landed }: { cancelled: boolean; landed: boolean },
+  was: readonly number[],
+  from: { give: number; stretch: number },
 ): void {
-  if (!session.widened) return;
-  session.widened = false;
-  const outside = reachesMargins(o.store.getScene());
-  if (cancelled || (!landed && !outside)) return o.store.abort();
-  if (!outside) o.store.dispatch([{ type: "setDiagram", wide: false }]);
-  o.store.commit();
+  if (session.calm) return;
+  const { give, stretch } = from;
+  for (let i = 0; i < session.starts.length; i++) {
+    const start = session.starts[i];
+    const el = start.el;
+    if (!el || start.flow || typeof el.animate !== "function") continue;
+    const jump = rotatePoint({ x: session.frames[i].sx - (was[i] + give), y: 0 }, -start.ancestorRot);
+    el.animate(
+      [
+        { translate: `${-jump.x}px ${-jump.y}px`, scale: `${stretch} 1` },
+        { translate: "0px 0px", scale: "1 1" },
+      ],
+      { duration: SNAP_MS, easing: SNAP_EASE, id: SNAP_ID },
+    );
+  }
+}
+
+/**
+ * The rubber band, drawn: each element given along the pull and stretched
+ * about the selection's trailing edge, through the individual `translate` and
+ * `scale` properties so the frame's own `transform` is untouched. Scene px
+ * throughout; a node under a turned group gives but does not stretch. The
+ * selection frame and its readout stay where the move would land — held at
+ * the side — so the shape is seen pulling away from it.
+ */
+function writePull(session: Session, o: TransformGestureOptions) {
+  const pull = session.pull;
+  if (!pull && !session.shown.give) return;
+  const amount = Math.abs(pull);
+  const give = (Math.sign(pull) * elasticGive(amount)) / o.screenScale();
+  const stretch = pull ? elasticStretch(amount) : 1;
+  session.shown = { give, stretch };
+  const anchor = pull > 0 ? pullEdges(session).left : pullEdges(session).right;
+  for (let i = 0; i < session.starts.length; i++) {
+    const start = session.starts[i];
+    const el = start.el;
+    if (!el || start.flow) continue;
+    if (!pull) {
+      el.style.translate = "";
+      el.style.scale = "";
+      continue;
+    }
+    if (start.ancestorRot) {
+      const t = rotatePoint({ x: give, y: 0 }, -start.ancestorRot);
+      el.style.translate = `${t.x}px ${t.y}px`;
+      continue;
+    }
+    const f = session.frames[i];
+    // The trailing edge in the parent's px, about the element's own origin — its centre.
+    const edge = anchor - (f.sx - f.x);
+    const tx = (1 - stretch) * (edge - start.local.w / 2) + give;
+    el.style.translate = `${tx}px 0px`;
+    el.style.scale = `${stretch} 1`;
+  }
+}
+
+/** The selection's side edges this frame, in scene px. */
+function pullEdges(session: Session): { left: number; right: number } {
+  let left = Infinity;
+  let right = -Infinity;
+  for (const f of session.frames) {
+    left = Math.min(left, f.sx);
+    right = Math.max(right, f.sx + f.sw);
+  }
+  return { left, right };
+}
+
+/** The margins' wash for where the drag is this frame. */
+export function washOf(session: Session): MarginWash {
+  if (session.spilling) return session.side < 0 ? "left" : session.side > 0 ? "right" : "held";
+  return session.push > 0 ? "held" : null;
 }
 
 /**
@@ -1244,7 +1404,14 @@ function runFrame(session: Session, o: TransformGestureOptions) {
   }
 
   let { decision, guides } = decideGesture(session, o, point);
-  if (pushEdge(session, o)) ({ decision, guides } = decideGesture(session, o, point));
+  // Where each shape was drawn before a push lets it past, to spring from.
+  let was: number[] | null = null;
+  if (session.spill && pushEdge(session, o)) {
+    if (session.spilling) was = session.frames.map((f) => f.sx);
+    ({ decision, guides } = decideGesture(session, o, point));
+  }
+  session.pull = pullOf(session);
+  const from = session.shown;
   const min = o.minSize ?? 1;
   let shown = guides;
   if (applyDecision(session, decision, min)) {
@@ -1254,6 +1421,7 @@ function runFrame(session: Session, o: TransformGestureOptions) {
     shown = NO_GUIDES;
   }
   writeGesture(session, o, shown, true);
+  if (was) springOut(session, was, from);
   // After the writes: whatever reads the shapes' live boxes must read them as
   // they are this frame, not as they were last one.
   o.onFrame?.(session.frames, liveBottomOf(session.frames));
@@ -1327,6 +1495,7 @@ export function writeGesture(
   syncGhosts(session);
   if (session.mode === "scale") writeScale(session);
   else writeFrames(session, session.mode === "resize");
+  if (session.mode === "move") writePull(session, o);
   if (overlay) writeOverlay(session, o, guides);
   o.grow?.(liveBottomOf(session.frames));
 }
@@ -1414,12 +1583,17 @@ function decideMove(
   dy = snapped.dy;
 
   const allowed = session.allowed;
-  session.push = 0;
   if (allowed) {
     dx = Math.min(allowed.maxDx, Math.max(allowed.minDx, dx));
     dy = Math.max(allowed.minDy, dy);
-    session.push = Math.max(0, pointerDx - allowed.maxDx, allowed.minDx - pointerDx) * scale;
   }
+  // Measured against the column's hold whatever the fence is now: how far past
+  // the side the drag is decides whether it is let past, and whether it still is.
+  const held = session.column.allowed;
+  const over = held ? pointerDx - held.maxDx : 0;
+  const under = held ? held.minDx - pointerDx : 0;
+  session.push = Math.max(0, over, under) * scale;
+  session.side = over > 0 ? 1 : under > 0 ? -1 : 0;
   return { decision: { kind: "move", dx, dy }, guides: snapped.guides };
 }
 
@@ -1469,10 +1643,14 @@ function decideResize(
   }
 
   session.push = 0;
+  session.side = 0;
   if (session.fence && !session.lockstep) {
     const asked = delta.x;
-    delta = fenceResize(session, handle, delta, aspect, fromCentre);
-    session.push = Math.abs(asked - delta.x) * scale;
+    const held = fenceResize(session, session.column.fence, handle, delta, aspect, fromCentre);
+    const past = asked - held.x;
+    session.push = Math.abs(past) * scale;
+    session.side = past > 0 ? 1 : past < 0 ? -1 : 0;
+    delta = session.spilling ? fenceResize(session, session.fence, handle, delta, aspect, fromCentre) : held;
   }
   return { decision: { kind: "resize", dx: delta.x, dy: delta.y }, guides };
 }
@@ -1485,12 +1663,12 @@ function decideResize(
  */
 function fenceResize(
   session: Session,
+  fence: Fence | null,
   handle: Handle,
   delta: Point,
   aspect: boolean,
   fromCentre: boolean,
 ): Point {
-  const fence = session.fence;
   const single = session.sole;
   if (!fence || aspect || (single && session.starts[0].sceneRot !== 0)) return delta;
   const b = single ? session.starts[0].scene : session.bounds;
@@ -1955,6 +2133,9 @@ function restoreDom(session: Session) {
     start.el.style.transform = start.transform;
     start.el.style.width = start.width;
     start.el.style.height = start.height;
+    start.el.style.translate = "";
+    start.el.style.scale = "";
+    for (const spring of start.el.getAnimations?.() ?? []) if (spring.id === SNAP_ID) spring.cancel();
     start.shape?.restore();
   }
   for (const other of session.reorder?.others ?? []) {
@@ -2013,9 +2194,8 @@ function finish(
   }
   session.detach();
   const { ops, select } = finishGesture(session, o, cancelled);
-  const landed = landGesture(o, ops);
+  const landed = landGesture(o, ops, session.spilling);
   if (landed && select?.length) o.onSelect?.(select);
-  settleWiden(session, o, { cancelled: cancelled || !session.active, landed });
   endGesture(session, o);
 }
 
@@ -2030,49 +2210,51 @@ export function finishGesture(
   cancelled: boolean,
 ): { ops: SceneOp[]; select: NodeId[] | null } {
   removeGhosts(session);
+  // Every element back to what React last wrote, before anything lands: React
+  // writes a style only when its own value changes, so a preview left on an
+  // element survives any landing that renders it as it was — a cancel, a
+  // scale from a corner (whose `x`/`y` React already holds), a flow child
+  // whose slot did not move. The render that follows starts from what it
+  // believes is there, and draws the landing itself.
+  restoreDom(session);
 
   let ops: SceneOp[] = [];
   let select: NodeId[] | null = null;
   if (cancelled || !session.active) {
-    restoreDom(session);
+    // Nothing lands.
   } else if (session.mode === "reorder") {
-    // React re-lays the group out from the committed order; our preview offsets
-    // would be added on top of it.
-    restoreDom(session);
     ops = reorderOps(session);
   } else if (session.mode === "move" && session.mods.alt) {
-    restoreDom(session);
     const duplicate = duplicateOps(session, o);
     ops = duplicate.ops;
     select = duplicate.ids;
   } else {
-    // A scale previews as a CSS transform on the element, and React writes a
-    // style key only when it changes. Scaled from a corner, `x`/`y` are what
-    // they were, so the transform React would write is the one it wrote last
-    // — and the preview's `scale(k)` would stay on an element whose box the
-    // op has already grown by k, drawing it k times too large. The element
-    // goes back to what React last wrote before the op lands, so the render
-    // that follows starts from what it believes is there.
-    if (session.mode === "scale") restoreDom(session);
     ops = transformOps(session);
   }
   return { ops, select };
 }
 
-/** One undo entry: the gesture's ops and whatever landing them implies. False for none. */
-export function landGesture(o: TransformGestureOptions, ops: readonly SceneOp[]): boolean {
+/**
+ * One undo entry: the gesture's ops and whatever landing them implies — for a
+ * drag let past a column band's side (`spilled`), the band turned wide where
+ * the drop left something in its margins. False for none.
+ */
+export function landGesture(o: TransformGestureOptions, ops: readonly SceneOp[], spilled = false): boolean {
   if (!ops.length) return false;
   o.store.begin();
   o.store.dispatch([...ops]);
+  if (spilled && reachesMargins(o.store.getScene())) o.store.dispatch([WIDEN]);
   o.onLand?.();
   o.store.commit();
   return true;
 }
 
+const WIDEN: SceneOp = { type: "setDiagram", wide: true };
+
 /** The gesture is over: the overlay draws from the scene again, and the host hears so. */
 export function endGesture(session: Session, o: TransformGestureOptions) {
   if (!session.active) return;
-  o.pushing?.(false);
+  o.pushing?.(null);
   o.overlay?.current?.update(null, 0, NO_GUIDES);
   o.onActiveChange?.(false);
 }

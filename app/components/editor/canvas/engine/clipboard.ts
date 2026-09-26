@@ -13,7 +13,7 @@
  */
 
 import { COLUMN_WIDTH } from "@/app/lib/column";
-import { BAND, EPS, fitToBand } from "../scene/band";
+import { BAND, EPS, fitToBand, normalizeDiagram } from "../scene/band";
 import { absoluteRect, absoluteRotation, unionBounds } from "../scene/geometry";
 import { emptyScene } from "../scene/migrate";
 import { applyOps, mintEdgeIds, mintIds } from "../scene/ops";
@@ -211,7 +211,7 @@ export function landFragment(
     : fragment.nodes;
   const visible = nodes.filter((node) => !node.hidden);
   const box = unionBounds(visible.length ? visible : nodes);
-  const wide = target.wide === true || box.w > COLUMN_WIDTH + EPS;
+  const wide = !!target.wide || box.w > COLUMN_WIDTH + EPS;
   const placed = fitToBand({
     ...emptyScene(),
     nodes,
@@ -224,7 +224,7 @@ export function landFragment(
   const copies = copiesInto(target, placed.nodes, -origin.x, -origin.y, map);
   const edges = remapEdges(target, placed.edges, map);
   const ops: SceneOp[] = [];
-  if (wide && target.wide !== true) ops.push({ type: "setDiagram", wide: true });
+  if (wide && !target.wide) ops.push({ type: "setDiagram", wide: true });
   ops.push({ type: "insert", nodes: copies, parentId });
   if (edges.length) ops.push({ type: "addEdge", edges });
   return { ops, ids: copies.map((node) => node.id) };
@@ -242,5 +242,5 @@ export function diagramFromClipboard(html: string, parseHtml?: ParseHtml): strin
   const lifted = fragment.nodes.map((node) => ({ ...node, y: node.y - top + BAND }));
   const base = emptyScene();
   const { ops } = landFragment(base, { nodes: lifted, edges: fragment.edges });
-  return serializeScene(applyOps(base, ops));
+  return serializeScene(normalizeDiagram(applyOps(base, ops)));
 }

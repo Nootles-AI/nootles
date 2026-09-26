@@ -46,7 +46,6 @@
  */
 
 import { COLUMN_WIDTH } from "@/app/lib/column";
-import { WIDE_MARGIN } from "../scene/bandSpan";
 import { absoluteBounds, type Handle } from "../scene/geometry";
 import {
   findParent,
@@ -321,14 +320,15 @@ export interface SnapExtra {
 }
 
 /**
- * A band's column: its two edges and its centre, and on a wide band the wide
- * edges too. Vertical lines only — a band's top is a clamp and its bottom
+ * A band's column: its two edges and its centre, and on a wide band the edges
+ * of the margins it shows (`margin` past the text each side; `null` for a
+ * column band). Vertical lines only — a band's top is a clamp and its bottom
  * moves, so neither is a place to line anything up with.
  */
-export function columnLines(wide: boolean, h: number): SnapLine[] {
+export function columnLines(margin: number | null, h: number): SnapLine[] {
   const centre = COLUMN_WIDTH / 2;
-  const at = wide
-    ? [-WIDE_MARGIN, 0, centre, COLUMN_WIDTH, COLUMN_WIDTH + WIDE_MARGIN]
+  const at = margin !== null
+    ? [-margin, 0, centre, COLUMN_WIDTH, COLUMN_WIDTH + margin]
     : [0, centre, COLUMN_WIDTH];
   return at.map((x) => ({
     axis: "x",

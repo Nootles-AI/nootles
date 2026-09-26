@@ -26,6 +26,9 @@ const HARNESSES = [
   // Diagrams on one page: a selection, a drag, a marquee and an undo that
   // reach across two of them.
   "canvas-page",
+  // A diagram made where another was taken away starts as itself, and undoing
+  // back to the old one brings it back whole.
+  "canvas-rebirth",
   // The shell's rails as a diagram takes them, in the real workspace: a rail
   // that is out turns over in place, one put away floats, the column holds.
   "canvas-rails",

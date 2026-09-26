@@ -1,12 +1,12 @@
 import { track } from "@/app/lib/telemetry";
 import { COLUMN_WIDTH } from "@/app/lib/column";
-import { effectiveScale, fitOf } from "@/app/lib/columnScale";
+import { effectiveScale, fitOf, wideMarginOf } from "@/app/lib/columnScale";
 import type { LiveEditor } from "@/app/components/editor/EditorRegistry";
 import { forgetTextStep, newestTextStep } from "@/app/lib/history/textDomain";
 import type { CanvasTool } from "../engine/shortcuts";
 import { defaultBox, newNode, type DrawKind } from "../render/newShape";
 import { hoverPen } from "../render/PenTool";
-import { BAND, bandLeft, bandWidth, EMPTY_BAND_H } from "../scene/band";
+import { BAND, bandFloor, bandLeft, bandWidth, EMPTY_BAND_H, WIDE_MARGIN } from "../scene/band";
 import { emptyScene } from "../scene/migrate";
 import { mintId, mintIds } from "../scene/ops";
 import { serializeScene } from "../scene/serialize";
@@ -125,7 +125,7 @@ export function sceneFor(kind: DrawKind, box: Rect): { scene: Scene; nodeId: str
     nodes: [newNode(kind, nodeId, { x, y: BAND, w, h: Math.round(box.h) })],
     ...(x + w > COLUMN_WIDTH ? { wide: true as const } : {}),
   };
-  return { scene: drawn, nodeId };
+  return { scene: { ...drawn, h: bandFloor(drawn) }, nodeId };
 }
 
 /**
@@ -181,7 +181,7 @@ function columnAt(editor: LiveEditor, ref: string): { left: number; scale: numbe
   );
   if (!content) return null;
   const r = content.getBoundingClientRect();
-  const scale = effectiveScale(content) * fitOf(content, "normal");
+  const scale = effectiveScale(content) * fitOf(content);
   return { left: r.left, scale, width: COLUMN_WIDTH * scale };
 }
 
@@ -579,17 +579,17 @@ function armShapes(canvas: PageCanvas, pane: HTMLElement, kind: DrawKind): () =>
  * the wide margins is it brought in. On any other diagram it is held inside
  * the band, and a band's width in from its top — the diagram was there first,
  * and a point pressed off it is a point meant for its edge. Below either one
- * grows it.
+ * grows it. The wide margins are as much of them as the page shows (`margin`).
  */
 export function penPoint(
   band: { left: number; top: number; right: number; bottom: number; scale: number },
   origin: Point,
-  born: { toScene: (p: Point) => Point; toClient: (p: Point) => Point } | null,
+  born: { toScene: (p: Point) => Point; toClient: (p: Point) => Point; margin?: number } | null,
 ): Point {
   if (born) {
     const at = born.toScene(origin);
-    const left = bandLeft({ wide: true });
-    return born.toClient({ x: Math.min(left + bandWidth({ wide: true }), Math.max(left, at.x)), y: at.y });
+    const margin = born.margin ?? WIDE_MARGIN;
+    return born.toClient({ x: Math.min(COLUMN_WIDTH + margin, Math.max(-margin, at.x)), y: at.y });
   }
   const inset = Math.min(BAND * band.scale, (band.bottom - band.top) / 2);
   return {
@@ -693,7 +693,13 @@ function pointFor(entry: DiagramEntry, origin: Point, born: boolean): Point {
     bottom: r.bottom,
     scale: r.height / (band.current!.offsetHeight || 1),
   };
-  return penPoint(box, origin, born ? { toScene: viewport.clientToScene, toClient: viewport.sceneToClient } : null);
+  return penPoint(
+    box,
+    origin,
+    born
+      ? { toScene: viewport.clientToScene, toClient: viewport.sceneToClient, margin: wideMarginOf(band.current!) }
+      : null,
+  );
 }
 
 async function handPen(

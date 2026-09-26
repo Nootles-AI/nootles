@@ -122,6 +122,12 @@ describe("canonical NML Yjs encoding", () => {
     expect([...scene.keys()].sort()).toEqual(["attrs", "edges", "h", "id", "schemaVersion", "shapes", "style", "w"]);
     expect((scene.get("attrs") as Y.Map<unknown>).toJSON()).toEqual({ title: "Board", wide: "" });
     expect(decodeNmlDocument(doc)).toEqual(normalizeDocument(wide));
+
+    block.scene = { ...block.scene, wide: "pinned" };
+    const pinned = createNmlYDoc(wide, origin);
+    const pinnedScene = blockMap(pinned, 5).get("scene") as Y.Map<unknown>;
+    expect((pinnedScene.get("attrs") as Y.Map<unknown>).toJSON()).toEqual({ title: "Board", wide: "pinned" });
+    expect(decodeNmlDocument(pinned)).toEqual(normalizeDocument(wide));
   });
 
   it("decodes the same AST after update chunking and in an independent runtime document", () => {

@@ -304,10 +304,9 @@ export class SceneStore {
   /**
    * Apply one op, or a group of ops that must land together.
    *
-   * On a band pinned to a height, an edit that leaves content below the pin
-   * raises it in the same entry — a pin is a floor the content lifts — and
-   * undoing the edit takes the height back with it. An unpinned band needs
-   * nothing: it is drawn at its floor, whichever way that moves.
+   * On a band, an edit that leaves content below the stored height raises it
+   * in the same entry: a band never crops what is drawn in it, never shrinks
+   * on its own, and undoing the edit takes the height back with it.
    *
    * On a guarded store (see {@link setOnEmpty}) an edit taking the last shape
    * is handed to the guard instead, at any depth: an open bracket is committed
@@ -338,7 +337,7 @@ export class SceneStore {
     }
     if (this.band) {
       const floor = bandFloor(next);
-      if (next.h > 0 && floor > next.h) {
+      if (floor > next.h) {
         const raise: SceneOp = { type: "setDiagram", h: floor };
         next = applyOps(next, [raise]);
         ops = [...ops, raise];
@@ -402,10 +401,11 @@ export class SceneStore {
   };
 
   /**
-   * A band whose Wide room nothing uses any more: a local edit that leaves the
-   * margins empty folds it back to the column in the same entry. Never on the
-   * edit that turns Wide on — it waits for the next edit — nor on the model's
-   * writes; what arrives from outside never comes through here at all.
+   * A band a drag or the pen turned wide whose room nothing uses any more: a
+   * local edit that leaves the margins empty folds it back to the column in the
+   * same entry. Never a band pinned wide (`wide="pinned"`, the panel's Wide),
+   * never on the edit that turned it wide — it waits for the next edit — nor on
+   * the model's writes; what arrives from outside never comes through here.
    */
   private narrowed(scene: Scene): boolean {
     return this.band && scene.wide === true && !reachesMargins(scene);

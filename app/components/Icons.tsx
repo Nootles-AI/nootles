@@ -289,13 +289,15 @@ export function RotateCcw(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-/** Two lines joining into one: two diagrams becoming one. */
+/** An arrow down and an arrow up into one box: two diagrams, stacked, becoming one. */
 export function Merge(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>
-      <path d="m8 6 4-4 4 4" />
-      <path d="M12 2v10.3a4 4 0 0 1-1.17 2.87L4 22" />
-      <path d="m20 22-5-5" />
+      <rect x="3" y="9.5" width="18" height="5" rx="1.5" />
+      <path d="M12 2v5" />
+      <path d="m9.5 4.5 2.5 2.5 2.5-2.5" />
+      <path d="M12 22v-5" />
+      <path d="m9.5 19.5 2.5-2.5 2.5 2.5" />
     </svg>
   );
 }
@@ -628,6 +630,18 @@ export function Diagram(props: SVGProps<SVGSVGElement>) {
       <rect x="3" y="3.5" width="8" height="7" rx="2" />
       <rect x="13" y="13.5" width="8" height="7" rx="2" />
       <path d="M7 10.5v4.5a2 2 0 0 0 2 2h4" />
+    </svg>
+  );
+}
+
+/** The diagram's two boxes, with the margins it reaches into ruled either side of them. */
+export function WideDiagram(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="5.5" y="4.5" width="6" height="6" rx="1.5" />
+      <rect x="12.5" y="13.5" width="6" height="6" rx="1.5" />
+      <path d="M8.5 10.5v3a2 2 0 0 0 2 2h2" />
+      <path d="M2 4v16M22 4v16" />
     </svg>
   );
 }

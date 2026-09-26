@@ -34,6 +34,10 @@ import {
   type PageCanvas,
 } from "../app/components/editor/canvas/page/PageCanvas";
 import { findNode, type SceneNode } from "../app/components/editor/canvas/scene/types";
+import { setSnapTarget, type SnapTargetKind } from "../app/components/editor/canvas/engine/snapping";
+import { laidOutScene } from "../app/components/editor/canvas/scene/autoLayout";
+import { drawnEdges } from "../app/components/editor/canvas/scene/edgePath";
+import { absoluteBounds } from "../app/components/editor/canvas/scene/geometry";
 import { ZoomToolbar } from "../app/components/editor/canvas/Toolbar";
 import { PagePane } from "../app/components/PagePane";
 import { useZoomKeys } from "../app/components/useDocumentZoom";
@@ -216,6 +220,16 @@ const harness = {
     const group = outline?.closest("g") as SVGGElement | null | undefined;
     return !!outline && group?.style.display !== "none" && outline.getBoundingClientRect().width > 0;
   },
+  /** Turns one kind of snap target on or off, as the toolbar's settings do. */
+  snapTarget: (kind: string, on: boolean) => setSnapTarget(kind as SnapTargetKind, on),
+  /** Whether a band's overlay is drawing a snap guide. */
+  guiding: (blockId: string) => !!bandOf(blockId)?.querySelector(".nt-ov-guides")?.getAttribute("d"),
+  /** The selection frame's outline on screen, or null while none is drawn. */
+  frameRect: (blockId: string) => {
+    const outline = bandOf(blockId)?.querySelector(".nt-ov-outline");
+    const group = outline?.closest("g") as SVGGElement | null | undefined;
+    return outline && group?.style.display !== "none" ? box(outline) : null;
+  },
   members: (blockId: string) => bandOf(blockId)?.querySelectorAll(".nt-ov-members > rect").length ?? 0,
   /** What the zoom bar reads. */
   zoomReadout: () => document.querySelector('[aria-label="Document zoom"] .nt-toolbar-zoom')?.textContent ?? null,
@@ -377,13 +391,82 @@ const harness = {
     if (!offer) return null;
     return { go: box(offer.querySelector(".nt-canvas-autoh-go")), dismiss: box(offer.querySelector(".nt-canvas-autoh-no")) };
   },
-  /** Whether a diagram is wide, and whether its margins are washed in. */
-  wide: (blockId: string) => entry(blockId)?.api.store.getScene().wide === true,
+  /** Whether a diagram is wide, how (`true` or `"pinned"`), and whether its margins are washed in. */
+  wide: (blockId: string) => !!entry(blockId)?.api.store.getScene().wide,
+  wideKind: (blockId: string) => entry(blockId)?.api.store.getScene().wide ?? null,
   edge: (blockId: string) => bandOf(blockId)?.hasAttribute("data-edge") ?? false,
+  /** The margins' wash: null, faint (`held`), or deep on a side (`left` / `right` / `both`). */
+  wash: (blockId: string) => {
+    const band = bandOf(blockId);
+    if (!band?.hasAttribute("data-edge")) return null;
+    return band.getAttribute("data-widen") ?? "held";
+  },
+  /** The animation each margin's wash takes, left and right — the deep wash's arrival pulse, or none. */
+  pulse: (blockId: string) => {
+    const tint = bandOf(blockId)?.querySelector(".nt-canvas-margins");
+    if (!tint) return null;
+    return [getComputedStyle(tint, "::before").animationName, getComputedStyle(tint, "::after").animationName];
+  },
+  /** Every shape's box on screen, by id. */
+  rects: (blockId: string) =>
+    Object.fromEntries(
+      [...(bandOf(blockId)?.querySelectorAll<HTMLElement>(".nt-canvas-scene > [data-id]") ?? [])].map((el) => [
+        el.dataset.id,
+        box(el),
+      ]),
+    ),
+  /** Where scene (0, 0) is on screen, and client px per scene px. */
+  origin: (blockId: string) => {
+    const api = entry(blockId)?.api;
+    if (!api) return null;
+    return { ...api.viewport.sceneToClient({ x: 0, y: 0 }), scale: api.viewport.screenScale() };
+  },
+  /** Whether a shape is what the pointer finds at its own centre — drawn, and not clipped away. */
+  visibleAt: (blockId: string, id: string) => {
+    const el = bandOf(blockId)?.querySelector(`.nt-canvas-scene [data-id="${CSS.escape(id)}"]`);
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return !!hit && el.contains(hit);
+  },
+  /**
+   * A connector as drawn, against the route the committed scene gives it:
+   * whether its drawn path is that route, and how far each end of the drawn
+   * path is from the edge of the box it joins, in scene px.
+   */
+  connector: (blockId: string, edgeId: string) => {
+    const scene = entry(blockId)?.api.store.getScene();
+    const path = bandOf(blockId)?.querySelector<SVGPathElement>(`.nt-edge-line[data-edge="${CSS.escape(edgeId)}"]`);
+    if (!scene || !path) return null;
+    const laid = laidOutScene(scene);
+    const route = drawnEdges(laid).find((drawn) => drawn.edge.id === edgeId);
+    const edge = scene.edges.find((e) => e.id === edgeId);
+    if (!route || !edge) return null;
+    const off = (p: DOMPoint, id: string) => {
+      const b = absoluteBounds(laid, id);
+      const dx = Math.max(b.x - p.x, 0, p.x - (b.x + b.w));
+      const dy = Math.max(b.y - p.y, 0, p.y - (b.y + b.h));
+      const outside = Math.hypot(dx, dy);
+      const inside = Math.min(p.x - b.x, b.x + b.w - p.x, p.y - b.y, b.y + b.h - p.y);
+      return Math.round((outside > 0 ? outside : Math.max(0, inside)) * 100) / 100;
+    };
+    const length = path.getTotalLength();
+    return {
+      asRouted: path.getAttribute("d") === route.d,
+      from: off(path.getPointAtLength(0), edge.from),
+      to: off(path.getPointAtLength(length), edge.to),
+    };
+  },
   /** A band's own width, whatever it is scaled by. */
   bandWidth: (blockId: string) => bandOf(blockId)?.offsetWidth ?? null,
   /** The diagram's own fields, as the Design panel sets them. */
   setDiagram: (blockId: string, patch: { wide?: boolean; h?: number }) => entry(blockId)?.api.setDiagram(patch),
+  /** A connector joining two shapes of a diagram. */
+  connect: (blockId: string, id: string, from: string, to: string) =>
+    entry(blockId)?.api.store.dispatch({
+      type: "addEdge",
+      edges: [{ id, from, to, label: "", style: {}, attrs: {} }],
+    }),
   /** A shape put in a diagram, as it would be drawn. */
   put: (blockId: string, id: string, x: number, y: number, w: number) =>
     entry(blockId)?.api.store.dispatch({ type: "insert", nodes: [{ ...rect(id, x, y, "#d8e8c8"), w }] }),

@@ -463,20 +463,23 @@ function setDiagram(
 ): Scene {
   const w = op.w ?? scene.w;
   const h = op.h ?? scene.h;
-  const wide = op.wide === undefined ? scene.wide === true : op.wide;
+  // `true` widens and never unpins: what a drag or the pen asks of a band
+  // someone pinned wide is already so.
+  const wide =
+    op.wide === undefined ? scene.wide : op.wide === false ? undefined : op.wide === true ? (scene.wide ?? true) : op.wide;
   const style = op.style ? mergeStyle(scene.style, op.style) : scene.style;
   const attrs = op.attrs ? mergeStyle(scene.attrs, op.attrs) : scene.attrs;
   if (
     w === scene.w &&
     h === scene.h &&
-    wide === (scene.wide === true) &&
+    wide === scene.wide &&
     style === scene.style &&
     attrs === scene.attrs
   ) {
     return scene;
   }
   const { wide: _wide, ...rest } = scene;
-  return { ...rest, w, h, style, attrs, ...(wide ? { wide: true as const } : {}) };
+  return { ...rest, w, h, style, attrs, ...(wide ? { wide } : {}) };
 }
 
 export function setLabel(scene: Scene, id: NodeId, label: string): Scene {

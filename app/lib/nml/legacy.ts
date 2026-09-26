@@ -390,7 +390,7 @@ export function compareScenes(a: Scene, b: Scene): SceneMismatch[] {
   if (((a.w > 0 || b.w > 0) && a.w !== b.w) || a.h !== b.h) {
     out.push({ class: "canvas-size", detail: `size ${a.w}x${a.h} vs ${b.w}x${b.h}` });
   }
-  if (a.wide !== b.wide) out.push({ class: "canvas-wide", detail: `wide ${a.wide === true} vs ${b.wide === true}` });
+  if (a.wide !== b.wide) out.push({ class: "canvas-wide", detail: `wide ${a.wide ?? false} vs ${b.wide ?? false}` });
   if (stableStringify(a.style) !== stableStringify(b.style)) out.push({ class: "canvas-style", detail: "root style differs" });
   if (stableStringify(a.attrs) !== stableStringify(b.attrs)) out.push({ class: "canvas-attrs", detail: "root attrs differ" });
   const left = flattenScene(a);

@@ -13,9 +13,16 @@ import {
   liveBottomOf,
   liveBoxes,
   moveAllowed,
+  elasticGive,
+  elasticStretch,
+  ELASTIC_R,
+  ELASTIC_STRETCH,
+  HOLD_PUSH,
+  landGesture,
+  pullOf,
   pushEdge,
   scaleAllowed,
-  settleWiden,
+  spillNext,
   WIDEN_PUSH,
   type BandRange,
   type GestureSession,
@@ -236,22 +243,15 @@ describe("one diagram's gesture, held in its band", () => {
 
 describe("a column band's side, pushed", () => {
   /** A column band whose store applies what it is given, and says what it was asked. */
-  const pushable = () => {
+  const pushable = (handle: "e" | null = null) => {
     let scene = sceneOf([rect("a", 600, 40, 100, 50)]);
-    let bracket: Scene | null = null;
     const calls: string[] = [];
     const o: TransformGestureOptions = {
       store: {
         getScene: () => scene,
-        begin: () => {
-          bracket = scene;
-          calls.push("begin");
-        },
+        begin: () => void calls.push("begin"),
         commit: () => void calls.push("commit"),
-        abort: () => {
-          if (bracket) scene = bracket;
-          calls.push("abort");
-        },
+        abort: () => void calls.push("abort"),
         dispatch: (ops) => {
           scene = applyOps(scene, ops);
           calls.push(ops.map((op) => op.type).join("+"));
@@ -260,77 +260,142 @@ describe("a column band's side, pushed", () => {
       clientToScene: (p) => p,
       screenScale: () => 1,
       band: () => ({ minX: 0, maxX: 720 }),
-      widen: () => {
-        o.store.dispatch([{ type: "setDiagram", wide: true }]);
-        return { minX: -240, maxX: 960 };
-      },
-      pushing: (held) => void calls.push(held ? "held" : "free"),
+      wideBand: () => ({ minX: -240, maxX: 960 }),
+      pushing: (wash) => void calls.push(`wash:${wash}`),
       getSelection: () => ["a"],
       getElement: () => null,
     };
-    const s = createGestureSession(o, press(650, 60), "move", null)!;
-    const to = (x: number) => decideGesture(s, o, { x, y: 60 }).decision;
+    const s = createGestureSession(o, press(handle ? 700 : 650, 60), handle ? "resize" : "move", handle)!;
+    /** The pointer at `x`: the frame decided, the side pushed, and decided again if that changed. */
+    const to = (x: number) => {
+      const decided = decideGesture(s, o, { x, y: 60 }).decision;
+      return pushEdge(s, o) ? decideGesture(s, o, { x, y: 60 }).decision : decided;
+    };
     return { o, s, to, calls, scene: () => scene };
   };
 
-  it("holds at the side, and says so while the pointer goes on past it", () => {
-    const { o, s, to, calls } = pushable();
+  it("holds at the side, and washes the margins in faintly while the pointer goes on past it", () => {
+    const { s, to, calls } = pushable();
     expect(to(660)).toEqual({ kind: "move", dx: 10, dy: 0 });
-    expect(pushEdge(s, o)).toBe(false);
     expect(to(700)).toEqual({ kind: "move", dx: 20, dy: 0 });
-    expect(s.push).toBe(30);
-    expect(pushEdge(s, o)).toBe(false);
-    expect(calls).toEqual(["free", "held"]);
+    expect([s.push, s.side]).toEqual([30, 1]);
+    expect(calls).toEqual(["wash:null", "wash:held"]);
   });
 
-  it("turns the band wide past the push, and the drag goes on into the margin", () => {
-    const { o, s, to, calls, scene } = pushable();
-    to(670 + WIDEN_PUSH + 1);
-    expect(pushEdge(s, o)).toBe(true);
-    expect(scene().wide).toBe(true);
-    expect(calls).toEqual(["free", "begin", "setDiagram"]);
+  it("holds on under the threshold, however long the push", () => {
+    const { s, to } = pushable();
+    expect(to(670 + WIDEN_PUSH - 1)).toEqual({ kind: "move", dx: 20, dy: 0 });
+    expect(s.spilling).toBe(false);
+  });
+
+  it("lets the drag into the margin past the threshold, and deepens that side — the band itself unchanged", () => {
+    const { s, to, calls, scene } = pushable();
+    to(700);
+    expect(to(670 + WIDEN_PUSH)).toEqual({ kind: "move", dx: 20 + WIDEN_PUSH, dy: 0 });
+    expect(s.spilling).toBe(true);
     expect(to(800)).toEqual({ kind: "move", dx: 150, dy: 0 });
-  });
-
-  it("stays wide on a drop past the column, as one step with the move", () => {
-    const { o, s, to, calls, scene } = pushable();
-    to(800);
-    pushEdge(s, o);
-    o.store.dispatch([{ type: "move", ids: ["a"], dx: 150, dy: 0 }]);
-    settleWiden(s, o, { cancelled: false, landed: true });
-    expect(scene().wide).toBe(true);
-    expect(calls.slice(-2)).toEqual(["move", "commit"]);
-  });
-
-  it("folds back on a drop inside the column: it was only wide for the drag", () => {
-    const { o, s, to, calls, scene } = pushable();
-    to(800);
-    pushEdge(s, o);
-    o.store.dispatch([{ type: "move", ids: ["a"], dx: -100, dy: 0 }]);
-    settleWiden(s, o, { cancelled: false, landed: true });
     expect(scene().wide).toBeUndefined();
-    expect(calls.slice(-3)).toEqual(["move", "setDiagram", "commit"]);
+    expect(calls).toEqual(["wash:held", "wash:right", "wash:right"]);
   });
 
-  it("takes the widening back with a cancel, or when nothing landed inside the column", () => {
-    const cancelled = pushable();
-    cancelled.to(800);
-    pushEdge(cancelled.s, cancelled.o);
-    settleWiden(cancelled.s, cancelled.o, { cancelled: true, landed: false });
-    expect([cancelled.scene().wide, cancelled.calls.at(-1)]).toEqual([undefined, "abort"]);
-
-    const still = pushable();
-    still.to(800);
-    pushEdge(still.s, still.o);
-    settleWiden(still.s, still.o, { cancelled: false, landed: false });
-    expect([still.scene().wide, still.calls.at(-1)]).toEqual([undefined, "abort"]);
+  it("is let past only by a push still going out", () => {
+    const { s } = pushable();
+    // Past the threshold, but on the way back in.
+    s.push = WIDEN_PUSH + 20;
+    s.lastPush = WIDEN_PUSH + 40;
+    expect(spillNext(s)).toBe(false);
+    s.push = WIDEN_PUSH + 20;
+    expect(spillNext(s)).toBe(false);
+    // Out again.
+    s.push = WIDEN_PUSH + 21;
+    expect(spillNext(s)).toBe(true);
   });
 
-  it("never for a band with no way wider", () => {
-    const { o, s, to, calls } = pushable();
-    delete o.widen;
-    to(900);
-    expect(pushEdge(s, o)).toBe(false);
-    expect(calls).toEqual([]);
+  it("is held by the side again once brought back inside the column", () => {
+    const { s, to, calls } = pushable();
+    to(700);
+    to(800);
+    expect(to(660)).toEqual({ kind: "move", dx: 10, dy: 0 });
+    expect(s.spilling).toBe(false);
+    expect(calls.at(-1)).toBe("wash:null");
+    // And has to be pushed the whole way again.
+    expect(to(670 + WIDEN_PUSH - 1)).toEqual({ kind: "move", dx: 20, dy: 0 });
+  });
+
+  it("turns the band wide on a drop in the margin, as one step with the move", () => {
+    const { o, s, to, calls, scene } = pushable();
+    to(700);
+    to(800);
+    calls.length = 0;
+    expect(landGesture(o, [{ type: "move", ids: ["a"], dx: 150, dy: 0 }], s.spilling)).toBe(true);
+    expect(scene().wide).toBe(true);
+    expect(calls).toEqual(["begin", "move", "setDiagram", "commit"]);
+  });
+
+  it("stays in the column on a drop inside it", () => {
+    const { o, calls, scene } = pushable();
+    expect(landGesture(o, [{ type: "move", ids: ["a"], dx: 10, dy: 0 }], false)).toBe(true);
+    expect(scene().wide).toBeUndefined();
+    expect(calls).toEqual(["begin", "move", "commit"]);
+  });
+
+  it("lets a resize past the side the same way", () => {
+    const { s, to } = pushable("e");
+    expect(to(760)).toEqual({ kind: "resize", dx: 20, dy: 0 });
+    expect(to(720 + WIDEN_PUSH)).toEqual({ kind: "resize", dx: 20 + WIDEN_PUSH, dy: 0 });
+    expect([s.spilling, s.side]).toEqual([true, 1]);
+  });
+
+  it("never for a band with no margins to open", () => {
+    const { o } = pushable();
+    delete o.wideBand;
+    const s = createGestureSession(o, press(650, 60), "move", null)!;
+    expect(s.spill).toBeNull();
+    expect(spillNext(s)).toBe(false);
+  });
+});
+
+
+describe("the rubber band at a column band's side", () => {
+  it("gives less for every px further, and never reaches its reach", () => {
+    expect(elasticGive(0)).toBe(0);
+    expect(elasticGive(-10)).toBe(0);
+    const at = [4, 10, 20, 40, 80, 400].map((x) => elasticGive(x));
+    for (let i = 1; i < at.length; i++) expect(at[i]).toBeGreaterThan(at[i - 1]);
+    expect(at[0]).toBeCloseTo(ELASTIC_R * (1 - Math.exp(-4 / ELASTIC_R)), 12);
+    expect(at.at(-1)!).toBeLessThan(ELASTIC_R);
+    // Creeps at first: almost one for one; then hardly at all.
+    expect(elasticGive(1)).toBeGreaterThan(0.9);
+    expect(elasticGive(81) - elasticGive(80)).toBeLessThan(0.01);
+  });
+
+  it("stretches with the give, never past the stretch it allows", () => {
+    expect(elasticStretch(0)).toBe(1);
+    expect(elasticStretch(20)).toBeCloseTo(1 + (ELASTIC_STRETCH * elasticGive(20)) / ELASTIC_R, 12);
+    expect(elasticStretch(1e6)).toBeLessThan(1 + ELASTIC_STRETCH + 1e-9);
+    expect(elasticStretch(10)).toBeLessThan(elasticStretch(30));
+  });
+
+  it("is a hard stop, then a give, then a snap over — the phases in order", () => {
+    expect(0 < HOLD_PUSH && HOLD_PUSH < WIDEN_PUSH).toBe(true);
+  });
+
+  it("is drawn only by a move held at a column band's side past the hard stop, and let go once past it", () => {
+    const d = diagram([rect("n", 600, 100, 100, 50)]);
+    const o = { ...d.o, wideBand: () => ({ minX: -240, maxX: 960 }) };
+    const s = createGestureSession(o, press(650, 125), "move", null)!;
+    // 20 of room to the side: a push of 30 is still the hard stop, one of 80 is 48 into the give.
+    decideGesture(s, o, { x: 700, y: 125 });
+    expect([s.push, pullOf(s)]).toEqual([30, 0]);
+    decideGesture(s, o, { x: 750, y: 125 });
+    expect([s.push, pullOf(s)]).toEqual([80, 80 - HOLD_PUSH]);
+    decideGesture(s, o, { x: 580, y: 125 });
+    expect(pullOf(s)).toBe(0);
+    s.spilling = true;
+    decideGesture(s, o, { x: 700, y: 125 });
+    expect(pullOf(s)).toBe(0);
+    s.spilling = false;
+    s.calm = true;
+    expect(pullOf(s)).toBe(0);
   });
 });

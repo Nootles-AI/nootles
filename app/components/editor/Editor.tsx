@@ -82,6 +82,9 @@ import { PageMentionMenu, SlashMenu } from "./SlashMenu";
 import * as Icon from "../Icons";
 import { ReadOnlyContext, useReadOnly } from "./readOnly";
 import { usePageCanvas } from "./canvas/page/PageCanvas";
+import { WIDE_DIAGRAM_SOURCE } from "./canvas/scene/bandSpan";
+import { bearDiagram, type BirthEditor } from "./canvas/page/birth";
+import { filterItems } from "./slashRank";
 import { useAttachCommentsEditor } from "../comments/editorSlot";
 import { trailingParagraphExtension } from "./trailingParagraph";
 import { inlineShortcutsExtension } from "./inlineShortcutsExtension";
@@ -192,45 +195,6 @@ function groupAdjacent(
   );
 }
 
-function filterItems(
-  items: DefaultReactSuggestionItem[],
-  query: string,
-): DefaultReactSuggestionItem[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return items;
-  // An item NAMED what was typed outranks one that merely answers to it —
-  // "/media" must land on Media, not on the first thing with a "media" alias.
-  // Ranking moves whole groups (by their best item), never items across
-  // groups, so each group stays one contiguous — one-keyed — section.
-  const score = (i: DefaultReactSuggestionItem): number =>
-    i.title.toLowerCase().startsWith(q)
-      ? 0
-      : i.title.toLowerCase().includes(q)
-        ? 1
-        : i.aliases?.some((a) => a.toLowerCase().includes(q))
-          ? 2
-          : 3;
-  const kept = items
-    .map((item, index) => ({ item, index, score: score(item) }))
-    .filter((e) => e.score < 3);
-  const groupBest = new Map<string | undefined, number>();
-  const groupOrder = new Map<string | undefined, number>();
-  for (const e of kept) {
-    const g = e.item.group;
-    groupBest.set(g, Math.min(groupBest.get(g) ?? 3, e.score));
-    if (!groupOrder.has(g)) groupOrder.set(g, groupOrder.size);
-  }
-  return kept
-    .sort(
-      (a, b) =>
-        groupBest.get(a.item.group)! - groupBest.get(b.item.group)! ||
-        groupOrder.get(a.item.group)! - groupOrder.get(b.item.group)! ||
-        a.score - b.score ||
-        a.index - b.index,
-    )
-    .map((e) => e.item);
-}
-
 /**
  * What a command is FOR, which is what someone reaching for one is thinking.
  *
@@ -263,6 +227,18 @@ function tidyBadge(badge?: string): string | undefined {
  * completes, so every turn-into reads as one numbered series.
  */
 const badgeFor = (key: string) => tidyBadge(formatKeyboardShortcut(key));
+
+/**
+ * A diagram from the slash menu: a block of its own, in place of the line when
+ * that is empty (see `canvas/page/birth.ts` for why never the line itself),
+ * selected as a block so Enter, ↓ and ⌫ act on it.
+ */
+function slashDiagram(editor: EditorInstance, data: string) {
+  const at = editor.getTextCursorPosition().block;
+  const id = bearDiagram(editor as unknown as BirthEditor, at.id, data);
+  blockSelection(editor).select([id]);
+  track("block_created", { type: "canvas" });
+}
 
 /**
  * Every "/" command, in intent order, each carrying one of our own icons.
@@ -377,13 +353,15 @@ export function slashItems(editor: EditorInstance): DefaultReactSuggestionItem[]
       aliases: ["diagram", "canvas", "draw", "flowchart", "board", "graph"],
       group: INSERT,
       icon: <Icon.Diagram />,
-      onItemClick: () => {
-        const block = editor.getTextCursorPosition().block;
-        editor.updateBlock(block, { type: "canvas", props: { data: "" } });
-        // Selected as a block, so Enter, ↓ and ⌫ act on the diagram just made.
-        blockSelection(editor).select([block.id]);
-        track("block_created", { type: "canvas" });
-      },
+      onItemClick: () => slashDiagram(editor, ""),
+    },
+    {
+      title: "Wide canvas",
+      subtext: "A diagram reaching past the text on both sides",
+      aliases: ["wide", "wide canvas", "wide diagram", "wide board", "widecanvas"],
+      group: INSERT,
+      icon: <Icon.WideDiagram />,
+      onItemClick: () => slashDiagram(editor, WIDE_DIAGRAM_SOURCE),
     },
     {
       title: "Storyboard",

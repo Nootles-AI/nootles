@@ -1,10 +1,13 @@
 import { DOMParser } from "linkedom";
 import { duringAiApply } from "@/app/lib/debugRing";
 import { describe, expect, it } from "vitest";
-import { BAND, bandFloor, bandHeight } from "../scene/band";
+import { BAND, bandFloor, bandHeight, EMPTY_BAND_H, wideOps } from "../scene/band";
+import { WIDE_DIAGRAM_SOURCE } from "../scene/bandSpan";
+import type { SceneNode } from "../scene/types";
 import { laidOutScene } from "../scene/autoLayout";
 import { edgePoints } from "../scene/edgePath";
 import { readCanvasSource } from "../scene/migrate";
+import { serializeScene } from "../scene/serialize";
 import { frameReader, SceneStore, type SceneHistoryEvent } from "./useScene";
 
 // The store parses diagram HTML, and this environment has no DOM.
@@ -71,13 +74,12 @@ describe("a band's store raises its height to hold a local edit", () => {
     expect(store.canUndo()).toBe(false);
   });
 
-  it("never pins an unpinned band: it is drawn at its floor, both ways", () => {
-    const loose = `<nt-diagram><nt-rect id="a" x="40" y="40" w="100" h="60"></nt-rect></nt-diagram>`;
-    const store = new SceneStore(loose, undefined, true);
+  it("never shrinks on its own: content moved up leaves the height it raised", () => {
+    const store = new SceneStore(band, undefined, true);
     store.dispatch({ type: "move", ids: ["a"], dx: 0, dy: 300 });
-    expect([store.getScene().h, bandHeight(store.getScene())]).toEqual([0, 340 + 60 + BAND]);
+    expect(store.getScene().h).toBe(340 + 60 + BAND);
     store.dispatch({ type: "move", ids: ["a"], dx: 0, dy: -300 });
-    expect([store.getScene().h, bandHeight(store.getScene())]).toEqual([0, 40 + 60 + BAND]);
+    expect([store.getScene().h, bandHeight(store.getScene())]).toEqual([340 + 60 + BAND, 340 + 60 + BAND]);
   });
 });
 
@@ -130,7 +132,48 @@ describe("a wide band folds back to the column once nothing uses its margins", (
     expect(store.getScene().wide).toBe(true);
   });
 
-  it("never on turning Wide on by hand — it waits for the next edit", () => {
+  it("never for a band pinned wide, whatever its margins hold", () => {
+    const pinned = wide.replace(" wide>", ' wide="pinned">');
+    const store = new SceneStore(pinned, undefined, true);
+    store.dispatch({ type: "move", ids: ["m"], dx: 400, dy: 0 });
+    expect(store.getScene().wide).toBe("pinned");
+    store.begin();
+    store.dispatch({ type: "move", ids: ["a"], dx: 10, dy: 0 });
+    store.commit();
+    expect(store.getScene().wide).toBe("pinned");
+  });
+
+  it("a drag's widening never unpins a pinned band, and the column clears the pin", () => {
+    const pinned = wide.replace(" wide>", ' wide="pinned">');
+    const store = new SceneStore(pinned, undefined, true);
+    store.dispatch([{ type: "move", ids: ["a"], dx: -300, dy: 0 }, { type: "setDiagram", wide: true }]);
+    expect(store.getScene().wide).toBe("pinned");
+    store.dispatch({ type: "setDiagram", wide: false });
+    expect(store.getScene().wide).toBeUndefined();
+  });
+
+  it("the slash menu's wide canvas is born pinned, and stays wide through an edit with empty margins", () => {
+    const store = new SceneStore(WIDE_DIAGRAM_SOURCE, undefined, true);
+    expect([store.getScene().wide, store.getScene().h]).toEqual(["pinned", EMPTY_BAND_H]);
+    store.dispatch({
+      type: "insert",
+      nodes: [{ id: "a", kind: "rect", x: 40, y: 24, w: 100, h: 60, rot: 0, style: {}, label: "", locked: false, hidden: false, attrs: {} } as SceneNode],
+    });
+    expect(store.getScene().wide).toBe("pinned");
+    expect(serializeScene(store.getScene())).toMatch(/^<nt-diagram h="\d+" wide="pinned">/);
+  });
+
+  it("the panel's Wide pins, and an edit leaving the margins empty keeps it wide", () => {
+    const narrow = `<nt-diagram h="200"><nt-rect id="a" x="40" y="40" w="100" h="60"></nt-rect></nt-diagram>`;
+    const store = new SceneStore(narrow, undefined, true);
+    store.dispatch(wideOps(store.getScene(), true, null));
+    expect(store.getScene().wide).toBe("pinned");
+    store.dispatch({ type: "move", ids: ["a"], dx: 10, dy: 0 });
+    expect(store.getScene().wide).toBe("pinned");
+    expect(serializeScene(store.getScene())).toContain(' wide="pinned"');
+  });
+
+  it("never on the edit that widened it for what it holds — it waits for the next edit", () => {
     const narrow = `<nt-diagram h="200"><nt-rect id="a" x="40" y="40" w="100" h="60"></nt-rect></nt-diagram>`;
     const store = new SceneStore(narrow, undefined, true);
     store.dispatch({ type: "setDiagram", wide: true });

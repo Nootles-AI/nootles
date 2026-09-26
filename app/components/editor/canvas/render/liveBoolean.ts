@@ -1,4 +1,4 @@
-import { clipperReady, derivedPath, withFrames, type LiveBox } from "../scene/boolean";
+import { clipperReady, derivedPath, operandsPath, withFrames, type LiveBox } from "../scene/boolean";
 import { findNode, isBoolean, nodePath, type NodeId, type Scene } from "../scene/types";
 
 /**
@@ -9,8 +9,9 @@ import { findNode, isBoolean, nodePath, type NodeId, type Scene } from "../scene
  * not exist. What should move is the cut. So the gesture hands over the boxes
  * it is holding this frame, the group is rebuilt with those boxes in it, the
  * same derivation the renderer uses runs again, and the `d` is written back.
- * React overwrites it on the commit that follows — this only has to be right
- * until then.
+ * It must not outlive the gesture — React rewrites a `d` only when its own
+ * value changes, and a cancel changes none — so {@link settleBooleans} puts
+ * the committed scene's cut back the moment the gesture ends.
  *
  * Only the outermost boolean ancestor has an element: everything inside it is
  * folded into that one drawing, so that is the one path to rewrite.
@@ -47,5 +48,17 @@ export function reflowBooleans(live: LiveBooleans | null, scene: Scene, frames: 
     if (!group || !isBoolean(group)) continue;
     const d = derivedPath(withFrames(group, byId));
     if (d !== null && path.getAttribute("d") !== d) path.setAttribute("d", d);
+  }
+}
+
+/** Each drawing a gesture cut live, back to the committed scene's own cut. */
+export function settleBooleans(live: LiveBooleans | null, scene: Scene): void {
+  if (!live?.groups.length || !clipperReady()) return;
+  for (const { id, path } of live.groups) {
+    const group = findNode(scene, id);
+    if (!group || !isBoolean(group)) continue;
+    // As `ShapeView` draws it.
+    const d = derivedPath(group) ?? operandsPath(group);
+    if (path.getAttribute("d") !== d) path.setAttribute("d", d);
   }
 }

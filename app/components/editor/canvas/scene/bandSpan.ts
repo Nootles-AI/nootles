@@ -14,10 +14,17 @@ export const WIDE_W = 1200;
 export const WIDE_MARGIN = (WIDE_W - COLUMN_WIDTH) / 2;
 
 /** The band's left edge in scene px: the column's, or the wide margin past it. */
-export function bandLeft(scene: { wide?: boolean }): number {
+export function bandLeft(scene: { wide?: boolean | "pinned" }): number {
   return scene.wide ? -WIDE_MARGIN : 0;
 }
 
-export function bandWidth(scene: { wide?: boolean }): number {
+export function bandWidth(scene: { wide?: boolean | "pinned" }): number {
   return scene.wide ? WIDE_W : COLUMN_WIDTH;
 }
+
+/**
+ * A new, empty diagram that is wide because it was asked to be — pinned, so it
+ * stays wide while its margins are still empty. Its height is its floor's,
+ * given it on the first read.
+ */
+export const WIDE_DIAGRAM_SOURCE = '<nt-diagram wide="pinned"></nt-diagram>';

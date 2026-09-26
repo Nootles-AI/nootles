@@ -208,21 +208,26 @@ try {
     await drag(centre(await at("heightGrip", "bottom")), 0, 100);
     let now = await still();
     check("a grip dragged down leaves the band's top and shapes where they were", [near(now.band, rest.band), near(now.shape, rest.shape)], [true, true]);
-    check("and pins the height it was dragged to", await at("height", "bottom"), 280);
+    check("and sets the height it was dragged to", await at("height", "bottom"), 280);
 
-    // Pinned with room to spare, the band offers to follow its content again.
+    // With room to spare below the drawing, the band offers to fit its content.
     const offer = await at("autoOffer", "bottom");
-    check("a pin with room below the drawing offers auto height", !!offer, true);
+    check("room below the drawing offers auto height", !!offer, true);
     await page.mouse.click(...Object.values(centre(offer.go)));
     await frame();
     now = await still();
-    check("auto height lets go of the pin", await at("height", "bottom"), 0);
-    check("and the band draws at what it holds", (await at("band", "bottom")).height, 40 + 70 + 24);
+    check("auto height sets the height the content needs", await at("height", "bottom"), 40 + 70 + 24);
+    check("and the band draws at it", (await at("band", "bottom")).height, 40 + 70 + 24);
     check("its top and shapes still where they were", [near(now.band, rest.band), near(now.shape, rest.shape)], [true, true]);
-    check("and the offer goes with the pin", await at("autoOffer", "bottom"), null);
+    check("and the offer goes with the room", await at("autoOffer", "bottom"), null);
+    await at("undo");
+    await frame();
+    check("one undo gives the room back", await at("height", "bottom"), 280);
+    await at("redo");
+    await frame();
     await drag(centre(await at("heightGrip", "bottom")), 0, 60);
     const again = await at("autoOffer", "bottom");
-    check("a new pin offers it again", !!again, true);
+    check("a new height with room offers it again", !!again, true);
     await page.mouse.click(...Object.values(centre(again.dismiss)));
     await frame();
     check("× puts the offer away and keeps the height", [await at("autoOffer", "bottom"), (await at("height", "bottom")) > 134], [null, true]);
@@ -235,6 +240,9 @@ try {
     now = await still();
     check("a band grown by a drag keeps its top where it was", near(now.band, rest.band), true);
     check("and the shape landed where the pointer let it go", near(now.shape - grab.top, 150), true);
+    const grownTo = await at("height", "bottom");
+    await drag(centre(await at("shape", "bottom", "b1")), 0, -150);
+    check("dragged back up, the band keeps the height it grew to — it never shrinks on its own", await at("height", "bottom"), grownTo);
     // And with the band's top cut off by the pane's: the band holds its place
     // rather than whatever of the page happens to sit below it.
     await at("bandTopAt", "bottom", -60);
@@ -256,8 +264,10 @@ try {
     await frame();
 
     // ---- Past the column's side ----------------------------------------------
-    // A shape held at the side washes both margins in; pushed on, the band turns
-    // wide for the drag, and stays wide only if the drop is past the column.
+    // A shape held at the side washes both margins in, faintly; pushed on — well
+    // past, and still outward — the drag goes on into the margin, over the
+    // page, and that side's wash deepens. The band never changes under the
+    // hand: it turns wide on the drop, and only if the drop is past the column.
     const pushTo = async (dxs, { escape = false } = {}) => {
       const from = centre(await at("shape", "top", "a2"));
       const seen = [];
@@ -266,46 +276,205 @@ try {
       for (const dx of dxs) {
         await page.mouse.move(from.x + dx, from.y, { steps: 6 });
         await frame();
-        seen.push({ edge: await at("edge", "top"), wide: await at("wide", "top") });
+        // A spring out past the side plays out before the shape is measured.
+        await page.waitForFunction(() => document.getAnimations().every((a) => a.id !== "nt-snap"));
+        const shape = await at("shape", "top", "a2");
+        seen.push({ wash: await at("wash", "top"), wide: await at("wide", "top"), pulse: await at("pulse", "top"), left: shape.left, right: shape.left + shape.width });
       }
       if (escape) await page.keyboard.press("Escape");
       await page.mouse.up();
       await frame();
       return seen;
     };
-    // a2 is 420…540 across: 180px of room to the column's side.
+    const within = (a, b, tol = 0.5) => Math.abs(a - b) <= tol;
+    const sameRects = (a, b) =>
+      Object.keys(a).length === Object.keys(b).length &&
+      Object.entries(a).every(([id, r]) => b[id] && ["left", "top", "width", "height"].every((k) => within(r[k], b[id][k])));
+    // a2 is 420…540 across: 180px of room to the column's side, at 100%.
+    const a2 = await at("shape", "top", "a2");
     let seen = await pushTo([200]);
-    check("held at the column's side, the margins wash in", seen[0], { edge: true, wide: false });
+    check("held at the column's side, the margins wash in faintly", [seen[0].wash, seen[0].wide], ["held", false]);
     check("and let go inside the column, it moves no further than the side", [await at("wide", "top"), (await at("model", "top", "a2")).x], [false, 600]);
-    check("and the wash goes", await at("edge", "top"), false);
+    check("and the wash goes", await at("wash", "top"), null);
     await at("undo");
     await frame();
 
-    seen = await pushTo([200, 260, 330]);
-    check("pushed past the side, the band turns wide under the drag", seen.map((s) => s.wide), [false, true, true]);
+    seen = await pushTo([200, 260]);
+    check("pushed on, but short of the threshold, the side still holds it", [seen.map((s) => s.wash), (await at("model", "top", "a2")).x, await at("wide", "top")], [["held", "held"], 600, false]);
+    // A hard stop at the side first; then it gives a little toward the pull —
+    // less the further it goes — and stretches a touch.
+    await at("undo");
+    await frame();
+    const side = a2.left + 180;
+    seen = await pushTo([200, 240, 270]);
+    const gave = seen.map((s) => s.left - side);
+    check("just past the side, a hard stop: the shape does not move", [Math.abs(gave[0]) <= 0.5, Math.abs(seen[0].right - seen[0].left - a2.width) <= 0.5], [true, true]);
+    check("pushed on, it gives a little, never the rubber band's reach", gave.slice(1).map((g) => g > 0.5 && g < 14), [true, true]);
+    check("and gives less for each px further", gave[2] - gave[1] < gave[1], true);
+    check("stretching a touch, never out into the margin", seen.slice(1).map((s) => s.right - (side + a2.width) < 14 + 0.04 * a2.width + 0.5 && s.right - s.left > a2.width), [true, true]);
+    await at("undo");
+    await frame();
+
+    const columnRects = await at("rects", "top");
+    seen = await pushTo([200, 300, 330]);
+    check("pushed well past, the side it goes into deepens — and the band stays in the column", seen.map((s) => [s.wash, s.wide]), [["held", false], ["right", false], ["right", false]]);
+    check("and the shape follows the pointer into the margin", within(seen[2].left, a2.left + 330, 1), true);
+    check("the side turning deep pulses once as it does; the faint one does not", [seen[0].pulse, seen[2].pulse], [["none", "none"], ["none", "nt-widen-pulse"]]);
     const landed = await at("frameOf", "top", "a2");
-    check("and the drop in the margin keeps it wide", [await at("wide", "top"), landed.x + landed.w > 720], [true, true]);
+    check("let go in the margin, the band turns wide", [await at("wideKind", "top"), landed.x + landed.w > 720], [true, true]);
+    const framesShape = async () => {
+      const f = await at("frameRect", "top");
+      const r = await at("shape", "top", "a2");
+      return !!f && ["left", "top", "width", "height"].every((k) => within(f[k], r[k], 1));
+    };
+    check("and the selection frame is on the shape at once, the pointer still", await framesShape(), true);
+    check("and nothing that stayed put moved a pixel", sameRects({ a1: columnRects.a1 }, { a1: (await at("rects", "top")).a1 }), true);
     await at("undo");
     await frame();
     check("one undo takes the move and the widening back", [await at("wide", "top"), (await at("model", "top", "a2")).x], [false, 420]);
+    check("and every shape is where it was on screen", sameRects(columnRects, await at("rects", "top")), true);
 
-    seen = await pushTo([200, 260, 100]);
-    check("pushed past and brought back inside", seen.map((s) => s.wide), [false, true, true]);
+    seen = await pushTo([200, 300, 100]);
+    check("pushed past and brought back inside, the side holds it again", seen.map((s) => s.wash), ["held", "right", null]);
     check("the drop inside the column leaves the band in the column", await at("wide", "top"), false);
     const inside = await at("frameOf", "top", "a2");
     check("with the shape where it was dropped", [inside.x > 420, inside.x + inside.w <= 720], [true, true]);
     await at("undo");
     await frame();
 
-    seen = await pushTo([200, 260, 215]);
+    seen = await pushTo([200, 300, 215]);
     const straddling = await at("frameOf", "top", "a2");
-    check("dropped across the column's side, the band stays wide", [await at("wide", "top"), straddling.x < 720 && straddling.x + straddling.w > 720], [true, true]);
+    check("dropped across the column's side, the band turns wide", [await at("wide", "top"), straddling.x < 720 && straddling.x + straddling.w > 720], [true, true]);
     await at("undo");
     await frame();
 
-    seen = await pushTo([200, 260], { escape: true });
-    check("Escape after the push puts the band back in the column", [await at("wide", "top"), (await at("model", "top", "a2")).x], [false, 420]);
+    seen = await pushTo([200, 300], { escape: true });
+    check("Escape after the push leaves the band in the column", [await at("wide", "top"), (await at("model", "top", "a2")).x, await at("wash", "top")], [false, 420, null]);
     await at("clear");
+
+    // ---- One scale, wide or not -----------------------------------------------
+    // A wide band is drawn at the text's scale, as a column one is, and shows as
+    // much of its margins as the pane has room for: turning it wide or back —
+    // from the panel, by a drop in a margin, or with the pen below — moves
+    // nothing already drawn, at a pane too narrow for the whole wide band and
+    // at one wide enough.
+    const paneContent = () =>
+      page.evaluate(() => {
+        const pane = document.querySelector(".nt-pane");
+        const style = getComputedStyle(pane);
+        return pane.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      });
+    const toggles = async (label) => {
+      const before = await at("rects", "top");
+      const origin = await at("origin", "top");
+      await at("setDiagram", "top", { wide: true });
+      await frame();
+      check(`${label}: Wide from the panel pins the band`, await at("wideKind", "top"), "pinned");
+      check(`${label}: and moves no shape`, sameRects(before, await at("rects", "top")), true);
+      const wideOrigin = await at("origin", "top");
+      check(`${label}: nor the text's edge, nor the scale`, [within(wideOrigin.x, origin.x), within(wideOrigin.y, origin.y), wideOrigin.scale], [true, true, origin.scale]);
+      const pane = await paneContent();
+      const shown = Math.min(1200, Math.max(720, (pane - 48) / origin.scale));
+      check(`${label}: the wide band shows what the pane has room for`, within(await at("bandWidth", "top"), shown, 1), true);
+      await at("setDiagram", "top", { wide: false });
+      await frame();
+      check(`${label}: and back to the column moves nothing either`, [await at("wide", "top"), sameRects(before, await at("rects", "top"))], [false, true]);
+      return shown;
+    };
+    const narrowShown = await toggles("a pane narrower than the wide band");
+    check("which is narrower than the whole wide band here", narrowShown < 1200, true);
+
+    // Margin shapes: shown where the pane has room, clipped where it has none.
+    await at("setDiagram", "top", { wide: true });
+    await at("put", "top", "mNear", 730, 120, 40);
+    await at("put", "top", "mFar", 1200 - 240 - 50, 120, 40);
+    await frame();
+    const margin = (narrowShown - 720) / 2;
+    check("a shape in the shown margin is drawn", await at("visibleAt", "top", "mNear"), true);
+    check("one past what the pane shows is clipped", [margin < 190, await at("visibleAt", "top", "mFar")], [true, false]);
+    await page.setViewportSize({ width: 1500, height: 900 });
+    await frame();
+    await frame();
+    check("with room for the whole wide band, it is drawn too", await at("visibleAt", "top", "mFar"), true);
+    await at("dispatch", "top", [{ type: "remove", ids: ["mNear", "mFar"] }]);
+    await at("setDiagram", "top", { wide: false });
+    await frame();
+    check("the whole wide band where the pane has room", await toggles("a pane with room"), 1200);
+    await page.setViewportSize({ width: 1100, height: 900 });
+    await frame();
+    await frame();
+
+    // ---- Wide pinned, and wide for what it holds ------------------------------
+    await at("setDiagram", "top", { wide: true });
+    await at("dispatch", "top", [{ type: "move", ids: ["a1"], dx: 4, dy: 0 }]);
+    check("a band pinned wide stays wide with nothing in its margins", await at("wideKind", "top"), "pinned");
+    await drag(centre(await at("shape", "top", "a2")), -500, 0);
+    check("a drag into a pinned band's margin keeps the pin", [await at("wideKind", "top"), (await at("frameOf", "top", "a2")).x < 0], ["pinned", true]);
+    check("the selection frame is on it", await framesShape(), true);
+    // A fold into the column, or out, plays out on the scene layer; then the frame sits on the shape.
+    const played = async () => {
+      // A frame first: the panel's write renders, and its animation starts, after the call returns.
+      await frame();
+      await page.waitForFunction(() =>
+        [...document.querySelectorAll(".nt-canvas-scene")].every((el) => el.getAnimations().length === 0),
+      );
+    };
+    await at("setDiagram", "top", { wide: false });
+    check("the column clears the pin", await at("wideKind", "top"), null);
+    await played();
+    check("folded into the column from the panel, the selection frame follows the shape", await framesShape(), true);
+    await at("setDiagram", "top", { wide: true });
+    await played();
+    check("and out again", [await at("wideKind", "top"), await framesShape()], ["pinned", true]);
+    await at("setDiagram", "top", { wide: false });
+    await played();
+    await at("dispatch", "top", [
+      { type: "resize", frames: [{ id: "a1", x: 80, y: 40, w: 120, h: 70 }, { id: "a2", x: 420, y: 40, w: 120, h: 70 }] },
+      { type: "setDiagram", wide: false, h: 180 },
+    ]);
+    await at("clear");
+    await frame();
+
+    // ---- A connector across a change of width ---------------------------------
+    // A shape joined to one in the column, dragged in out of the margin: the
+    // band folds back to the column on the drop, and the connector is drawn
+    // from the committed scene — both ends on their shapes — then and a frame
+    // later. Dragged back out, the band turns wide and the same holds.
+    await at("dispatch", "top", [
+      { type: "setDiagram", wide: true },
+      { type: "insert", nodes: [{ id: "m1", kind: "rect", x: -200, y: 200, w: 100, h: 60, rot: 0, style: { background: "#d8e8c8" }, label: "", locked: false, hidden: false, attrs: {} }] },
+    ]);
+    await at("connect", "top", "e1", "a1", "m1");
+    await frame();
+    check("the connector starts drawn as routed", (await at("connector", "top", "e1"))?.asRouted, true);
+    await drag(centre(await at("shape", "top", "m1")), 400, 0);
+    check("dragged into the column, the band folds back", [await at("wide", "top"), (await at("frameOf", "top", "m1")).x], [false, 200]);
+    check("and the connector is the committed scene's route, end to end", await at("connector", "top", "e1"), { asRouted: true, from: 0, to: 0 });
+    await frame();
+    check("still, a frame later", await at("connector", "top", "e1"), { asRouted: true, from: 0, to: 0 });
+    {
+      const from = centre(await at("shape", "top", "m1"));
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      for (const dx of [-150, -320, -350]) {
+        await page.mouse.move(from.x + dx, from.y, { steps: 6 });
+        await frame();
+      }
+      await page.mouse.up();
+      await frame();
+    }
+    check("dragged back out past the side, the band turns wide", [await at("wideKind", "top"), (await at("frameOf", "top", "m1")).x], [true, -150]);
+    check("and the connector follows it, end to end", await at("connector", "top", "e1"), { asRouted: true, from: 0, to: 0 });
+    await frame();
+    check("still, a frame later ", await at("connector", "top", "e1"), { asRouted: true, from: 0, to: 0 });
+    await at("dispatch", "top", [
+      { type: "removeEdge", ids: ["e1"] },
+      { type: "remove", ids: ["m1"] },
+      { type: "resize", frames: [{ id: "a1", x: 80, y: 40, w: 120, h: 70 }, { id: "a2", x: 420, y: 40, w: 120, h: 70 }] },
+      { type: "setDiagram", wide: false, h: 180 },
+    ]);
+    await at("clear");
+    await frame();
 
     // ---- Folded into the column, and out again ------------------------------
     await at("setDiagram", "top", { wide: true });
@@ -329,6 +498,35 @@ try {
       { type: "resize", frames: [{ id: "a1", x: 80, y: 40, w: 120, h: 70 }, { id: "a2", x: 420, y: 40, w: 120, h: 70 }] },
       { type: "setDiagram", wide: false, h: 180 },
     ]);
+    await frame();
+  }
+
+  // ---- Snapping to the other diagrams ----------------------------------------
+  // A shape dragged in one diagram lines up with the shapes of the others, as
+  // one dragged across several does: b1's left edge brought within a few px
+  // of a1's, in the diagram above, lands on it — and draws the guide.
+  {
+    await at("clear");
+    // The fold and unfold just above play out first.
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll(".nt-canvas-scene")].every((el) => el.getAnimations().length === 0),
+    );
+    const a1 = await at("shape", "top", "a1");
+    const b1 = await at("shape", "bottom", "b1");
+    const reach = a1.left + 3 - b1.left;
+    await page.mouse.click(...Object.values(centre(b1)));
+    const guided = await drag(centre(b1), reach, 0, { hold: () => at("guiding", "bottom") });
+    const landed = await at("shape", "bottom", "b1");
+    check("a shape dragged near another diagram's shape snaps to it", [Math.round(landed.left - a1.left), (await at("model", "bottom", "b1")).x], [0, 80]);
+    check("and draws the guide while it is held there", guided, true);
+    await at("undo");
+    await frame();
+    await at("snapTarget", "diagrams", false);
+    await drag(centre(await at("shape", "bottom", "b1")), reach, 0);
+    check("with Other diagrams off, it goes where the pointer took it", (await at("model", "bottom", "b1")).x, 83);
+    await at("undo");
+    await at("snapTarget", "diagrams", true);
+    await at("clear");
     await frame();
   }
 
@@ -754,12 +952,15 @@ try {
     await page.mouse.move(below.left + below.width + 80, below.top + below.height / 2, { steps: 4 });
     await frame();
     const aside = await at("penDraft", up);
-    check("hovered in the margin, the margins wash in", await at("edge", up), true);
+    check("hovered in the margin, the side the next point widens into washes in deep", await at("wash", up), "right");
     check("and the rubber band reaches into it", !!aside && near(aside.left + aside.width, below.left + below.width + 80, 2), true);
+    const penOrigin = await at("origin", up);
     await page.mouse.click(below.left + below.width + 80, below.top + below.height / 2);
     await frame();
     const widened = await pathOf(up);
-    check("a point pressed in the margin turns the diagram wide", await at("wide", up), true);
+    check("a point pressed in the margin turns the diagram wide", await at("wideKind", up), true);
+    const widenedOrigin = await at("origin", up);
+    check("and moves nothing already drawn", [near(widenedOrigin.x, penOrigin.x, 0.5), near(widenedOrigin.y, penOrigin.y, 0.5), widenedOrigin.scale], [true, true, penOrigin.scale]);
     check("and lands there", widened.x + widened.w > 720 + 40, true);
     check("the wash goes with the margins", await at("edge", up), false);
     await page.keyboard.press("Enter");

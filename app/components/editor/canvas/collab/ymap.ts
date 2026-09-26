@@ -16,9 +16,8 @@ import { byOrder, keyBetween, keyForIndex } from "./order";
  * A diagram as CRDT structure: three Y.Maps under one root map in the page's
  * Y.Doc, named `canvas:<blockId>`.
  *
- *   "meta"   — the surface's own fields: `h` only when pinned (a frame's
- *              always is); `w` only when one is held (a band states none); `wide` only while set, never
- *              `false`; `style`, `attrs`, `id`
+ *   "meta"   — the surface's own fields: `h` always; `w` only when one is held (a band states none); `wide` only while set
+ *              (`true`, or `"pinned"`), never `false`; `style`, `attrs`, `id`
  *   "shapes" — NodeId → Y.Map of per-shape fields
  *   "edges"  — EdgeId → Y.Map of per-edge fields
  *   "mirror" — a stamp of the HTML last mirrored onto the block (binding.ts)
@@ -41,6 +40,11 @@ import { byOrder, keyBetween, keyForIndex } from "./order";
 
 const CANVAS_MAP = "canvas:";
 
+/**
+ * Never deleted, so an undone delete finds its diagram again — which is why a
+ * diagram is only ever born as a new block (`canvas/page/birth.ts`): an id that
+ * held one would hand its maps to the next.
+ */
 export const canvasMapName = (blockId: string) => `${CANVAS_MAP}${blockId}`;
 
 /** Whether a root type of the page's Y.Doc is a diagram's. */
@@ -179,8 +183,8 @@ function edgeFields(edge: SceneEdge, order: string): Record<string, unknown> {
 export function populateCanvas(root: Y.Map<unknown>, scene: Scene) {
   const meta = new Y.Map<unknown>();
   if (scene.w > 0) meta.set("w", scene.w);
-  if (scene.h > 0) meta.set("h", scene.h);
-  if (scene.wide) meta.set("wide", true);
+  meta.set("h", scene.h);
+  if (scene.wide) meta.set("wide", scene.wide);
   meta.set("style", { ...scene.style });
   meta.set("attrs", { ...scene.attrs });
   if (scene.id !== undefined) meta.set("id", scene.id);
@@ -210,6 +214,11 @@ export function populateCanvas(root: Y.Map<unknown>, scene: Scene) {
 // ---------------------------------------------------------------------------
 // Materialize — CRDT → Scene, sanitized and deterministic
 // ---------------------------------------------------------------------------
+
+/** A meta `wide` as the scene holds it: one value, so a pin and a toggle concurrent with it settle on one. */
+function wideIn(value: unknown): Pick<Scene, "wide"> {
+  return value === "pinned" ? { wide: "pinned" } : value === true ? { wide: true } : {};
+}
 
 /**
  * The scene as the CRDT currently says it, identical on every replica with
@@ -326,7 +335,7 @@ export function materializeCanvas(root: Y.Map<unknown>): Scene {
   return {
     w: (meta?.get("w") as number | undefined) ?? 0,
     h: (meta?.get("h") as number | undefined) ?? 0,
-    ...(meta?.get("wide") === true ? { wide: true as const } : {}),
+    ...wideIn(meta?.get("wide")),
     style: { ...((meta?.get("style") as StyleMap) ?? {}) },
     nodes: build(null),
     edges: edgeRows.map((r) => r.edge),
@@ -397,7 +406,7 @@ export function applySceneDiff(
   const edges = root.get("edges") as Y.Map<unknown>;
 
   if (prev.w !== next.w) setOrDelete(meta, "w", next.w > 0 ? next.w : undefined);
-  if (prev.h !== next.h) setOrDelete(meta, "h", next.h > 0 ? next.h : undefined);
+  if (prev.h !== next.h) meta.set("h", next.h);
   if (prev.wide !== next.wide) setOrDelete(meta, "wide", next.wide);
   if (!same(prev.style, next.style)) meta.set("style", { ...next.style });
   if (!same(prev.attrs, next.attrs)) meta.set("attrs", { ...next.attrs });

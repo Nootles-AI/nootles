@@ -129,12 +129,12 @@ Labels are 12-13px; a heading in a mockup can be larger.
 
 SIZE AND PLACEMENT
 The page is ${COLUMN_WIDTH}px wide. Body text is ${BODY_PX}px with a ${BODY_LEADING} line height (${BODY_PX * BODY_LEADING}px per line).
-A diagram is ${COLUMN_WIDTH} wide, or ${WIDE_W} when it has the bare wide attribute (it then spans
+A diagram is ${COLUMN_WIDTH} wide, or ${WIDE_W} when it has the wide attribute (it then spans
 x = ${-WIDE_MARGIN} … ${COLUMN_WIDTH + WIDE_MARGIN}, centred on the column). Shapes outside the width are scaled down to fit.
+A bare wide goes back to the column once an edit leaves nothing past x = 0 … ${COLUMN_WIDTH}; wide="pinned" keeps the
+diagram wide whatever it holds. Keep whichever the diagram was read with.
 x/y are px from the diagram's origin: the text's left edge, at the diagram's top.
-Leave ${BAND}px above the first shape. The diagram's height follows its content, growing and
-shrinking with it. Omit h, or leave it as read, and it keeps doing so; write a larger h only to
-add room below the lowest shape, which fixes the height there.
-A read shows w and h on <nt-diagram>: w is the page's width, never yours to write; h is the
-height it is drawn at.
+Leave ${BAND}px above the first shape. h is the diagram's height; content that needs more room
+raises it. Leave h out to fit the content.
+A read shows w on <nt-diagram>: it is the page's width, never yours to write.
 Keep 40px between things that are not related.`;

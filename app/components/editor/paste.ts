@@ -4,6 +4,7 @@ import { Plugin, TextSelection } from "prosemirror-state";
 import type { EditorView } from "prosemirror-view";
 import { blockAt, ownTextRange } from "./blockNav";
 import { diagramFromClipboard, isCanvasHtml } from "./canvas/engine/clipboard";
+import { bearDiagram, type BirthEditor } from "./canvas/page/birth";
 import { diagramPasted } from "./canvas/page/diagramKeys";
 
 type PasteHandler = NonNullable<
@@ -173,8 +174,7 @@ function pasteDiagram(editor: PasteEditor, html: string): boolean {
   const diagram = { type: "canvas", props: { data } } as const;
   let id: string;
   if (selection.empty && block.type === "paragraph" && text && text.start === text.end) {
-    editor.updateBlock(block, diagram);
-    id = block.id;
+    id = bearDiagram(editor as unknown as BirthEditor, block.id, data);
   } else {
     const before = selection.empty && text !== null && selection.from === text.start;
     id = editor.insertBlocks([diagram], block, before ? "before" : "after")[0].id;

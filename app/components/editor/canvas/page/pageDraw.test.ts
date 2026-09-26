@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { newNode } from "../render/newShape";
-import { BAND, bandFloor, bandHeight, WIDE_MARGIN } from "../scene/band";
+import { BAND, bandFloor, WIDE_MARGIN } from "../scene/band";
 import { emptyScene } from "../scene/migrate";
 import { applyOps } from "../scene/ops";
 import { landingIn, landOps, penPoint, pictureOps, placeNew, sceneFor, type BandBox, type BlockBox } from "./pageDraw";
@@ -98,8 +98,7 @@ describe("the diagram a draw on the page makes", () => {
     const { scene, nodeId } = sceneFor("rect", { x: 40, y: 500, w: 120, h: 60 });
     expect(scene.nodes).toHaveLength(1);
     expect(scene.nodes[0]).toMatchObject({ id: nodeId, x: 40, y: BAND, w: 120, h: 60 });
-    expect(scene.h).toBe(0);
-    expect(bandHeight(scene)).toBe(bandFloor(scene));
+    expect(scene.h).toBe(bandFloor(scene));
     expect(scene.wide).toBeUndefined();
   });
 

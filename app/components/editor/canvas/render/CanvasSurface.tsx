@@ -65,15 +65,17 @@ import { EdgeLayer } from "./EdgeLayer";
 import {
   prepareObstacles,
   reflowEdges,
+  settleEdges,
   type EdgeElements,
   type LiveObstacles,
 } from "./liveEdges";
-import { prepareBooleans, reflowBooleans, type LiveBooleans } from "./liveBoolean";
+import { prepareBooleans, reflowBooleans, settleBooleans, type LiveBooleans } from "./liveBoolean";
 import {
   isDoubleClick,
   useTransformGesture,
   type BandRange,
   type LiveFrame,
+  type MarginWash,
   type PointerLike,
   type Press,
   type TransformGestureOptions,
@@ -93,7 +95,8 @@ import {
 import { useViewport, type ViewportController } from "../engine/useViewport";
 import type { DiagramPatch } from "../panels/StylePanel";
 import { undoScope } from "@/app/lib/history/useWorkspaceHistory";
-import { effectiveScale, followFit } from "@/app/lib/columnScale";
+import { COLUMN_WIDTH } from "@/app/lib/column";
+import { effectiveScale, followFit, followWide, wideMarginOf } from "@/app/lib/columnScale";
 import {
   normalizeRect,
   toLocal,
@@ -119,7 +122,7 @@ import {
   type SceneOp,
   type StylePatch,
 } from "../scene/types";
-import { BAND, bandFloor, bandLeft, bandWidth, WIDE_MARGIN, WIDE_W, wideOps, type Fold } from "../scene/band";
+import { BAND, bandFloor, hasSlack, WIDE_MARGIN, wideOps, type Fold } from "../scene/band";
 import { sceneBlockHeight } from "../types";
 import { defaultBox, newNode, type DrawKind } from "./newShape";
 import { Overlay, type OverlayApi } from "./Overlay";
@@ -519,25 +522,31 @@ export function CanvasSurface({
   // with equal values.
   const inFrame = frame !== undefined;
   const scale = frame?.scale ?? 1;
-  const wide = !inFrame && scene.wide === true;
+  const wide = !inFrame && !!scene.wide;
   // A shot is drawn at whatever scale its column asks for, and a wide band's
-  // origin stays on the text's edge while the band reaches past it. Written
-  // through the viewport rather than as CSS on the wrapper so that every
-  // coordinate conversion the gestures and the overlay already do — which all
-  // run through `clientToScene` — stays correct, for free. A layout effect, so
-  // a wide toggle never paints a frame with the drawing still at the old origin.
-  const viewport = useViewport({ initial: { x: wide ? WIDE_MARGIN : 0, y: 0, zoom: scale } });
+  // origin stays on the text's edge while the band reaches past it — by the
+  // margin its page shows, which a resize of the pane changes. Written through
+  // the viewport rather than as CSS on the wrapper so that every coordinate
+  // conversion the gestures and the overlay already do — which all run
+  // through `clientToScene` — stays correct, for free.
+  const viewport = useViewport({ initial: { x: 0, y: 0, zoom: scale } });
   const wrap = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    viewport.set({ x: wide ? WIDE_MARGIN : 0, y: 0, zoom: scale });
-  }, [viewport, scale, wide]);
   // A band keeps its logical width and is scaled, text and all, to the column
-  // it stands in; a shot is sized by its board.
+  // it stands in — the same scale wide or not, so a toggle moves nothing that
+  // was already drawn; a shot is sized by its board. A layout effect, so a
+  // toggle never paints a frame with the drawing at the old origin.
   useLayoutEffect(() => {
     const el = wrap.current;
-    if (inFrame || !el) return;
-    return followFit(el, wide ? "wide" : "normal");
-  }, [inFrame, wide]);
+    if (inFrame || !el) {
+      viewport.set({ x: 0, y: 0, zoom: scale });
+      return;
+    }
+    if (!wide) {
+      viewport.set({ x: 0, y: 0, zoom: 1 });
+      return followFit(el);
+    }
+    return followWide(el, (margin) => viewport.set({ x: margin, y: 0, zoom: 1 }));
+  }, [viewport, scale, inFrame, wide]);
   // The scene store is what puts a selection back on undo; without it a
   // selection change is simply not in the history.
   const ownSelection = useSelectionStore(scene, store);
@@ -780,17 +789,27 @@ export function CanvasSurface({
     [containerRef],
   );
 
-  /** Unpinned: the band follows its content again — double-click on the grip. */
+  /** Back to the height the content needs — Auto height, or a double-click on the grip. */
   const fit = useCallback(() => {
-    if (store.getScene().h !== 0) setDiagram({ h: 0 });
+    const scene = store.getScene();
+    const floor = bandFloor(scene);
+    if (scene.h !== floor) setDiagram({ h: floor });
   }, [store, setDiagram]);
 
-  /** Where a band's content may go: its own width, and nothing above its top. */
-  const bandRange = useCallback(() => {
+  /**
+   * A wide band's range as far as the page shows it: a margin the pane clips
+   * is no place to put anything, since nobody could see it land there.
+   */
+  const shownWide = useCallback((): BandRange => {
+    const margin = wrap.current ? wideMarginOf(wrap.current) : WIDE_MARGIN;
+    return { minX: -margin, maxX: COLUMN_WIDTH + margin };
+  }, []);
+
+  /** Where a band's content may go: its own width as shown, and nothing above its top. */
+  const bandRange = useCallback((): BandRange | null => {
     if (inFrame) return null;
-    const minX = bandLeft(store.getScene());
-    return { minX, maxX: minX + bandWidth(store.getScene()) };
-  }, [store, inFrame]);
+    return store.getScene().wide ? shownWide() : { minX: 0, maxX: COLUMN_WIDTH };
+  }, [store, inFrame, shownWide]);
 
   /** A point held inside the band — a shape is never drawn off it. */
   const withinBand = useCallback(
@@ -823,15 +842,13 @@ export function CanvasSurface({
     [store, inFrame],
   );
   /**
-   * The height the gesture grew to, kept by the entry it lands as when the
-   * band is pinned — so a pinned band never springs back under a shape
-   * dragged down and then up again, and undo puts the old height back with
-   * the move. An unpinned band settles on what it holds.
+   * The height the gesture grew to, kept by the entry it lands as — so a band
+   * never springs back under a shape dragged down and then up again, and undo
+   * puts the old height back with the move.
    */
   const keepGrowth = useCallback(() => {
     const h = grown.current;
-    const pinned = store.getScene().h;
-    if (pinned > 0 && h > pinned) store.dispatch({ type: "setDiagram", h });
+    if (h > store.getScene().h) store.dispatch({ type: "setDiagram", h });
   }, [store]);
   /**
    * The band at the height its scene says, once a gesture is over. A cancel
@@ -845,14 +862,12 @@ export function CanvasSurface({
   }, [store]);
 
   /** The column band's two margins, washed in while a drag is held at its side. */
-  const pushing = useCallback((held: boolean) => {
-    const el = wrap.current;
-    if (el && el.hasAttribute("data-edge") !== held) tintMargins(el, held);
-  }, []);
-  const widen = useCallback((): BandRange => {
-    store.dispatch({ type: "setDiagram", wide: true });
-    return { minX: -WIDE_MARGIN, maxX: WIDE_W - WIDE_MARGIN };
-  }, [store]);
+  const pushing = useCallback((wash: MarginWash) => tintMargins(wrap.current, wash), []);
+  /** What a push past a column band's side opens: its margins, where the page shows any. */
+  const wideBand = useCallback((): BandRange | null => {
+    const range = shownWide();
+    return range.minX < -1 ? range : null;
+  }, [shownWide]);
 
   /**
    * What a gesture is allowed to assume for its whole duration: nothing
@@ -931,6 +946,19 @@ export function CanvasSurface({
   }, [store, sceneRef, drawnRect]);
 
   /**
+   * The connectors and boolean cuts back to what the committed scene draws,
+   * over whatever a gesture wrote to them live — derived, never measured.
+   */
+  const settleLive = useCallback(
+    (booleans: LiveBooleans | null) => {
+      const scene = store.getScene();
+      settleBooleans(booleans, scene);
+      settleEdges(sceneRef.current, laidOutScene(scene));
+    },
+    [store, sceneRef],
+  );
+
+  /**
    * Everything a gesture can move: the whole subtree of each top-level node the
    * selection reaches into. A hugging ancestor grows and its flow siblings
    * shift, and a reorder slides the shapes the dragged one passes — all of them
@@ -957,15 +985,20 @@ export function CanvasSurface({
   const snapExtra = useCallback((): SnapExtra => {
     const scene = store.getScene();
     if (inFrame) return { surface: { x: 0, y: 0, w: scene.w, h: scene.h } };
-    return { column: columnLines(scene.wide === true, sceneBlockHeight(scene)) };
-  }, [store, inFrame]);
+    // On a page, the page's answer: the column and every other diagram.
+    if (canvas && blockId && canvas.get(blockId)) {
+      return canvas.snapExtraFor(blockId, new Map([[blockId, ownSelection.getSnapshot().ids]]));
+    }
+    const margin = scene.wide && wrap.current ? wideMarginOf(wrap.current) : null;
+    return { column: columnLines(margin, sceneBlockHeight(scene)) };
+  }, [store, inFrame, canvas, blockId, ownSelection]);
 
   const gestureOptions: TransformGestureOptions = {
     store,
     clientToScene: viewport.clientToScene,
     screenScale: viewport.screenScale,
     band: bandRange,
-    widen: inFrame || wide ? undefined : widen,
+    wideBand: inFrame || wide ? undefined : wideBand,
     pushing,
     snapExtra,
     getSelection: () => ownSelection.getSnapshot().ids,
@@ -983,9 +1016,10 @@ export function CanvasSurface({
     },
     grow,
     onLand: keepGrowth,
-    // A cancelled gesture puts the transforms back without touching the scene,
-    // so nothing re-renders and the paths written above would stay stale. One
-    // frame later the DOM has settled either way.
+    // Whatever the frames wrote straight to the DOM goes back to what the scene
+    // says the moment the gesture is over — landed or cancelled, and whatever
+    // the landing did to the band — so nothing React draws is left under a
+    // stale write it has no reason to overwrite.
     onActiveChange: (active) => {
       if (active) {
         moveDidDrag.current = true;
@@ -999,14 +1033,12 @@ export function CanvasSurface({
         };
         return;
       }
+      const booleans = held.current?.booleans ?? null;
       held.current = null;
       liveFrames.current = NO_LIVE_FRAMES;
+      settleLive(booleans);
       tellLive();
       settleHeight();
-      requestAnimationFrame(() => {
-        reflowLive();
-        tellLive();
-      });
     },
   };
   const gesture = useTransformGesture(gestureOptions);
@@ -1702,13 +1734,14 @@ export function CanvasSurface({
   const holding = active || sel.ids.length > 0 || sel.edges.length > 0;
 
   /**
-   * A band pinned taller than it needs offers to follow its content again,
-   * until its × is pressed. The offer is back after the next resize, or once
-   * the diagram has been edited and let go; never stored.
+   * A band taller than it needs offers to fit its content again — the only
+   * way, besides the grip and the panel, it ever gets shorter — until its × is
+   * pressed. The offer is back after the next resize, or once the diagram has
+   * been edited and let go; never stored.
    */
   const [declined, setDeclined] = useState<Scene | null>(null);
   if (declined && declined !== scene && !holding) setDeclined(null);
-  const offersAuto = !readOnly && !frame && scene.h > bandFloor(scene) && !declined;
+  const offersAuto = !readOnly && !frame && hasSlack(scene) && !declined;
 
   const onGripDown = (event: ReactPointerEvent) => {
     const el = wrap.current;
@@ -1771,9 +1804,12 @@ export function CanvasSurface({
       style={
         frame
           ? { width: frame.w * frame.scale, height: frame.h * frame.scale }
-          : { width: bandWidth(scene), height }
+          : // A wide band's width is the page's to say (`followWide`).
+            { width: wide ? undefined : COLUMN_WIDTH, height }
       }
     >
+      {/* Under the viewport: a shape dragged into a margin is drawn over its wash. */}
+      {!readOnly && !frame && !wide && <div className="nt-canvas-margins" aria-hidden />}
       <div
         ref={containerRef}
         className="nt-canvas-viewport"
@@ -1893,8 +1929,6 @@ export function CanvasSurface({
           </button>
         )}
       </div>
-
-      {!readOnly && !frame && !wide && <div className="nt-canvas-margins" aria-hidden />}
 
       {offersAuto && (
         <div className="nt-canvas-autoh">

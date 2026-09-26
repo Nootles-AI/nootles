@@ -3,7 +3,7 @@ import { bandFloor, bandHeight, bandLeft, bandWidth, EPS, reachesMargins, WIDE_W
 import { leastMove } from "./bandRoom";
 import { unionBounds } from "./geometry";
 import { applyOps, reflowHugs } from "./ops";
-import type { Rect, Scene, SceneOp } from "./types";
+import type { Rect, Scene, SceneOp, Wide } from "./types";
 
 export {
   BAND,
@@ -22,9 +22,9 @@ export {
  * A diagram on the page is a band: the text column's width (or `WIDE_W` when
  * it is wide), with its origin at the text's left edge, and as tall as its
  * content plus a margin. The width is never stored — it follows from `wide`.
- * The height is stored only once someone pins it by dragging the band's
- * bottom edge: `h` is then a floor the content can still raise, and `0` —
- * written by omission — is a band that follows its content both ways.
+ * The height is stored, and never shrinks on its own: a local edit that needs
+ * more room raises it, and only the person — the grip, the panel's field,
+ * Auto height — brings it down.
  *
  * Storyboard frames are not bands. They keep their authored `w`/`h`, and
  * nothing here is ever asked about one.
@@ -47,16 +47,25 @@ function widenedByHand(scene: Pick<Scene, "w" | "attrs">): boolean {
   return scene.attrs["data-width"] === "fixed" && scene.w > COLUMN_WIDTH;
 }
 
-/** The least height an old root pinned by hand was drawn at. */
-const OLD_MIN_H = 260;
-
 /**
- * An old root's height as a band's: pinned where the person pinned it by
- * hand, and otherwise not at all — the band follows its content from here on,
- * as every unpinned band does.
+ * The height rule from before bands, frozen: an old diagram keeps at least the
+ * height it was drawn at, so no page gets shorter on the way over. A copy
+ * rather than a call, because the live rule is the band's now.
  */
-function oldPinnedHeight(scene: Scene): number {
-  return scene.attrs["data-height"] === "fixed" ? Math.max(OLD_MIN_H, scene.h) : 0;
+const OLD_MIN_H = 260;
+const OLD_MAX_H = 560;
+const OLD_PAD = 24;
+
+function oldRenderedHeight(scene: Scene): number {
+  if (scene.attrs["data-height"] === "fixed") return Math.max(OLD_MIN_H, scene.h);
+  if (!scene.nodes.length) return OLD_MIN_H;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const node of scene.nodes) {
+    minY = Math.min(minY, node.y);
+    maxY = Math.max(maxY, node.y + node.h);
+  }
+  return Math.round(Math.min(OLD_MAX_H, Math.max(OLD_MIN_H, maxY - minY + OLD_PAD)));
 }
 
 /**
@@ -94,11 +103,11 @@ function placement(scene: Scene, wide: boolean, maxW: number): { ops: SceneOp[];
 }
 
 /** The scene on a band root: no width, no hand-pinned size, `wide` as given. */
-function bandRoot(scene: Scene, h: number, wide: boolean): Scene {
+function bandRoot(scene: Scene, h: number, wide: Wide | undefined): Scene {
   const { wide: _wide, ...rest } = scene;
   const attrs = { ...scene.attrs };
   for (const name of LEGACY_ATTRS) delete attrs[name];
-  return { ...rest, w: 0, h, attrs, ...(wide ? { wide: true as const } : {}) };
+  return { ...rest, w: 0, h, attrs, ...(wide ? { wide } : {}) };
 }
 
 /**
@@ -108,50 +117,52 @@ function bandRoot(scene: Scene, h: number, wide: boolean): Scene {
  * An old root keeps its positions. It turns wide if it was widened by hand or
  * its content leaves the column; content past even the wide range, or above
  * the top, is moved in by the least amount (scaled first only when wider than
- * `WIDE_W`); and its height stays pinned only where it was pinned by hand. A
- * band root is already a band and comes back as it is.
+ * `WIDE_W`); and its height is the larger of what it was drawn at and what it
+ * now holds. A band root states its height, and only one that states none is
+ * given its floor.
  *
  * Pure, idempotent, and the same object back when nothing changes — the
  * collab binding and the stores compare scenes by identity. Frames never come
  * through here: a shot's root looks exactly like an old one.
  */
 export function normalizeDiagram(scene: Scene): Scene {
-  if (!isLegacyRoot(scene)) return scene;
+  if (!isLegacyRoot(scene)) return scene.h > 0 ? scene : { ...scene, h: bandFloor(scene) };
   const box = contentBox(scene);
   const wide =
-    scene.wide === true ||
+    !!scene.wide ||
     widenedByHand(scene) ||
     (box !== null && (box.x < -EPS || box.x + box.w > COLUMN_WIDTH + EPS));
   const { ops } = placement(scene, wide, WIDE_W);
   const placed = ops.length ? applyOps(scene, ops) : scene;
-  return bandRoot(placed, oldPinnedHeight(scene), wide);
+  return bandRoot(
+    placed,
+    Math.max(oldRenderedHeight(scene), bandFloor(placed)),
+    wide ? (scene.wide ?? true) : undefined,
+  );
 }
 
 /**
  * The ops that land a model-written diagram in its band: the stated width
  * dropped (a read-form echo of `w` must never reach storage), content wider
  * than the band scaled down about its top-left, then moved in by the least
- * amount. `wide` is kept, and an old root's hand-widened frame reads as wide.
+ * amount. `wide` is kept as written — pinned or not — and an old root's
+ * hand-widened frame reads as wide.
  *
- * A stated height pins the band only where it asks for room the content does
- * not: the read form states the height as drawn, so an echo of an unpinned
- * band's is its floor and leaves it unpinned, and a height at or under the
- * floor would pin nothing anyone could see. A pin the content has since grown
- * into is let go the same way — the band draws the same either side of it.
+ * The height is the one stated — scaled with the content — raised to hold
+ * what the band now draws; none stated is the content's own.
  *
  * Ops rather than a scene so `write_nodes` lands the fit through the same
  * vocabulary as the rest of its write. Never asked of a frame.
  */
 export function fitOps(scene: Scene): SceneOp[] {
-  const wide = scene.wide === true || widenedByHand(scene);
+  const wide = !!scene.wide || widenedByHand(scene);
   const { ops, k } = placement(scene, wide, bandWidth({ wide }));
   const placed = ops.length ? applyOps(scene, ops) : reflowHugs(scene);
-  const stated = k === 1 ? scene.h : Math.round(scene.h * k);
-  const h = stated > bandFloor(placed) ? stated : 0;
+  const h = Math.max(k === 1 ? scene.h : Math.round(scene.h * k), bandFloor(placed));
   const root: Extract<SceneOp, { type: "setDiagram" }> = { type: "setDiagram" };
   if (scene.w !== 0) root.w = 0;
   if (h !== scene.h) root.h = h;
-  if ((scene.wide === true) !== wide) root.wide = wide;
+  if (!!scene.wide !== wide) root.wide = wide;
   const pinned = LEGACY_ATTRS.filter((name) => name in scene.attrs);
   if (pinned.length) root.attrs = Object.fromEntries(pinned.map((name) => [name, undefined]));
   return Object.keys(root).length > 1 ? [...ops, root] : ops;
@@ -175,7 +186,8 @@ export function narrowOps(scene: Scene): SceneOp[] {
 /**
  * The ops that put back, exactly, the band that {@link narrowOps} folded into
  * `folded`: every shape and connector as it stood before, rather than a scale
- * back up that rounding would leave a hair off, and the band wide again.
+ * back up that rounding would leave a hair off, and the band wide again —
+ * pinned, since only the person asking for Wide unfolds.
  */
 export function unfoldOps(folded: Scene, before: Scene): SceneOp[] {
   const ops: SceneOp[] = [];
@@ -183,7 +195,7 @@ export function unfoldOps(folded: Scene, before: Scene): SceneOp[] {
   if (folded.nodes.length) ops.push({ type: "remove", ids: folded.nodes.map((node) => node.id) });
   if (before.nodes.length) ops.push({ type: "insert", nodes: before.nodes });
   if (before.edges.length) ops.push({ type: "addEdge", edges: before.edges });
-  ops.push({ type: "setDiagram", wide: true, h: before.h });
+  ops.push({ type: "setDiagram", wide: "pinned", h: before.h });
   return ops;
 }
 
@@ -191,15 +203,32 @@ export function unfoldOps(folded: Scene, before: Scene): SceneOp[] {
 export type Fold = { folded: Scene; before: Scene };
 
 /**
- * The ops that make a band wide or not, as the person asks: into the column,
- * a drawing reaching into the margins is folded ({@link narrowOps}); back out,
- * a fold is unfolded exactly when the band is still just as it was folded —
- * any edit since, anyone's, leaves the drawing where it now is.
+ * The ops that make a band wide or not, as the person asks. Wide is pinned: it
+ * stays wide whatever its margins hold until someone asks for the column —
+ * where a band a drag or the pen widened folds back once its margins empty.
+ * Into the column, a drawing reaching into the margins is folded
+ * ({@link narrowOps}); back out, a fold is unfolded exactly when the band is
+ * still just as it was folded — any edit since, anyone's, leaves the drawing
+ * where it now is.
  */
 export function wideOps(scene: Scene, wide: boolean, fold: Fold | null): SceneOp[] {
-  if (wide === (scene.wide === true)) return [];
-  if (!wide) return reachesMargins(scene) ? narrowOps(scene) : [{ type: "setDiagram", wide: false }];
-  return fold?.folded === scene ? unfoldOps(scene, fold.before) : [{ type: "setDiagram", wide: true }];
+  if (!wide) {
+    if (!scene.wide) return [];
+    return reachesMargins(scene) ? narrowOps(scene) : [{ type: "setDiagram", wide: false }];
+  }
+  if (scene.wide === "pinned") return [];
+  return fold?.folded === scene ? unfoldOps(scene, fold.before) : [{ type: "setDiagram", wide: "pinned" }];
+}
+
+/** Room under the drawing too small to be worth offering back. */
+const SLACK = 8;
+
+/**
+ * Whether a band stands taller than its content needs by more than a hair —
+ * the room Auto height would take back. Nothing takes it back on its own.
+ */
+export function hasSlack(scene: Scene): boolean {
+  return scene.h > bandFloor(scene) + SLACK;
 }
 
 /**
