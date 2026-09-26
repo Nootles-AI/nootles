@@ -5,16 +5,16 @@ import { WIDE_W } from "@/app/components/editor/canvas/scene/bandSpan";
 import { ZOOM_EVENT } from "./docZoom";
 
 /** The page's side padding: wide enough for the block handle's whole cluster, or not. */
-export const PAGE_GUTTER = 24;
-export const PAGE_GUTTER_WIDE = 56;
+const PAGE_GUTTER = 24;
+const PAGE_GUTTER_WIDE = 56;
 /** From here the text has its full measure beside the wide gutter. */
 export const PAGE_BREAKPOINT = COLUMN_WIDTH + 2 * PAGE_GUTTER_WIDE;
 /** Below this the wide gutter would cost the text too much, and gives way to the narrow one. */
 export const NARROW_BREAKPOINT = 640;
 
-export type PageMode = "wide" | "flow" | "narrow";
+type PageMode = "wide" | "flow" | "narrow";
 
-export type PageFit = {
+type PageFit = {
   mode: PageMode;
   /** What a column-width band is scaled by to match the text: 1 when `wide`. */
   fit: number;
@@ -50,7 +50,7 @@ export function effectiveScale(el: Element): number {
 /** The zoom root every page's column sits in; `docZoom` magnifies it. */
 export const SHEET = ".nt-sheet";
 
-export type FitKind = "normal" | "wide";
+type FitKind = "normal" | "wide";
 
 type Sheet = {
   fit: number;
@@ -85,7 +85,7 @@ function write(el: HTMLElement, kind: FitKind, sheet: Sheet): boolean {
 }
 
 /** Fired, bubbling, on a sheet whose bands were rescaled to a new fit, or on a band that joined one rescaled. */
-export const FIT_EVENT = "nt-fit";
+const FIT_EVENT = "nt-fit";
 
 /** What a band of `kind` at `el` is scaled by to fit its page: 1 outside a sheet. */
 export function fitOf(el: Element, kind: FitKind): number {

@@ -92,13 +92,18 @@ describe("the root", () => {
     }
   });
 
-  it("reads wide by presence, writes it bare, and never carries it in attrs", () => {
+  it("reads wide as a flag, writes it bare, and never carries it in attrs", () => {
     for (const spelling of [`wide`, `wide=""`, `wide="true"`]) {
       const frag = parseFragment(`<nt-diagram h="96" ${spelling} data-foo="bar"></nt-diagram>`, parseHtml);
       expect(frag.scene.wide).toBe(true);
       expect(frag.scene.attrs).toEqual({ "data-foo": "bar" });
       expect(frag.rootAttrs).toEqual({ "data-foo": "bar" });
       expect(serializeScene(frag.scene)).toBe(`<nt-diagram h="96" wide data-foo="bar"></nt-diagram>`);
+    }
+    for (const spelling of [`wide="false"`, `wide="0"`]) {
+      const frag = parseFragment(`<nt-diagram h="96" ${spelling}></nt-diagram>`, parseHtml);
+      expect("wide" in frag.scene).toBe(false);
+      expect(frag.scene.attrs).toEqual({});
     }
     const narrow = parseScene(`<nt-diagram h="96"></nt-diagram>`, parseHtml);
     expect("wide" in narrow).toBe(false);

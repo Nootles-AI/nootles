@@ -2,6 +2,7 @@ import { track } from "@/app/lib/telemetry";
 import { COLUMN_WIDTH } from "@/app/lib/column";
 import { effectiveScale, fitOf } from "@/app/lib/columnScale";
 import type { LiveEditor } from "@/app/components/editor/EditorRegistry";
+import { forgetTextStep, newestTextStep } from "@/app/lib/history/textDomain";
 import type { CanvasTool } from "../engine/shortcuts";
 import { defaultBox, newNode, type DrawKind } from "../render/newShape";
 import { BAND, bandFloor, bandLeft, bandWidth, EMPTY_BAND_H } from "../scene/band";
@@ -9,7 +10,6 @@ import { emptyScene } from "../scene/migrate";
 import { mintId, mintIds } from "../scene/ops";
 import { serializeScene } from "../scene/serialize";
 import type { ImageNode, Point, Rect, Scene, SceneNode, SceneOp } from "../scene/types";
-import { pageScope } from "./lifecycle";
 import type { DiagramEntry, PageCanvas } from "./PageCanvas";
 
 /**
@@ -113,11 +113,10 @@ export function placeNew(
  * drawn across the column, moved only if it was drawn past the text's left
  * edge and the diagram made wide if it runs past its right; down, a band
  * below the top — the block goes between lines, so where it lands vertically
- * is the block's to decide anyway. `box` is in the column's px; the id is
- * minted against `scope`, the page's.
+ * is the block's to decide anyway. `box` is in the column's px.
  */
-export function sceneFor(kind: DrawKind, box: Rect, scope: Scene = emptyScene()): { scene: Scene; nodeId: string } {
-  const nodeId = mintId(scope);
+export function sceneFor(kind: DrawKind, box: Rect): { scene: Scene; nodeId: string } {
+  const nodeId = mintId(emptyScene());
   const x = Math.max(0, Math.round(box.x));
   const w = Math.round(box.w);
   const drawn: Scene = {
@@ -184,9 +183,6 @@ function columnAt(editor: LiveEditor, ref: string): { left: number; scale: numbe
   const scale = effectiveScale(content) * fitOf(content, "normal");
   return { left: r.left, scale, width: COLUMN_WIDTH * scale };
 }
-
-/** Every id on the page, to mint against. */
-const scopeOf = (canvas: PageCanvas) => pageScope(canvas.entries().map((entry) => entry.api.store.getScene()));
 
 function bandBoxes(canvas: PageCanvas): BandBox[] {
   const out: BandBox[] = [];
@@ -366,14 +362,14 @@ function pagePress(e: PointerEvent): boolean {
  * history, never a write of its block prop, which trails its edits by
  * seconds and would put back whatever it had not caught up with.
  */
-function drawInto(entry: DiagramEntry, kind: DrawKind, drawn: Box, clicked: Point | null, scope: Scene): string {
+function drawInto(entry: DiagramEntry, kind: DrawKind, drawn: Box, clicked: Point | null): string {
   const { store, viewport } = entry.api;
   const a = viewport.clientToScene({ x: drawn.x, y: drawn.y });
   const b = viewport.clientToScene({ x: drawn.x + drawn.w, y: drawn.y + drawn.h });
   const box = clicked
     ? defaultBox(kind, viewport.clientToScene(clicked))
     : { x: Math.round(a.x), y: Math.round(a.y), w: Math.round(b.x - a.x), h: Math.round(b.y - a.y) };
-  const nodeId = mintId(scope);
+  const nodeId = mintId(store.getScene());
   store.dispatch(landOps(store.getScene(), newNode(kind, nodeId, box)));
   return nodeId;
 }
@@ -384,6 +380,8 @@ function armShapes(canvas: PageCanvas, pane: HTMLElement, kind: DrawKind): () =>
   let drawing = false;
   let hover = 0;
   let over: { point: Point; target: EventTarget | null } | null = null;
+  /** Gives up the draw in hand, if there is one. */
+  let abandon: (() => void) | null = null;
 
   const onHover = (e: PointerEvent) => {
     if (drawing) return;
@@ -431,8 +429,7 @@ function armShapes(canvas: PageCanvas, pane: HTMLElement, kind: DrawKind): () =>
       if (ev.key === "Escape") {
         ev.preventDefault();
         ev.stopPropagation();
-        stop();
-        ghost.el.remove();
+        cancel();
         return;
       }
       if (ev.key === "Shift") {
@@ -442,12 +439,18 @@ function armShapes(canvas: PageCanvas, pane: HTMLElement, kind: DrawKind): () =>
     };
     const stop = () => {
       drawing = false;
+      abandon = null;
       preview.clear();
       if (frame) cancelAnimationFrame(frame);
       window.removeEventListener("pointermove", onMove, true);
       window.removeEventListener("pointerup", onUp, true);
+      window.removeEventListener("pointercancel", cancel, true);
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("keyup", onKey, true);
+    };
+    const cancel = () => {
+      stop();
+      ghost.el.remove();
     };
     const onUp = () => {
       if (frame) paint();
@@ -461,8 +464,10 @@ function armShapes(canvas: PageCanvas, pane: HTMLElement, kind: DrawKind): () =>
 
     window.addEventListener("pointermove", onMove, true);
     window.addEventListener("pointerup", onUp, true);
+    window.addEventListener("pointercancel", cancel, true);
     window.addEventListener("keydown", onKey, true);
     window.addEventListener("keyup", onKey, true);
+    abandon = cancel;
   };
 
   /** Into a diagram, or a new one made for it; then what was drawn settles there. */
@@ -474,7 +479,7 @@ function armShapes(canvas: PageCanvas, pane: HTMLElement, kind: DrawKind): () =>
       const hit = landingIn(bandBoxes(canvas), drawn, origin);
       const into = hit ? canvas.get(hit.blockId) : undefined;
       if (into) {
-        nodeId = drawInto(into, kind, drawn, clicked ? origin : null, scopeOf(canvas));
+        nodeId = drawInto(into, kind, drawn, clicked ? origin : null);
         blockId = into.blockId;
       } else {
         const editor = canvas.editor();
@@ -486,7 +491,6 @@ function armShapes(canvas: PageCanvas, pane: HTMLElement, kind: DrawKind): () =>
           clicked
             ? defaultBox(kind, { x: (origin.x - left) / scale, y: 0 })
             : { x: (drawn.x - left) / scale, y: 0, w: drawn.w / scale, h: drawn.h / scale },
-          scopeOf(canvas),
         );
         nodeId = made.nodeId;
         blockId = insertDiagram(editor, place, serializeScene(made.scene));
@@ -544,6 +548,8 @@ function armShapes(canvas: PageCanvas, pane: HTMLElement, kind: DrawKind): () =>
   pane.addEventListener("pointermove", onHover);
   pane.addEventListener("pointerleave", onLeave);
   return () => {
+    // A draw under way when its tool is put down would land as that tool.
+    abandon?.();
     if (hover) cancelAnimationFrame(hover);
     preview.clear();
     pane.removeAttribute("data-drawing");
@@ -566,6 +572,8 @@ function armShapes(canvas: PageCanvas, pane: HTMLElement, kind: DrawKind): () =>
  */
 function armPen(canvas: PageCanvas, pane: HTMLElement): () => void {
   const preview = createPreview(canvas);
+  /** What each handed point left waiting on its pen to finish. */
+  const pending = new Set<() => void>();
   let hover = 0;
   const onHover = (e: PointerEvent) => {
     const at = { x: e.clientX, y: e.clientY };
@@ -593,7 +601,7 @@ function armPen(canvas: PageCanvas, pane: HTMLElement): () => void {
     };
     window.addEventListener("pointerup", onUp, true);
     window.addEventListener("pointercancel", onUp, true);
-    void handPen(canvas, pane, e, () => released);
+    void handPen(canvas, pane, e, () => released, pending);
   };
 
   pane.setAttribute("data-drawing", "");
@@ -601,6 +609,7 @@ function armPen(canvas: PageCanvas, pane: HTMLElement): () => void {
   pane.addEventListener("pointermove", onHover);
   pane.addEventListener("pointerleave", onLeave);
   return () => {
+    for (const settle of [...pending]) settle();
     if (hover) cancelAnimationFrame(hover);
     preview.clear();
     pane.removeAttribute("data-drawing");
@@ -610,7 +619,13 @@ function armPen(canvas: PageCanvas, pane: HTMLElement): () => void {
   };
 }
 
-async function handPen(canvas: PageCanvas, pane: HTMLElement, press: PointerEvent, released: () => boolean) {
+async function handPen(
+  canvas: PageCanvas,
+  pane: HTMLElement,
+  press: PointerEvent,
+  released: () => boolean,
+  pending: Set<() => void>,
+) {
   const origin = { x: press.clientX, y: press.clientY };
   let entry =
     canvas.entries().find((diagram) => !diagram.readOnly && diagram.api.pen.drawing()) ??
@@ -618,23 +633,40 @@ async function handPen(canvas: PageCanvas, pane: HTMLElement, press: PointerEven
       const hit = landingIn(bandBoxes(canvas), { ...origin, w: 0, h: 0 }, origin);
       return hit ? (canvas.get(hit.blockId) ?? null) : null;
     })();
-  let born: string | null = null;
+  let born: { blockId: string; step: ReturnType<typeof newestTextStep> } | null = null;
   const editor = canvas.editor();
+  // A diagram made for the pen and given up before its path: it goes as it
+  // came, with no step on anyone's history — its own entries, its block, and
+  // the text step that put the block in.
+  const unmake = (made: NonNullable<typeof born>, diagram: DiagramEntry | null) => {
+    if (!editor || (diagram && diagram.api.store.getScene().nodes.length > 0)) return;
+    diagram?.api.store.forget();
+    editor.transact((tr: { setMeta(key: string, value: unknown): void }) => {
+      tr.setMeta("addToHistory", false);
+      editor.removeBlocks([made.blockId]);
+    });
+    if (made.step) forgetTextStep(editor, made.step);
+  };
   if (!entry) {
     // Made beside the line it was pressed on rather than in its place: a
     // diagram given up with its path must leave the page as it found it.
     const place = editor && placeNew(blockBoxes(editor), origin.y, (id) => isEmptyLine(editor, id), { replace: false });
     if (!editor || !place) return;
-    born = insertDiagram(editor, place, serializeScene({ ...emptyScene(), h: EMPTY_BAND_H }));
-    entry = await canvas.whenRegistered(born);
-    if (!entry) return;
+    const blockId = insertDiagram(editor, place, serializeScene({ ...emptyScene(), h: EMPTY_BAND_H }));
+    born = { blockId, step: newestTextStep(editor) };
+    entry = await canvas.whenRegistered(blockId);
+    if (!entry) return unmake(born, null);
     await frames(1);
   }
   const band = entry.api.band.current;
   const svg = band?.querySelector<SVGSVGElement>("svg.nt-pen");
-  if (!band || !svg) return;
+  if (!band || !svg) {
+    if (born) unmake(born, entry);
+    return;
+  }
 
   let r = band.getBoundingClientRect();
+  let stretched = false;
   const inset = Math.min(BAND * (r.height / (band.offsetHeight || 1)), r.height / 2);
   if (born && (origin.y < r.top || origin.y > r.bottom)) {
     // Brought to the point rather than the point to it, as far as the page
@@ -646,7 +678,8 @@ async function handPen(canvas: PageCanvas, pane: HTMLElement, press: PointerEven
     // Below a diagram it belongs to: the band reaches down to the point now,
     // and its store keeps the height once the point is written.
     const scale = r.height / (band.offsetHeight || 1);
-    band.style.height = `${Math.ceil((origin.y - r.top) / scale + BAND)}px`;
+    entry.api.previewSize(Math.ceil((origin.y - r.top) / scale + BAND));
+    stretched = true;
     r = band.getBoundingClientRect();
   }
   const at = {
@@ -654,21 +687,22 @@ async function handPen(canvas: PageCanvas, pane: HTMLElement, press: PointerEven
     y: Math.min(r.bottom - inset, Math.max(r.top + inset, origin.y)),
   };
 
-  if (born && editor) {
-    const blockId = born;
-    const { store, pen } = entry.api;
-    const off = pen.onFinish((id) => {
-      off();
-      if (id !== null || store.getScene().nodes.length > 0) return;
-      // Given up before it was a path: the diagram goes as it came, with no
-      // step on anyone's history — its own entries, and its block, off it.
-      store.forget();
-      editor.transact((tr: { setMeta(key: string, value: unknown): void }) => {
-        tr.setMeta("addToHistory", false);
-        editor.removeBlocks([blockId]);
-      });
-    });
-  }
+  // Once the pen is done — or the tool put down, or the press never taken —
+  // a made diagram left empty goes, and a stretched band comes back to the
+  // height its scene says: nothing re-renders to take a stretch back.
+  const diagram = entry;
+  const made = born;
+  let settled = false;
+  const settle = () => {
+    if (settled) return;
+    settled = true;
+    pending.delete(settle);
+    off();
+    if (made) unmake(made, diagram);
+    if (stretched) diagram.api.previewSize(diagram.api.store.getScene().h);
+  };
+  const off = diagram.api.pen.onFinish(settle);
+  pending.add(settle);
 
   const init = {
     bubbles: true,
@@ -683,6 +717,7 @@ async function handPen(canvas: PageCanvas, pane: HTMLElement, press: PointerEven
   };
   svg.dispatchEvent(new PointerEvent("pointerdown", init));
   if (released()) svg.dispatchEvent(new PointerEvent("pointerup", { ...init, buttons: 0 }));
+  if (!diagram.api.pen.drawing()) settle();
 }
 
 // ---------------------------------------------------------------------------
@@ -720,9 +755,8 @@ export function pictureOps(
   scene: Scene,
   at: Point,
   pictures: readonly { src: string; w: number; h: number }[],
-  scope: Scene = scene,
 ): { ops: SceneOp[]; ids: string[] } {
-  const ids = mintIds(scope, pictures.length);
+  const ids = mintIds(scene, pictures.length);
   const min = bandLeft(scene);
   const max = min + bandWidth(scene);
   const nodes: ImageNode[] = pictures.map((picture, i) => {
@@ -774,7 +808,7 @@ function attachDrop(canvas: PageCanvas, pane: HTMLElement): () => void {
     ).then((read) => {
       const pictures = read.filter((picture) => picture !== null);
       const { store, selection } = entry.api;
-      const { ops, ids } = pictureOps(store.getScene(), at, pictures, scopeOf(canvas));
+      const { ops, ids } = pictureOps(store.getScene(), at, pictures);
       if (!ops.length) return;
       store.dispatch(ops);
       selection.select(ids);

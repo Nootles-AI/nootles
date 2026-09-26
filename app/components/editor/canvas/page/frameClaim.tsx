@@ -9,9 +9,8 @@ import type { CanvasApi } from "../render/CanvasSurface";
  *
  * Diagrams on the page need no claim: whichever holds the selection is the one
  * the panels and the bar speak for. A shot is a fixed frame with its own tools
- * and its own keys, so it is still taken, one at a time, the way diagrams used
- * to be; taking one lets the page's selection go, and a selection on the page
- * lets the shot go.
+ * and its own keys, so it is taken, one at a time; taking one lets the page's
+ * selection go, and a selection on the page lets the shot go.
  */
 export type ActiveFrame = { key: string; api: CanvasApi };
 

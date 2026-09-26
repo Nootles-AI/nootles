@@ -589,7 +589,8 @@ export function compareLegacyToNml(
     }
     if (nml.type === "canvas") {
       const scene = migrateLegacyCanvas(str(record(legacy.props).data), parseHtml);
-      const diff = compareScenes(scene, nml.scene);
+      // An NML doc converted before bands still holds the old root, as stored.
+      const diff = compareScenes(scene, normalizeDiagram(nml.scene));
       for (const d of diff) add({ class: "canvas-scene", id, detail: `${d.class}${d.id ? ` ${d.id}` : ""}: ${d.detail}` });
     }
   }

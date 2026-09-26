@@ -6,7 +6,7 @@ import { useLayoutEffect, type RefObject } from "react";
  * tool dock, a storyboard shot at full size.
  *
  * The shell publishes them; each such box follows them, and they are written
- * onto that box alone as `--nt-stage-l` / `--nt-stage-r`. Not onto `:root`:
+ * onto that box alone as `--nt-col-l` / `--nt-col-r`. Not onto `:root`:
  * they change on every frame a rail opens or closes, and a custom property on
  * the root is inherited by every element in the document — on a long page
  * that restyled ~9,000 elements a frame, where a follower restyles a handful.
@@ -24,11 +24,11 @@ const followers = new Set<HTMLElement>();
 
 function paint(el: HTMLElement, at: ColumnEdges | null): void {
   if (at) {
-    el.style.setProperty("--nt-stage-l", `${at.left}px`);
-    el.style.setProperty("--nt-stage-r", `${at.right}px`);
+    el.style.setProperty("--nt-col-l", `${at.left}px`);
+    el.style.setProperty("--nt-col-r", `${at.right}px`);
   } else {
-    el.style.removeProperty("--nt-stage-l");
-    el.style.removeProperty("--nt-stage-r");
+    el.style.removeProperty("--nt-col-l");
+    el.style.removeProperty("--nt-col-r");
   }
 }
 

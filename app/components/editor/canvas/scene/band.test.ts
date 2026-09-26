@@ -15,6 +15,7 @@ import {
   WIDE_W,
 } from "./band";
 import { emptyScene, migrateLegacyCanvas } from "./migrate";
+import { reflowHugs } from "./ops";
 import type { Scene, SceneNode } from "./types";
 
 // `migrateLegacyCanvas` parses with the global DOMParser.
@@ -257,6 +258,22 @@ describe("fitToBand", () => {
     expect(fitToBand(band([rect("a", 0, 300)], { h: 40 })).h).toBe(384);
     // Scaled by a half: round(40 · 0.5) = 20, but the drawing needs 24 + 30 + 24.
     expect(fitToBand(band([rect("a", 0, 24), rect("b", 1340, 24)], { h: 40 })).h).toBe(78);
+  });
+
+  test("a hugging group is measured at the size it hugs to, so the fit is idempotent", () => {
+    const group = {
+      ...rect("g", 0, 24, { w: 2000, h: 60 }),
+      kind: "group",
+      style: { width: "fit-content", height: "fit-content" },
+      children: [rect("a", 0, 0)],
+    } as SceneNode;
+    const scene = band([group], { h: 200 });
+    expect(fitOps(scene)).toEqual([]);
+    const once = fitToBand(reflowHugs(scene));
+    expect(at(once)).toEqual([["g", 0, 24, 100, 60]]);
+    expect(fitToBand(once)).toBe(once);
+    // Nor does an old root turn wide on a stale hug.
+    expect(normalizeDiagram({ ...scene, w: 960 }).wide).toBeUndefined();
   });
 
   test("its ops are a scale and a move, the root last, and a second pass has none", () => {

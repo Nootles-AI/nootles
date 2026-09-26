@@ -24,8 +24,8 @@ export function repairDocument(input: unknown): NmlRepairResult {
   if (!parsed.success) return { issues: validateDocument(input), changed: false };
   const document = structuredClone(parsed.data);
   const issues: NmlIssue[] = [];
-  const used = new Set<string>();
-  const claim = (owner: { id: string }, path: Array<string | number>) => {
+  const page = new Set<string>();
+  const claim = (owner: { id: string }, path: Array<string | number>, used = page) => {
     if (!used.has(owner.id)) {
       used.add(owner.id);
       return;
@@ -69,12 +69,13 @@ export function repairDocument(input: unknown): NmlRepairResult {
     }
     if (block.type === "mathBlock") block.rows.forEach((row, index) => claim(row, [...path, "rows", index]));
     if (block.type === "canvas") {
+      const local = new Set<string>();
       const walkNodes = (nodes: typeof block.scene.nodes, nodePath: Array<string | number>) => nodes.forEach((node, index) => {
-        claim(node, [...nodePath, index]);
+        claim(node, [...nodePath, index], local);
         if (node.kind === "group") walkNodes(node.children, [...nodePath, index, "children"]);
       });
       walkNodes(block.scene.nodes, [...path, "scene", "nodes"]);
-      block.scene.edges.forEach((edge, index) => claim(edge, [...path, "scene", "edges", index]));
+      block.scene.edges.forEach((edge, index) => claim(edge, [...path, "scene", "edges", index], local));
     }
     block.children.forEach((child, index) => visit(child, [...path, "children", index]));
   };

@@ -73,6 +73,13 @@ export interface PageSelectionDeps {
   geometry?: PageGeometry;
 }
 
+/** Whether shapes are held in more than one diagram. */
+export function spansDiagrams(parts: ReadonlyMap<string, SelectionPart>): boolean {
+  let holding = 0;
+  for (const part of parts.values()) if (part.ids.length && ++holding > 1) return true;
+  return false;
+}
+
 const NONE: readonly never[] = [];
 const NO_PARTS: ReadonlyMap<string, SelectionPart> = new Map();
 export const EMPTY_PAGE_SELECTION: PageSelectionSnapshot = { focused: null, recent: null, parts: NO_PARTS };
@@ -225,6 +232,7 @@ export function createPageSelection(deps: PageSelectionDeps): PageSelection {
       changed(blockId);
       return () => {
         off();
+        if (facades.get(blockId)?.raw === raw) facades.delete(blockId);
         if (held.get(blockId) !== entry) return;
         held.delete(blockId);
         order = order.filter((id) => id !== blockId);

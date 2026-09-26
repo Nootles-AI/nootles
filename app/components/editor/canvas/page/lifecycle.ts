@@ -1,6 +1,5 @@
 import { copiesInto, remapEdges } from "../engine/clipboard";
 import { bandHeight } from "../scene/band";
-import { emptyScene } from "../scene/migrate";
 import type { NodeId, Scene, SceneOp } from "../scene/types";
 
 /**
@@ -36,30 +35,17 @@ export function deleteDiagramBlock(editor: LifecycleEditor, blockId: string): vo
 }
 
 /**
- * Every shape and connector id on the page, as one scene to mint new ids
- * against. The page's document holds its diagrams' ids in one namespace, so a
- * shape made in one diagram must not take an id another already has.
- */
-export function pageScope(scenes: readonly Scene[]): Scene {
-  return {
-    ...emptyScene(),
-    nodes: scenes.flatMap((scene) => scene.nodes),
-    edges: scenes.flatMap((scene) => scene.edges),
-  };
-}
-
-/**
  * The ops that bring the diagram below into this one: its shapes under this
  * band, as far down as this band is tall, with ids of their own here and its
  * connectors following them; the band as tall as the two were together, and
  * wide if either was. What was below's own ground is not brought: a diagram
- * has one. New ids are minted against `scope` — the whole page's.
+ * has one.
  */
-export function mergeOps(upper: Scene, lower: Scene, scope: Scene = pageScope([upper, lower])): SceneOp[] {
+export function mergeOps(upper: Scene, lower: Scene): SceneOp[] {
   const dy = bandHeight(upper);
   const map = new Map<NodeId, NodeId>();
-  const nodes = copiesInto(scope, lower.nodes, 0, dy, map);
-  const edges = remapEdges(scope, lower.edges, map);
+  const nodes = copiesInto(upper, lower.nodes, 0, dy, map);
+  const edges = remapEdges(upper, lower.edges, map);
   const ops: SceneOp[] = [];
   if (nodes.length) ops.push({ type: "insert", nodes });
   if (edges.length) ops.push({ type: "addEdge", edges });

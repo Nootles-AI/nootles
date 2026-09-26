@@ -97,7 +97,7 @@ export function useDocumentZoom(
 }
 
 /** In, out, or back to 100% — null for any key that is not a zoom key. */
-export function zoomKey(e: Pick<KeyboardEvent, "key" | "code">): 1 | -1 | 0 | null {
+function zoomKey(e: Pick<KeyboardEvent, "key" | "code">): 1 | -1 | 0 | null {
   if (e.key === "=" || e.key === "+" || e.code === "NumpadAdd") return 1;
   if (e.key === "-" || e.code === "NumpadSubtract") return -1;
   if (e.key === "0" || e.code === "Numpad0") return 0;
@@ -140,13 +140,16 @@ export function useZoomKeys(getPane: () => ZoomPane | null) {
       if (e.type === "wheel" && !(e as WheelEvent).ctrlKey && !(e as WheelEvent).metaKey) return;
       e.preventDefault();
     };
+    // A touch pinch stays the browser's, as it does over a pane: on iOS it is
+    // the only zoom there is.
+    const gestures = safariPinch();
     document.addEventListener("keydown", onKey, true);
     window.addEventListener("wheel", swallow, { passive: false });
-    window.addEventListener("gesturestart", swallow, { passive: false });
+    if (gestures) window.addEventListener("gesturestart", swallow, { passive: false });
     return () => {
       document.removeEventListener("keydown", onKey, true);
       window.removeEventListener("wheel", swallow);
-      window.removeEventListener("gesturestart", swallow);
+      if (gestures) window.removeEventListener("gesturestart", swallow);
     };
   }, []);
 }

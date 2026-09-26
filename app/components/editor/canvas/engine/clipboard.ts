@@ -13,8 +13,7 @@
  */
 
 import { COLUMN_WIDTH } from "@/app/lib/column";
-import { BAND, fitToBand, normalizeDiagram } from "../scene/band";
-import { EPS } from "../scene/bandGeometry";
+import { BAND, EPS, fitToBand, normalizeDiagram } from "../scene/band";
 import { absoluteRect, absoluteRotation, unionBounds } from "../scene/geometry";
 import { emptyScene } from "../scene/migrate";
 import { applyOps, mintEdgeIds, mintIds } from "../scene/ops";

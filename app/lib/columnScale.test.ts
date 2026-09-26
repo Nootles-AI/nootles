@@ -1,5 +1,6 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { COLUMN_WIDTH } from "./column";
+import { COLUMN_VARS, COLUMN_WIDTH } from "./column";
 import {
   effectiveScale,
   NARROW_BREAKPOINT,
@@ -87,5 +88,14 @@ describe("effectiveScale", () => {
   it("is 1 for an SVG element outside any HTML box", () => {
     vi.stubGlobal("HTMLElement", FakeHTMLElement);
     expect(scale(new FakeElement(0, 0))).toBe(1);
+  });
+});
+
+describe("the stylesheet's fallback body type", () => {
+  it("is COLUMN_VARS's, for a root that does not set them", () => {
+    const css = readFileSync(new URL("../globals.css", import.meta.url), "utf8");
+    for (const name of ["--text-body", "--leading-body"]) {
+      expect(css.match(new RegExp(`\\n\\s*${name}:\\s*([^;]+);`))?.[1]).toBe(COLUMN_VARS[name]);
+    }
   });
 });

@@ -7,8 +7,8 @@
  * canvas may mean "start a connector here". What it *draws*, though, hangs off
  * an inner group that carries the scene transform, written straight onto the
  * element from a viewport subscription — so every coordinate below is scene px,
- * the plugs stay glued to their shapes for free, and a pan or a zoom re-renders
- * nothing at all. Anything that must be a fixed size on screen — a plug, the
+ * the plugs stay glued to their shapes for free, and a change of the transform
+ * re-renders nothing at all. Anything that must be a fixed size on screen — a plug, the
  * target ring, the preview's stroke — is drawn at `--k` scene px, one screen px
  * in scene units, which is how the selection overlay does the same thing.
  *

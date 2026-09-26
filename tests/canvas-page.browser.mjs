@@ -496,6 +496,7 @@ try {
     const box = await at("block", penLine);
     return { x: box.left + 120, y: box.top + box.height / 2 };
   };
+  const stepsBefore = await at("textSteps");
   await at("pick", "pen");
   const first = await penAt();
   await page.mouse.click(first.x, first.y);
@@ -509,6 +510,7 @@ try {
   await page.waitForFunction((id) => !window.canvasPage.diagrams().includes(id), penBorn);
   check("given up after one point, the diagram goes with it", (await at("diagrams")).includes(penBorn), false);
   check("and the line is still there", (await at("blocks")).includes(`${penLine}:paragraph`), true);
+  check("leaving no step on the text's history", await at("textSteps"), stepsBefore);
 
   await at("pick", "pen");
   const again = await penAt();
@@ -528,6 +530,56 @@ try {
   await page.waitForFunction((id) => (window.canvasPage.selection()[id] ?? []).length === 1, pathBorn);
   check("Enter makes the path, in the pen's diagram", await at("count", pathBorn), 1);
   check("and the tool is put down", await tool(), "move");
+
+  // ⌫ over a selection spanning diagrams, where the upper one goes with its
+  // last shape: the caret that lands in the text lets nothing of the lower
+  // one's selection go before it is deleted too.
+  await at("clear");
+  await at("reveal", "top", "a1");
+  await frame();
+  await page.mouse.click(...Object.values(centre(await at("shape", "top", "a1"))));
+  await page.keyboard.press(`${mod}+KeyA`);
+  const lowerIds = (await at("nodes", made)).map((node) => node.id);
+  check("the whole of the upper one", (await at("selection")).top?.length, await at("count", "top"));
+  // Its shapes paint nothing a pointer could pick.
+  await at("add", made, [lowerIds[0]]);
+  check("a selection holds all of one diagram and part of the next", (await at("selection"))[made], [lowerIds[0]]);
+  await page.keyboard.press("Backspace");
+  await page.waitForFunction(() => !window.canvasPage.diagrams().includes("top"));
+  check("⌫ takes the emptied diagram out", (await at("blocks")).some((block) => block.startsWith("top:")), false);
+  check("and the selected shape out of the one below", (await at("nodes", made)).map((node) => node.id), lowerIds.slice(1));
+  await press("undo");
+  await page.waitForFunction(() => window.canvasPage.count("top") !== null);
+  check("one undo brings both back", (await at("nodes", made)).map((node) => node.id), lowerIds);
+
+  // A diagram that is the page's first block, held — node-selected — when its
+  // last shape goes: undo, redo and undo again keep the view on the doc.
+  await at("clear");
+  await at("removeBlock", "intro");
+  await frame();
+  check("the diagram is the first block", (await at("blocks"))[0], "top:canvas");
+  await page.mouse.click(...Object.values(centre(await at("shape", "top", "a1"))));
+  await page.keyboard.press(`${mod}+KeyA`);
+  await page.keyboard.press("Backspace");
+  await page.waitForFunction(() => !window.canvasPage.diagrams().includes("top"));
+  await press("undo");
+  await page.waitForFunction(() => window.canvasPage.count("top") !== null, null, { timeout: 2000 });
+  check("undo brings the first diagram back", await at("viewBlocks"), await at("docBlocks"));
+  await press("redo");
+  await page.waitForFunction(() => !window.canvasPage.diagrams().includes("top"), null, { timeout: 2000 });
+  check("redo takes it out, the view agreeing with the doc", await at("viewBlocks"), await at("docBlocks"));
+  await press("undo");
+  await page.waitForFunction(() => window.canvasPage.count("top") !== null, null, { timeout: 2000 });
+  check("and undo brings it back again", [(await at("viewBlocks"))[0], await at("viewBlocks")], ["top", await at("docBlocks")]);
+
+  // Nested under a paragraph, a diagram's band stays on the text column.
+  check("a diagram can be nested", await at("nest", pathBorn), "true");
+  await frame();
+  check(
+    "and its band stays on the text column",
+    Math.round((await at("band", pathBorn)).left - (await at("band", "top")).left),
+    0,
+  );
 
   check("no page errors", guards.errors(), []);
   check("no requests off the fixture", guards.requests(), []);

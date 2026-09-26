@@ -216,6 +216,18 @@ describe("legacy ↔ NML comparison gate", () => {
     expect(comparison.ok).toBe(true);
   });
 
+  it("holds an NML doc converted before bands, whose diagram keeps its old root, to the same scene", () => {
+    const input = loadFixture("canvas-html.json");
+    const { document } = convertLegacyDocument(input, { createId: counter() });
+    const data = String((input.blocks[0].props as { data: string }).data);
+    const stored = normalizeDocument({
+      ...document,
+      blocks: document.blocks.map((b) => (b.type === "canvas" ? { ...b, scene: readCanvasSource(data) } : b)),
+    });
+    expect((stored.blocks[0] as NmlCanvasBlock).scene.w).toBeGreaterThan(0);
+    expect(compareLegacyToNml(input, stored).mismatches.filter((m) => m.class === "canvas-scene")).toEqual([]);
+  });
+
   it("catches a genuine divergence as an unexplained mismatch", () => {
     const input = loadFixture("rich-text.json");
     const { document } = convertLegacyDocument(input, { createId: counter() });

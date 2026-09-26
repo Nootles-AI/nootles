@@ -402,6 +402,20 @@ describe("page canvas hub", () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
+  it("tells the screen when the focused diagram comes back with a new api", () => {
+    const { hub, main } = setup();
+    const a = entry("a");
+    main.register(a);
+    a.api.selection.select(["a1"]);
+    const held = hub.getSnapshot();
+    const listener = vi.fn();
+    hub.subscribe(listener);
+    main.register({ ...a, api: { ...a.api } });
+    expect(listener).toHaveBeenCalled();
+    expect(hub.getSnapshot()).not.toBe(held);
+    expect(hub.getSnapshot()).toEqual(held);
+  });
+
   it("a selection in one pane clears the other", () => {
     const { hub, main, aside } = setup();
     const a = entry("a");

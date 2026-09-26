@@ -11,6 +11,7 @@ export {
   bandLeft,
   bandWidth,
   EMPTY_BAND_H,
+  EPS,
   WIDE_MARGIN,
   WIDE_W,
 } from "./bandGeometry";
@@ -63,9 +64,13 @@ function oldRenderedHeight(scene: Scene): number {
   return Math.round(Math.min(OLD_MAX_H, Math.max(OLD_MIN_H, maxY - minY + OLD_PAD)));
 }
 
-/** The visible top-level content's rotation-aware box, or `null` when there is none. */
+/**
+ * The visible top-level content's rotation-aware box, or `null` when there is
+ * none — measured with every hugging group at the size it hugs to, which is
+ * what any op will leave it at, or a second fit would find a different box.
+ */
 function contentBox(scene: Scene): Rect | null {
-  const visible = scene.nodes.filter((node) => !node.hidden);
+  const visible = reflowHugs(scene).nodes.filter((node) => !node.hidden);
   return visible.length ? unionBounds(visible) : null;
 }
 

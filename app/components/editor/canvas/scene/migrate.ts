@@ -3,9 +3,11 @@
  *
  * Blocks written before the DOM canvas hold React Flow JSON —
  * `{ nodes: [{ id, position, width, height, data: { label, shape } }], edges }`.
- * Blocks written since hold canvas HTML. One function reads both, so the block
- * never has to know which era its content came from and there is no separate
- * migration pass to run.
+ * Blocks written since hold canvas HTML, with an old root until bands. The
+ * readers take every era, so the block never has to know which one its content
+ * came from: `readCanvasSource` as written, for a storyboard's frames, and
+ * `migrateLegacyCanvas` as a band, for a diagram. The stored copies are
+ * rewritten once besides (`convex/diagramBand.ts`), but nothing waits on it.
  *
  * Two things the old format says that the new one says differently:
  *
@@ -149,6 +151,8 @@ function fromLegacyJson(source: string): Scene {
     else taken.add(node.id);
     nodes.push(node);
   }
+  // Nothing drawn is a blank band, not an old surface's worth of empty room.
+  if (nodes.length === 0) return emptyScene();
   // Ids are assigned after the whole list is known, so a minted id cannot
   // collide with a legacy one further down. An id only goes missing on
   // corrupt data — where the edges naming it were already dangling.

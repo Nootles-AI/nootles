@@ -7,7 +7,7 @@ import {
   materializeCanvas,
   mirrorStamp,
 } from "@/app/components/editor/canvas/collab/ymap";
-import { normalizeDiagram } from "@/app/components/editor/canvas/scene/band";
+import { isLegacyRoot, normalizeDiagram } from "@/app/components/editor/canvas/scene/band";
 import { detectCanvasFormat, migrateLegacyCanvas, readCanvasSource } from "@/app/components/editor/canvas/scene/migrate";
 import type { ParseHtml } from "@/app/components/editor/canvas/scene/parse";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
@@ -52,6 +52,9 @@ import {
  */
 
 const PM_FRAGMENT = "prosemirror";
+
+/** Markup a diagram block could have written — anything else it holds is left be. */
+const DIAGRAM_ROOT = /^\s*<nt-diagram[\s/>]/i;
 
 const ORIGIN = "diagram-band";
 
@@ -123,11 +126,14 @@ function rewriteBlock(doc: Y.Doc, block: Y.XmlElement, parseHtml: ParseHtml, rep
     }
     html = serializeScene(next === was ? was : materializeCanvas(root));
   } else {
-    // Blank, or nothing any reader can make out: there is no band to write,
-    // and replacing an unreadable string would only lose it.
-    if (detectCanvasFormat(prop) === "empty") return;
+    // Blank, or nothing any reader can make out as a diagram: there is no band
+    // to write, and replacing the string would only lose it.
+    const format = detectCanvasFormat(prop);
+    if (format === "empty" || (format === "html" && !DIAGRAM_ROOT.test(prop))) return;
     was = readCanvasSource(prop, parseHtml);
     next = normalizeDiagram(was);
+    // A band already: re-serializing it would only restyle it.
+    if (next === was && !isLegacyRoot(was)) return;
     html = serializeScene(next);
   }
   if (next.wide && !was.wide) report.wide += 1;

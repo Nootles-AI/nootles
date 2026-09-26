@@ -266,6 +266,8 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
    * Taking a shot lets the page's selection go. A shape or text armed on the
    * page's bar goes with the press into the shot, which draws it — the shot
    * reads its tool at the press, after this has run in the press's capture.
+   * Any other tool is put down: the shot has its own, and the page's would
+   * still be in hand when the shot let go.
    */
   const claimFrame = useCallback(
     (next: ActiveFrame | null) => {
@@ -277,6 +279,8 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
         if (tool && (SHAPES.has(tool) || tool === "text")) {
           next.api.setTool(tool);
           hub.tools?.settle();
+        } else if (tool && tool !== "move") {
+          hub.tools?.set("move");
         }
       }
       noteFocus();

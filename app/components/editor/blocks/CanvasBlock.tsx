@@ -43,7 +43,7 @@ import { serializeScene } from "../canvas/scene/serialize";
 import type { Scene } from "../canvas/scene/types";
 import { CanvasSurface, type CanvasApi } from "../canvas/render/CanvasSurface";
 import { usePageCanvas } from "../canvas/page/PageCanvas";
-import { deleteDiagramBlock, mergeOps, pageScope, type LifecycleEditor } from "../canvas/page/lifecycle";
+import { deleteDiagramBlock, mergeOps, type LifecycleEditor } from "../canvas/page/lifecycle";
 import { blockSelection, type BlockSelectionEditor } from "../blockSelection";
 
 /** How many preceding blocks of page text to hand the canvas for context. */
@@ -67,6 +67,7 @@ type HostEditor = LifecycleEditor & {
   prosemirrorState: unknown;
   getExtension: (key: string) => unknown;
   getBlock: (id: string) => { props?: unknown } | undefined;
+  onChange: (cb: () => void) => (() => void) | void;
 };
 
 /** The diagram block right after this one's, when the two touch: what a merge takes in. */
@@ -98,7 +99,11 @@ function useColumnAnchor(): RefObject<HTMLDivElement | null> {
     const el = host.current;
     const content = el?.closest<HTMLElement>(".bn-block-content");
     const root = el?.closest<HTMLElement>(".bn-editor");
-    if (!el || !content || !root) return;
+    // A top-level block is on the column already, and one moved in or out of
+    // a nest is a new node view: an observer per band on the one editor would
+    // be every band read and written in turn on each resize of the pane.
+    const nested = !!content?.closest(".bn-block-outer")?.parentElement?.closest(".bn-block-outer");
+    if (!el || !content || !root || !nested) return;
     const anchor = () => {
       const visual = content.getBoundingClientRect().left - root.getBoundingClientRect().left;
       const indent = Math.round(visual / effectiveScale(el));
@@ -388,16 +393,18 @@ function CanvasBlockView({
     () => "none" as const,
   );
   const [pressing, setPressing] = useState(false);
-  useEffect(() => {
-    if (!pressing) return;
-    const release = () => setPressing(false);
-    window.addEventListener("pointerup", release, true);
-    window.addEventListener("pointercancel", release, true);
-    return () => {
+  // Listened for in the press itself: a tap can let go before an effect
+  // started after the render would be listening.
+  const press = () => {
+    setPressing(true);
+    const release = () => {
+      setPressing(false);
       window.removeEventListener("pointerup", release, true);
       window.removeEventListener("pointercancel", release, true);
     };
-  }, [pressing]);
+    window.addEventListener("pointerup", release, true);
+    window.addEventListener("pointercancel", release, true);
+  };
   const broadcasting = page.pane
     ? focus === "here" || (pressing && focus === "none")
     : pressing || engaged;
@@ -521,14 +528,23 @@ function CanvasBlockView({
     el.toggleAttribute("data-dismissed", !!below && page.mergeDismissed(blockId, below));
   }, [host, page, blockId]);
   useLayoutEffect(reseam);
+  // The pair below can change without this block rendering: a block put in
+  // or taken out between them, or the diagram below replaced.
+  useEffect(() => {
+    const offEditor = editor.onChange(reseam);
+    const offSelection = page.selection.subscribe(reseam);
+    return () => {
+      offEditor?.();
+      offSelection();
+    };
+  }, [editor, page, reseam]);
   const merge = () => {
     const below = nextDiagram(host.current);
     const lower = below ? page.get(below) : undefined;
     if (!below || !lower || lower.readOnly || !liveApi) return;
     flushMirror();
     lower.flushMirror();
-    const scope = pageScope(page.entries().map((entry) => entry.api.store.getScene()));
-    const ops = mergeOps(liveApi.store.getScene(), lower.api.store.getScene(), scope);
+    const ops = mergeOps(liveApi.store.getScene(), lower.api.store.getScene());
     page.batch(() => {
       liveApi.store.dispatch(ops);
       editor.transact(() => editor.removeBlocks([below]));
@@ -576,7 +592,7 @@ function CanvasBlockView({
     <div
       ref={host}
       className="nt-canvas-block relative w-full"
-      onPointerDownCapture={() => setPressing(true)}
+      onPointerDownCapture={press}
       onPointerEnter={reseam}
     >
       <CanvasAiContext value={ai}>

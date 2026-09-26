@@ -365,12 +365,15 @@ export function useBlockMarquee({
           const rect = el.getBoundingClientRect();
           const id = el.dataset.id;
           if (!id || rect.height === 0) continue;
+          // A wide diagram is centred, and reaches past the page on the left
+          // as far as on the right: its own box says how far.
+          const wide = el.querySelector(".nt-canvas[data-wide]")?.getBoundingClientRect();
           rows.push({
             el,
             id,
             top: rect.top + down,
             bottom: rect.bottom + down,
-            left: Math.min(rect.left + across, pageLeft),
+            left: Math.min(rect.left + across, pageLeft, wide ? wide.left + across : Infinity),
             // ...and past the page for a block that draws past it. A wide
             // diagram draws at its own inline width — the box measured here
             // stays the column's and the diagram OVERFLOWS it, which is why

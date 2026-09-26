@@ -319,15 +319,6 @@ export function useViewport(options: UseViewportOptions = {}): ViewportControlle
 }
 
 /**
- * The zoom, as a render value. A scalar on purpose: `get()` returns a new
- * object on every change, so subscribing to the viewport itself re-renders the
- * reader for a number that did not move.
- */
-export function useViewportZoom(viewport: ViewportController): number {
-  return useSyncExternalStore(viewport.subscribe, () => viewport.get().zoom, UNZOOMED);
-}
-
-/**
  * {@link ViewportController.screenScale}, as a render value — for whatever
  * draws screen-sized chrome in scene space and has to redraw when it changes.
  */

@@ -15,6 +15,7 @@ import { attachPageKeymap } from "./pageKeymap";
 import {
   createPageSelection,
   EMPTY_PAGE_SELECTION,
+  spansDiagrams,
   type PageSelection,
 } from "./pageSelection";
 import { createPageTools, type PageToolControl } from "./tools";
@@ -75,6 +76,8 @@ export interface PageCanvas {
   frameIn(blockId: string): RotatedRect | null;
   subscribeFrame(listener: () => void): () => void;
   register(entry: DiagramEntry): () => void;
+  /** Told each diagram that registers — a new one, or one back with a new api. */
+  onRegister(listener: (blockId: string) => void): () => void;
   get(blockId: string): DiagramEntry | undefined;
   /** In document order. */
   entries(): DiagramEntry[];
@@ -163,6 +166,7 @@ export function createPageCanvas({
   let editor: LiveEditor | null = null;
   const dismissed = new Set<string>();
   const waiting = new Map<string, Set<(entry: DiagramEntry) => void>>();
+  const registered = new Set<(blockId: string) => void>();
   const selection = createPageSelection({
     batch,
     quiet,
@@ -186,11 +190,7 @@ export function createPageCanvas({
   const frames = new Map<string, { version: number; frame: RotatedRect | null }>();
   let version = 0;
   let watching: (() => void) | null = null;
-  const spanning = () => {
-    let holding = 0;
-    for (const part of selection.getSnapshot().parts.values()) if (part.ids.length) holding++;
-    return holding > 1;
-  };
+  const spanning = () => spansDiagrams(selection.getSnapshot().parts);
   const bump = () => {
     version++;
     for (const listener of frameListeners) listener();
@@ -233,9 +233,11 @@ export function createPageCanvas({
       const woken = waiting.get(entry.blockId);
       waiting.delete(entry.blockId);
       for (const wake of woken ?? []) wake(entry);
+      for (const listener of registered) listener(entry.blockId);
       if (watching) rewatch(true);
       return () => {
         detach();
+        frames.delete(entry.blockId);
         if (registry.get(entry.blockId) === entry) registry.delete(entry.blockId);
         if (watching) rewatch(true);
       };
@@ -269,6 +271,10 @@ export function createPageCanvas({
         frameListeners.delete(listener);
         rewatch();
       };
+    },
+    onRegister: (listener) => {
+      registered.add(listener);
+      return () => void registered.delete(listener);
     },
     whenRegistered: (blockId, ms = 1500) => {
       const held = registry.get(blockId);
@@ -329,6 +335,7 @@ export function createPageCanvas({
       const detachKeys = attachPageKeymap(canvas, paneEl);
       const detachDraw = attachPageDraw(canvas, paneEl);
       return () => {
+        gesture.cancel();
         detachKeys();
         detachDraw();
         document.removeEventListener("pointerdown", onDown, true);
@@ -351,7 +358,8 @@ export function createPageCanvasHub({ batch, quiet = never }: Deps): PageCanvasH
   let snapshot = NOTHING_HELD;
   const listeners = new Set<() => void>();
 
-  const publish = () => {
+  /** `force`: the same diagram, with an api the screen has not seen. */
+  const publish = (force = false) => {
     const holding = (p: Pane | null) => (p ? (panes.get(p)?.selection.getSnapshot().focused ?? null) : null);
     const pane = holding(lead) ? lead : ([...panes.keys()].find((p) => holding(p)) ?? null);
     const canvas = pane ? panes.get(pane)! : null;
@@ -359,6 +367,7 @@ export function createPageCanvasHub({ batch, quiet = never }: Deps): PageCanvasH
     const next: HubSnapshot =
       canvas && blockId && canvas.pageId ? { pane, focused: { pageId: canvas.pageId, blockId } } : NOTHING_HELD;
     if (
+      !force &&
       next.pane === snapshot.pane &&
       next.focused?.blockId === snapshot.focused?.blockId &&
       next.focused?.pageId === snapshot.focused?.pageId
@@ -404,9 +413,15 @@ export function createPageCanvasHub({ batch, quiet = never }: Deps): PageCanvasH
         }
         publish();
       });
+      // The panels read the focused diagram's api off the pane, on the
+      // snapshot's say: one back with a new api has to say so.
+      const offRegister = canvas.onRegister((blockId) => {
+        if (focusedIn.get(pane) === blockId) publish(true);
+      });
       publish();
       return () => {
         off();
+        offRegister();
         if (panes.get(pane) !== canvas) return;
         panes.delete(pane);
         focusedIn.delete(pane);
@@ -444,7 +459,7 @@ const NO_GESTURE: PageGesture = {
   resetRotation: never,
   didDrag: never,
   cancel: noop,
-  marquee: noop,
+  marquee: never,
 };
 
 /** A diagram outside any workspace — the share route, a harness — stands alone. */
@@ -458,6 +473,7 @@ export const NO_PAGE_CANVAS: PageCanvas = {
   frameIn: nothing,
   subscribeFrame: () => noop,
   register: () => noop,
+  onRegister: () => noop,
   get: () => undefined,
   entries: () => [],
   whenRegistered: () => Promise.resolve(null),
@@ -489,7 +505,7 @@ export const PageCanvasHubContext = createContext<PageCanvasHub>(NO_HUB);
 export const PageCanvasContext = createContext<PageCanvas>(NO_PAGE_CANVAS);
 
 export const usePageCanvas = (): PageCanvas => useContext(PageCanvasContext);
-export const usePageCanvasHub = (): PageCanvasHub => useContext(PageCanvasHubContext);
+const usePageCanvasHub = (): PageCanvasHub => useContext(PageCanvasHubContext);
 
 export function useHubSnapshot(hub: PageCanvasHub): HubSnapshot {
   return useSyncExternalStore(hub.subscribe, hub.getSnapshot, hub.getSnapshot);

@@ -15,6 +15,7 @@ import { isCanvasMapName } from "@/app/components/editor/canvas/collab/ymap";
 import type { DomainStep, WorkspaceHistory } from "./spine";
 import { AFTER, BEFORE, captureTextSteps, type StackItem } from "./textCapture";
 import {
+  caretOffNode,
   relativeSelection,
   restoreSelection,
   textStepOf,
@@ -136,6 +137,31 @@ export function closeTextStep(editor: Pick<UndoHostEditor, "prosemirrorState">):
   return true;
 }
 
+/** What each doc's spine token is told when one of its steps is forgotten. */
+const forgetters = new WeakMap<UM, () => void>();
+
+/** The doc's newest text step, to hand to {@link forgetTextStep} later. */
+export function newestTextStep(editor: Pick<UndoHostEditor, "prosemirrorState">): StackItem | null {
+  const doc = fragmentOf(editor)?.doc;
+  return (doc && managers.get(doc)?.undoStack.at(-1)) ?? null;
+}
+
+/**
+ * Takes a step off the doc's history as if it had never been written, for a
+ * write given up before it came to anything — which ⌘Z would otherwise spend
+ * a press on, undoing nothing. False when it is no longer the newest.
+ */
+export function forgetTextStep(editor: Pick<UndoHostEditor, "prosemirrorState">, step: StackItem): boolean {
+  const doc = fragmentOf(editor)?.doc;
+  const manager = doc && managers.get(doc);
+  if (!manager || manager.undoStack.at(-1) !== step) return false;
+  manager.undoStack.pop();
+  // Or the next write would join whatever entry is now on top.
+  manager.stopCapturing();
+  forgetters.get(manager)?.();
+  return true;
+}
+
 export function textDomainId(docId: string): string {
   return `text:${docId}`;
 }
@@ -173,6 +199,8 @@ export function useTextUndoDomain(
       if (event.undoStackCleared) spine.drop(id);
     };
     manager.on("stack-cleared", onCleared);
+    const forget = () => spine.dropNewest(id, 1);
+    forgetters.set(manager, forget);
     if (process.env.NODE_ENV !== "production") {
       // Verification harnesses read the ledger through this; never shipped.
       (window as unknown as Record<string, unknown>).__ntTextUndo = manager;
@@ -211,7 +239,10 @@ export function useTextUndoDomain(
 
     const step = (direction: "undo" | "redo"): DomainStep => {
       if (forked()) return "blocked";
-      const prior = editor.prosemirrorView?.state.doc;
+      const view = editor.prosemirrorView;
+      const caret = view && !view.isDestroyed ? caretOffNode(view.state) : null;
+      if (view && caret) view.dispatch(view.state.tr.setSelection(caret).setMeta("addToHistory", false));
+      const prior = view?.state.doc;
       const { item, consumed, redoable } = capture.step(direction);
       land(item, direction, prior);
       return { consumed, redoable };
@@ -227,6 +258,7 @@ export function useTextUndoDomain(
       unregister();
       capture.dispose();
       manager.off("stack-cleared", onCleared);
+      if (forgetters.get(manager) === forget) forgetters.delete(manager);
     };
   }, [spine, editor, docId, pageId]);
 }

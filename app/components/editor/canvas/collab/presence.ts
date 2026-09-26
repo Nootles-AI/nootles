@@ -26,7 +26,7 @@ import { offsetIn, pointAt } from "./labelCaret";
  * All of it rides the page's awareness channel in one `canvas` field —
  * ephemeral by construction, gone when they are. The painter is deliberately
  * imperative DOM: ghosts live INSIDE the transformed scene layer, positioned
- * in scene pixels, so pan and zoom carry them for free and nothing re-renders
+ * in scene pixels, so the layer's transform carries them and nothing re-renders
  * a single shape. Every painted element is keyed and reused across paints, so
  * a position change rides a CSS transition — remote motion glides at the
  * awareness cadence instead of ticking — and chrome weights are counter-scaled
@@ -38,7 +38,7 @@ import { offsetIn, pointAt } from "./labelCaret";
  */
 
 export type CanvasSignal = {
-  /** The diagram this person's shell is on. */
+  /** The diagram this person is on. */
   b: string;
   ids: string[];
   /** Selected connectors — present only when any are. */

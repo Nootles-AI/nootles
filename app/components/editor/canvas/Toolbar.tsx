@@ -258,7 +258,7 @@ const COMMAND = (
  * whoever reaches for the mouse rather than ⌘K. The bar's last word, after a
  * rule of its own: it is not a tool and does nothing to the drawing.
  */
-export function PaletteButton({ apple, onOpen }: { apple: boolean; onOpen: () => void }) {
+function PaletteButton({ apple, onOpen }: { apple: boolean; onOpen: () => void }) {
   return (
     <>
       <span className="nt-toolbar-sep" aria-hidden />
@@ -683,7 +683,7 @@ type ToolDef = (typeof TOOLS)[number];
  * in hand. A double-click keeps a tool in hand past one use; Move is where one
  * use ends, so it never is.
  */
-export function ToolRow({
+function ToolRow({
   tool,
   locked = false,
   lead,

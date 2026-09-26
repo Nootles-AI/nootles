@@ -178,20 +178,3 @@ export function zoomFor(pane: ZoomPane): ZoomStore {
   }
   return store;
 }
-
-/**
- * Runs `fn` whenever a pane holding `el` changes zoom — for anything measured
- * in client px that no resize will tell about it. `el` is read at event time,
- * so an element that mounts late still hears.
- */
-export function onZoomWithin(
-  el: () => Element | null | undefined,
-  fn: () => void,
-): () => void {
-  const listener = (event: Event) => {
-    const target = el();
-    if (target && event.target instanceof Node && event.target.contains(target)) fn();
-  };
-  window.addEventListener(ZOOM_EVENT, listener);
-  return () => window.removeEventListener(ZOOM_EVENT, listener);
-}

@@ -72,12 +72,13 @@ function sceneOf(el: Element | null, ratio: Ratio, parseHtml: ParseHtml): string
             anchor: { x: 0, y: 0 },
           },
         ]);
+  // The shot's own frame is the container's to draw, so a stray id, dimension
+  // or a diagram's `wide` from the source is dropped rather than carried.
+  const { wide: _wide, ...framed } = scene;
   return serializeScene({
-    ...scene,
+    ...framed,
     w: SHOT_W,
     h: shotHeight(ratio),
-    // The shot's own frame is the container's to draw, so a stray id or
-    // dimension from the source is dropped rather than carried.
     id: undefined,
   });
 }

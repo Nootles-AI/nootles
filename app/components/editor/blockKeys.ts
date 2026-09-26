@@ -208,13 +208,22 @@ function arrowIntoVoid(editor: Editor, dir: keyof typeof ARROWS): boolean {
   const back = ARROWS[dir] < 0;
   const { $from } = selection;
   if ($from.depth === 0) return false;
-  const next = Selection.findFrom(doc.resolve(back ? $from.before() : $from.after()), back ? -1 : 1);
-  if (!(next instanceof NodeSelection) || next.node.type.name === "codeBlock") return false;
-  const container = next.$from.parent;
-  const id: unknown = container.attrs.id;
-  if (container.type.name !== "blockContainer" || typeof id !== "string") return false;
-  blockSelection(editor).select([id]);
-  return true;
+  const shown = shownIn(view);
+  let from = doc.resolve(back ? $from.before() : $from.after());
+  for (;;) {
+    const next = Selection.findFrom(from, back ? -1 : 1);
+    if (!(next instanceof NodeSelection) || next.node.type.name === "codeBlock") return false;
+    const container = next.$from.parent;
+    const id: unknown = container.attrs.id;
+    if (container.type.name !== "blockContainer" || typeof id !== "string") return false;
+    const at = next.$from.before();
+    // One a folded toggle hides is passed over, as nobody can see it.
+    if (shown(at)) {
+      blockSelection(editor).select([id]);
+      return true;
+    }
+    from = doc.resolve(back ? at : at + container.nodeSize);
+  }
 }
 
 /** Enter on a block selection goes back to writing, at the end of the last

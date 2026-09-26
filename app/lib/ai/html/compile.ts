@@ -6,6 +6,7 @@ import { parseStoryboard } from "@/app/components/editor/storyboard/parse";
 import { serializeStoryboard } from "@/app/components/editor/storyboard/serialize";
 import { adoptScene } from "@/app/components/editor/canvas/scene/adopt";
 import { fitToBand } from "@/app/components/editor/canvas/scene/band";
+import { reflowHugs } from "@/app/components/editor/canvas/scene/ops";
 import { parseFragment } from "@/app/components/editor/canvas/scene/parse";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import type {
@@ -73,7 +74,8 @@ const MEDIA = new Set(["image", "video", "audio", "file"]);
  * ways of writing one, and so a model's markup lands normalized. The root id is
  * dropped: it is the block's, and the block already knows its own name.
  *
- * `adoptScene` and `fitToBand` run here because this is the seam every
+ * `adoptScene` and `fitToBand` run here — a hugging group given its hugged
+ * size first, so the fit of a fit is the same diagram — because this is the seam every
  * AI-authored diagram crosses, from both lanes: the chat's `edit_page` and the
  * completion lane's `compileWith` are the only two callers of
  * `compileDocHtml`. The parse is raw on purpose — the read form carries the
@@ -84,7 +86,7 @@ const MEDIA = new Set(["image", "video", "audio", "file"]);
  */
 function canvasData(html: string): string {
   return serializeScene({
-    ...fitToBand(adoptScene(parseFragment(html).scene)),
+    ...fitToBand(reflowHugs(adoptScene(parseFragment(html).scene))),
     id: undefined,
   });
 }

@@ -182,4 +182,20 @@ describe("diagramBand.migrate", () => {
     expect(run.changed).toMatchObject([{ docId: healthy.docId, maps: 1, props: 1 }]);
     expect((await stored(t, broken.docId)).seq).toBe(1);
   });
+
+  test("a document whose read throws is reported, and the batch keeps its cursor", async () => {
+    const t = convexTest(schema, modules);
+    const broken = await world(t, oldPage());
+    const healthy = await world(t, oldPage());
+    // Two rows for one document: its read throws, as a function limit would.
+    await t.run((ctx) =>
+      ctx.db.insert("ydocs", { docId: broken.docId, seq: 1, snapshotSeq: 0, snapshotParts: 0, updatedAt: 1 }),
+    );
+
+    const run = await t.action(migrate, { dryRun: false });
+    expect(run).toMatchObject({ done: true, cursor: null });
+    expect(run.skipped.length).toBeGreaterThan(0);
+    expect(run.skipped.every((s) => s.docId === broken.docId && s.reason === "failed" && !!s.message)).toBe(true);
+    expect(run.changed).toMatchObject([{ docId: healthy.docId, maps: 1, props: 1 }]);
+  });
 });

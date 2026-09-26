@@ -7,8 +7,7 @@
  * the box, how big a resize is making it, or what angle a rotation is at.
  *
  * Mount it as the last child of the viewport's scene layer, so it inherits the
- * pan/zoom transform for free — every coordinate here is scene px and a pan
- * costs nothing. What cannot ride that transform is anything meant to be a
+ * layer's transform for free — every coordinate here is scene px. What cannot ride that transform is anything meant to be a
  * fixed size on screen: handles, hairlines and the readout are drawn at
  * `1/zoom` scene px, and the zoom is the only viewport value this subscribes to.
  *

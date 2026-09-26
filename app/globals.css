@@ -127,7 +127,11 @@
   /* The text's measure, --measure, and the body type, --text-body and
      --leading-body, are set on <html> from COLUMN_VARS (app/lib/column.ts) by
      every root that renders this sheet — the one copy TS and CSS both read.
-     The column around the measure, and its gutter, are `.nt-column`. */
+     The body type is repeated here, at the same values, for a root that does
+     not set them: a harness, a page rendered without the layout. The column
+     around the measure, and its gutter, are `.nt-column`. */
+  --text-body: 15px;
+  --leading-body: 1.7;
 
   /* Control geometry */
   --inset: 8px;

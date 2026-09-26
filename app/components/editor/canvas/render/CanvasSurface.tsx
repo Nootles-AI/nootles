@@ -12,11 +12,10 @@
  * DOM by the module that owns it; this component re-renders only when the
  * scene, the selection or the tool actually changes.
  *
- * Three things live here and nowhere else: the active tool, which every other
- * module reads; which label is open for editing, since a new shape must open
- * its own; and the block's own source — `SceneOp` addresses nodes, so the
- * diagram's width, height and background are not ops but a re-serialized scene
- * written back onto the block, which the store then adopts.
+ * Two things live here and nowhere else: which label is open for editing,
+ * since a new shape must open its own; and, for a diagram standing on its own,
+ * the active tool, which every other module reads — on a page the tool is the
+ * page's, handed in as `tools`.
  *
  * The panels and the toolbar are *not* rendered here. They belong to the
  * screen, not to a document column, so the canvas publishes
@@ -57,6 +56,7 @@ import {
 import { useContextMenu } from "../ContextMenu";
 import { CANVAS_CHROME, type PageCanvas } from "../page/PageCanvas";
 import type { GestureHost } from "../page/pageGesture";
+import { spansDiagrams } from "../page/pageSelection";
 import type { PageToolControl } from "../page/tools";
 import { ConnectorTool } from "./ConnectorTool";
 import { EdgeLayer } from "./EdgeLayer";
@@ -288,8 +288,7 @@ export interface ToolControl {
 
 /**
  * How the screen reaches one canvas: the stores for the panels, the tool for
- * the toolbar, the band and its viewport for the host, and the one write that
- * is not an op.
+ * the toolbar, and the band and its viewport for the host.
  */
 export interface CanvasApi {
   store: SceneStore;
@@ -320,8 +319,6 @@ export interface CanvasApi {
    * a pick from the toolbar, so the next key is a shortcut.
    */
   focus(): void;
-  /** Whether one of the surface's own pointer gestures is under way. */
-  pressing(): boolean;
   /** Opens a shape's label for editing, as Enter on it does. */
   openLabel(id: NodeId): void;
   /** Opens a path's points, or closes them with `null`. */
@@ -524,16 +521,22 @@ export function CanvasSurface({
   );
   const sel = useSelection(selection, scene);
   // A selection spanning diagrams is drawn as one frame, in the band the page
-  // is focused on; every band outlines its own members.
-  const spanFrame = useSyncExternalStore(
-    canvas?.subscribeFrame ?? noSubscription,
-    () => (canvas && blockId ? canvas.frameIn(blockId) : null),
-    nothing,
-  );
+  // is focused on, which alone follows it; every band outlines its own
+  // members, and asks for the frame only when pressed.
   const leadsFrame = useSyncExternalStore(
     canvas?.selection.subscribe ?? noSubscription,
     () => !!canvas && canvas.selection.getSnapshot().focused === blockId,
     never,
+  );
+  const spanning = useSyncExternalStore(
+    canvas?.selection.subscribe ?? noSubscription,
+    () => !!canvas && spansDiagrams(canvas.selection.getSnapshot().parts),
+    never,
+  );
+  const spanFrame = useSyncExternalStore(
+    canvas?.subscribeFrame ?? noSubscription,
+    () => (canvas && blockId && leadsFrame ? canvas.frameIn(blockId) : null),
+    nothing,
   );
   // The two elements the viewport owns: the one that clips and takes input,
   // and the one that carries the transform.
@@ -605,12 +608,11 @@ export function CanvasSurface({
   /** The node whose double-click asked to edit its label, this event. */
   const asked = useRef<NodeId | null>(null);
 
-  // A surface of its own starts everyone on `move`. A reader used to start on
-  // the hand, back when reading meant panning; now the view is pinned and the
-  // only thing left to do with a pointer is point, which is what `move` does
-  // once the paths that move things are closed off below. The ref is written
-  // before the listeners are told, so a subscriber woken by the notification
-  // reads the new value in the render it schedules.
+  // A surface of its own starts everyone on `move` — a reader too: all a
+  // pointer can do there is point, which is what `move` does once the paths
+  // that move things are closed off below. The ref is written before the
+  // listeners are told, so a subscriber woken by the notification reads the
+  // new value in the render it schedules.
   const toolRef = useRef<CanvasTool>("move");
   const toolListeners = useRef(new Set<() => void>());
   const ownTools = useMemo<ToolControl>(
@@ -1026,7 +1028,6 @@ export function CanvasSurface({
     () => containerRef.current?.focus({ preventScroll: true }),
     [containerRef],
   );
-  const pressing = useCallback(() => busy.current || gesture.isActive(), [gesture]);
 
   const penDrawing = useRef(false);
   const penListeners = useRef(new Set<(id: NodeId | null) => void>());
@@ -1056,7 +1057,6 @@ export function CanvasSurface({
       tools: toolControl,
       setTool: changeTool,
       focus,
-      pressing,
       openLabel: labelControl.open,
       openPath: setOpenPath,
       setDiagram,
@@ -1075,7 +1075,6 @@ export function CanvasSurface({
       toolControl,
       changeTool,
       focus,
-      pressing,
       labelControl,
       setOpenPath,
       setDiagram,
@@ -1392,7 +1391,8 @@ export function CanvasSurface({
       return;
     }
 
-    const frameHeld = spanFrame ?? (sel.ids.length > 0 ? sel.selectionBounds : null);
+    const pageFrame = spanning && canvas && blockId ? canvas.frameIn(blockId) : null;
+    const frameHeld = pageFrame ?? (sel.ids.length > 0 ? sel.selectionBounds : null);
     const onSelection =
       hit !== null
         ? selection.isSelected(hit)
@@ -1412,13 +1412,13 @@ export function CanvasSurface({
     const clicked = selection.click(point, mods);
     if (clicked === null) {
       event.preventDefault();
-      if (canvas && blockId) {
+      const across =
+        canvas &&
+        blockId &&
         canvas.gesture.marquee({ x: event.clientX, y: event.clientY }, blockId, event.shiftKey, () => {
           busy.current = false;
         });
-      } else {
-        startMarquee(point, event.shiftKey);
-      }
+      if (!across) startMarquee(point, event.shiftKey);
     } else if (selection.isSelected(clicked)) {
       busy.current = false;
       startMove(event);
@@ -1638,7 +1638,6 @@ export function CanvasSurface({
   // would be three things to grab that all mean "the whole shape". Figma drops
   // them for the same reason: in vector edit mode the anchors are the chrome.
   const framed = picking && !editPath;
-  const spanning = spanFrame !== null;
   const own = sel.selectionBounds;
   const members = useMemo(
     () => (spanning && sel.ids.length === 1 ? [own] : sel.memberBounds),

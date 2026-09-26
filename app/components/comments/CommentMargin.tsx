@@ -190,6 +190,9 @@ export function CommentMargin({
     // Scrolling the pane moves the track alone; nothing is measured again.
     const onScroll = () => {
       if (!scroller) return kick();
+      // A dot held off the pane's edge stays put as the text scrolls sideways
+      // under a zoom, so a sideways scroll places the dots again.
+      if (latest.current.mode === "dots" && scroller.scrollLeft !== leftAtRun) return kick();
       if (trackRef.current) {
         trackRef.current.style.transform = `translate(${leftAtRun - scroller.scrollLeft}px, ${-scroller.scrollTop}px)`;
       }

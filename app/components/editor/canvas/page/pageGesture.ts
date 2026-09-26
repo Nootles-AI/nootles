@@ -38,7 +38,7 @@ export interface GestureHost {
   overlay: { readonly current: OverlayApi | null };
 }
 
-export type PageGestureMode = "move" | "resize" | "scale" | "rotate";
+type PageGestureMode = "move" | "resize" | "scale" | "rotate";
 
 /**
  * A move, resize, scale or rotation of shapes selected in several diagrams at
@@ -65,8 +65,11 @@ export interface PageGesture {
   /** Whether the last press became a drag — read on its release. */
   didDrag(): boolean;
   cancel(): void;
-  /** A marquee from empty space in `blockId`, reaching into every band it crosses. */
-  marquee(origin: Point, blockId: string, shift: boolean, onEnd: () => void): void;
+  /**
+   * A marquee from empty space in `blockId`, reaching into every band it
+   * crosses. False when that diagram is not on the page to start one.
+   */
+  marquee(origin: Point, blockId: string, shift: boolean, onEnd: () => void): boolean;
 }
 
 type Lane = {
@@ -126,9 +129,13 @@ function foreignLines(
       const top = nodePath(scene, id)[0];
       if (top) staying.add(top.id);
     }
+    // Scale and offset are all that separate two bands' px: measured once a
+    // band, not through the screen for every shape.
+    const o = across(entry, lead, { x: 0, y: 0, w: 1, h: 1 });
     for (const node of scene.nodes) {
       if (node.hidden || staying.has(node.id)) continue;
-      lines.push(...boxLines(across(entry, lead, absoluteBounds(scene, node.id))));
+      const b = absoluteBounds(scene, node.id);
+      lines.push(...boxLines({ x: o.x + b.x * o.w, y: o.y + b.y * o.h, w: b.w * o.w, h: b.h * o.h }));
     }
   }
   return lines;
@@ -141,6 +148,7 @@ export function createPageGesture(deps: {
 }): PageGesture {
   let run: Run | null = null;
   let dragged = false;
+  let abandonMarquee: (() => void) | null = null;
 
   /** Diagrams holding shapes that may move, in document order. */
   const holders = () => {
@@ -319,11 +327,15 @@ export function createPageGesture(deps: {
 
     didDrag: () => dragged,
 
-    cancel: () => run?.end(true),
+    cancel: () => {
+      run?.end(true);
+      abandonMarquee?.();
+    },
 
     marquee: (origin, blockId, shift, onEnd) => {
       const start = deps.entries().find((e) => e.blockId === blockId);
-      if (!start) return;
+      if (!start) return false;
+      abandonMarquee?.();
       const restores = deps.entries().map((entry) => entry.api.ownSelection.capture());
       const touched = new Set<string>();
       let latest: Point | null = null;
@@ -362,22 +374,27 @@ export function createPageGesture(deps: {
         if (!raf) raf = requestAnimationFrame(flush);
       };
       const detach = () => {
+        abandonMarquee = null;
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
-        window.removeEventListener("pointercancel", up);
+        window.removeEventListener("pointercancel", abandon);
         window.removeEventListener("keydown", key, true);
         start.api.gesture.overlay.current?.marquee(null);
       };
-      // Escape puts every diagram's selection back as the press found it.
-      const key = (event: KeyboardEvent) => {
-        if (event.key !== "Escape") return;
-        event.preventDefault();
-        event.stopPropagation();
+      // Given up — Escape, a cancelled pointer, the pane going — every
+      // diagram's selection goes back as the press found it.
+      const abandon = () => {
         if (raf) cancelAnimationFrame(raf);
         raf = 0;
         detach();
         deps.selection.keep(() => restores.forEach((restore) => restore()));
         onEnd();
+      };
+      const key = (event: KeyboardEvent) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        abandon();
       };
       const up = () => {
         if (raf) {
@@ -393,8 +410,10 @@ export function createPageGesture(deps: {
       };
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", up);
-      window.addEventListener("pointercancel", up);
+      window.addEventListener("pointercancel", abandon);
       window.addEventListener("keydown", key, true);
+      abandonMarquee = abandon;
+      return true;
     },
   };
 }

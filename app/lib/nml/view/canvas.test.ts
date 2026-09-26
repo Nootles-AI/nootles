@@ -1,6 +1,7 @@
 import { parseHTML } from "linkedom";
 import * as Y from "yjs";
 import { describe, expect, it, vi } from "vitest";
+import { normalizeDiagram } from "@/app/components/editor/canvas/scene/band";
 import { applyOps } from "@/app/components/editor/canvas/scene/ops";
 import { parseScene } from "@/app/components/editor/canvas/scene/parse";
 import type {
@@ -16,6 +17,7 @@ import {
   type NmlDocument,
 } from "..";
 import { EditableNmlBridge } from "./bridge";
+import { NmlProjection } from "./projection";
 import {
   canvasTextDiff,
   compileCanvasSceneChange,
@@ -112,6 +114,21 @@ async function applyCompiled(doc: Y.Doc, before: Scene, after: Scene) {
 }
 
 describe("canonical NML canvas commands", () => {
+  it("lets two diagrams on one page hold the same shape ids, each edited through its own canvas", async () => {
+    const other = { ...scene(), id: "canvas-2" };
+    const twin: NmlDocument = {
+      ...document(),
+      blocks: [...document().blocks, { id: "canvas-2", type: "canvas", props: {}, scene: other, children: [] }],
+    };
+    expect(() => new NmlProjection().project(twin)).not.toThrow();
+    const doc = createNmlYDoc(twin);
+    await execute(doc, [{ type: "insertShapes", canvasId: "canvas-2", shapes: [rect("fresh", 800)] }]);
+    const [first, second] = decodeNmlDocument(doc).blocks;
+    if (first.type !== "canvas" || second.type !== "canvas") throw new Error("Expected canvas blocks");
+    expect(first.scene).toEqual(scene());
+    expect(second.scene.nodes.map((node) => node.id)).toEqual([...scene().nodes.map((node) => node.id), "fresh"]);
+  });
+
   it("updates every root, shape-kind, label, and edge field with AST/Yjs/HTML parity", async () => {
     const before = scene();
     const after = structuredClone(before);
@@ -365,6 +382,23 @@ describe("canonical NML canvas commands", () => {
     expect(canvasUpdates.every((value) => value.transaction === null)).toBe(true);
     expect(JSON.stringify(bridge.state.doc.toJSON())).not.toContain("scene");
     stopScene();
+    bridge.destroy();
+    doc.destroy();
+  });
+
+  it("lands an edit to a diagram stored before bands as the whole normalized scene", async () => {
+    const doc = createNmlYDoc(document());
+    const bridge = new EditableNmlBridge(doc, {
+      actor: { userId: "canvas-test", kind: "human" },
+      authorize: () => true,
+    });
+    // What the editor shows and diffs from: the stored scene, normalized.
+    const shown = normalizeDiagram(decodedScene(doc));
+    expect(shown).not.toEqual(decodedScene(doc));
+    const after = applyOps(shown, [{ type: "move", ids: ["r1"], dx: 15, dy: 5 }]);
+    expect(bridge.dispatchCanvasScene("canvas", shown, after)).toBe(true);
+    await Promise.resolve();
+    expect(decodedScene(doc)).toEqual(after);
     bridge.destroy();
     doc.destroy();
   });

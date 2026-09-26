@@ -87,13 +87,24 @@ export const migrate = internalAction({
     const changed: Infer<typeof changedDoc>[] = [];
     const skipped: Infer<typeof skippedDoc>[] = [];
     for (const docId of batch.docIds) {
-      const outcome = await migrateDoc(ctx, docId, args.dryRun);
+      const outcome = await migrateDoc(ctx, docId, args.dryRun).catch(failed(docId));
       if (outcome && "changed" in outcome) changed.push(outcome.changed);
       else if (outcome) skipped.push(outcome.skipped);
     }
     return { seen: batch.docIds.length, changed, skipped, done: batch.done, cursor: batch.cursor };
   },
 });
+
+/**
+ * A document whose read or write threw — too big for one, a function limit —
+ * is reported rather than thrown: a throw loses the batch's cursor, and every
+ * run after would stop at this document.
+ */
+const failed =
+  (docId: string) =>
+  (error: unknown): Outcome => ({
+    skipped: { docId, reason: "failed", message: error instanceof Error ? error.message : String(error) },
+  });
 
 async function migrateDoc(ctx: ActionCtx, docId: string, dryRun: boolean): Promise<Outcome> {
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
@@ -117,11 +128,8 @@ async function migrateDoc(ctx: ActionCtx, docId: string, dryRun: boolean): Promi
         report = normalizeDiagramsInDoc(doc, parseHtml);
       } catch (error) {
         if (error instanceof NmlYjsDecodeError) return { skipped: { docId, reason: "nml-undecodable" } };
-        // Reported rather than thrown: a throw loses the cursor, and every run
-        // after would stop at this document. Nothing is written until the
-        // rewrite has finished.
-        const message = error instanceof Error ? error.message : String(error);
-        return { skipped: { docId, reason: "failed", message } };
+        // Nothing is written until the rewrite has finished.
+        return failed(docId)(error);
       }
       // The update event rather than a state-vector diff, which would carry
       // the document's whole delete set along with the rewrite.

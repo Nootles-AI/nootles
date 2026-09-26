@@ -510,9 +510,10 @@ export function StoryboardSurface({
     const startX = event.clientX;
     const startW = el.offsetWidth;
     // The pointer moves in client px and the width is the board's own, which
-    // the page's zoom magnifies.
+    // the page's zoom magnifies. The room is the pane's at 100%: the widest a
+    // board may be is the document's to say, not the zoom it is seen at.
     const scale = effectiveScale(el);
-    const room = (el.closest("main")?.clientWidth ?? window.innerWidth) / scale;
+    const room = el.closest("main")?.clientWidth ?? window.innerWidth;
     const limit = Math.max(MIN_BOARD_W, room - 32);
     let next = startW;
     let moved = false;

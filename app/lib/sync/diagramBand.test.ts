@@ -13,7 +13,7 @@ import {
 } from "@/app/components/editor/canvas/collab/ymap";
 import { SceneStore } from "@/app/components/editor/canvas/engine/useScene";
 import { normalizeDiagram } from "@/app/components/editor/canvas/scene/band";
-import { migrateLegacyCanvas, readCanvasSource } from "@/app/components/editor/canvas/scene/migrate";
+import { emptyScene, migrateLegacyCanvas, readCanvasSource } from "@/app/components/editor/canvas/scene/migrate";
 import type { ParseHtml } from "@/app/components/editor/canvas/scene/parse";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import type { Scene } from "@/app/components/editor/canvas/scene/types";
@@ -234,6 +234,25 @@ describe("normalizeDiagramsInDoc", () => {
     const doc = new Y.Doc();
     doc.getXmlFragment("prosemirror").insert(0, [container("e1", node("canvas", { data: "" }))]);
     expect(rewrite(doc).updates).toHaveLength(0);
+  });
+
+  test("a prop that is a band already, or no diagram at all, is left as written", () => {
+    const loose = `<nt-diagram  h="96"><nt-rect id="a" x="0" y="24" w="10" h="10"></nt-rect></nt-diagram>`;
+    const stray = `<p>not a diagram</p>`;
+    const doc = new Y.Doc();
+    doc.getXmlFragment("prosemirror").insert(0, [
+      container("b1", node("canvas", { data: loose })),
+      container("x1", node("canvas", { data: stray })),
+    ]);
+    expect(rewrite(doc).updates).toHaveLength(0);
+    expect([prop(doc, "b1"), prop(doc, "x1")]).toEqual([loose, stray]);
+  });
+
+  test("an old graph with nothing drawn becomes a blank band", () => {
+    const doc = new Y.Doc();
+    doc.getXmlFragment("prosemirror").insert(0, [container("j1", node("canvas", { data: `{"nodes":[],"edges":[]}` }))]);
+    rewrite(doc);
+    expect(prop(doc, "j1")).toBe(serializeScene(normalizeDiagram(emptyScene())));
   });
 });
 

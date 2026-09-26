@@ -1,4 +1,5 @@
 import { effectiveScale } from "@/app/lib/columnScale";
+import { deleteSelection } from "../ContextMenu";
 import {
   isCanvasHtml,
   landFragment,
@@ -60,7 +61,7 @@ export function isField(el: Element | null): boolean {
   );
 }
 
-export type EscapeStep =
+type EscapeStep =
   /** Not the page's key: a field's, the text's, or whoever is around the page. */
   | "pass"
   /** Back on Move, the lock let go. */
@@ -156,12 +157,21 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
     return id ? (canvas.get(id) ?? null) : null;
   };
   const writable = () => canvas.targets().filter((target) => !target.entry.readOnly);
+  let batching = 0;
+  const batch = <T,>(fn: () => T): T => {
+    batching++;
+    try {
+      return canvas.batch(fn);
+    } finally {
+      batching--;
+    }
+  };
 
   const endNudges = () => {
     if (runs.size === 0) return;
     const ending = [...runs.values()];
     runs.clear();
-    canvas.batch(() => ending.forEach((run) => run.end()));
+    batch(() => ending.forEach((run) => run.end()));
     ending.forEach((run) => run.dispose());
   };
   const runFor = (target: DiagramTarget) => {
@@ -229,7 +239,7 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
 
   const selectAll = (diagram: DiagramEntry) => {
     const raw = diagram.api.ownSelection;
-    canvas.batch(() =>
+    batch(() =>
       climbSelectAll({
         entered: raw.getSnapshot().enteredPath.length > 0,
         selectAll: () => diagram.api.selection.selectAll(),
@@ -248,14 +258,20 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
     if (FOCUSED_ONLY.has(id)) {
       const focused = canvas.selection.getSnapshot().focused;
       const target = targets.find((t) => t.blockId === focused) ?? targets[0];
-      return !!target && canvas.batch(() => commandsFor(target)[id](e));
+      return !!target && batch(() => commandsFor(target)[id](e));
+    }
+    // Ids read up front: a diagram emptied by the delete takes its block, and
+    // the caret that lands in the text must not let the next one's go first.
+    if (id === "edit.delete") {
+      const targets = writable().map((t) => ({ ...t, select: (ids: readonly string[]) => t.selection.select(ids) }));
+      return deleteSelection(targets, batch);
     }
     const flag =
       id === "toggle.hidden" ? flagValue("hidden") : id === "toggle.locked" ? flagValue("locked") : undefined;
     const focused = canvas.selection.getSnapshot().focused;
     let handled = id === "toggle.hidden";
     canvas.selection.keep(() =>
-      canvas.batch(() => {
+      batch(() => {
         for (const target of targets) if (commandsFor(target, flag)[id](e)) handled = true;
       }),
     );
@@ -290,14 +306,8 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
       return true;
     }
     if (page) return false;
-    if (id === "edit.undo" || id === "edit.redo") {
-      // Outside a workspace's history, which answers these on the document.
-      const diagram = band ?? focusedEntry();
-      if (!diagram) return false;
-      if (id === "edit.undo") diagram.api.store.undo();
-      else diagram.api.store.redo();
-      return true;
-    }
+    // The workspace's history answers these on the document, ahead of here.
+    if (id === "edit.undo" || id === "edit.redo") return false;
     // An empty band lets the arrows, ⌫ and Enter go on to the page. ⌘⇧H is
     // always spent: it is the browser's Home.
     if (!shapes) return id === "toggle.hidden" && band !== null;
@@ -333,6 +343,8 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
   // keys are the text's now, and shapes held under them would look as if
   // they were not.
   const onFocusIn = (e: FocusEvent) => {
+    // A caret an edit of the keymap's own put there is part of that edit.
+    if (batching) return;
     const el = e.target instanceof Element ? e.target : null;
     if (!(isField(el) || isPageText(el)) || bandOf(el)) return;
     if (canvas.selection.getSnapshot().parts.size > 0) canvas.selection.clearAll();
@@ -385,7 +397,7 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
     }));
     onCopy(e);
     if (!e.defaultPrevented) return;
-    canvas.batch(() => {
+    batch(() => {
       for (const { store, ids } of cutting) if (ids.length) store.dispatch({ type: "remove", ids });
       canvas.selection.clearAll();
     });
@@ -417,7 +429,7 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
       parentId: pasteLevel(scene, band.api.ownSelection),
     });
     if (ops.length === 0) return;
-    canvas.batch(() => {
+    batch(() => {
       store.dispatch(ops);
       band.api.selection.select(ids);
     });

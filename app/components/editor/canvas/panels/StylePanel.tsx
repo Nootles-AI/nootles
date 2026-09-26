@@ -458,12 +458,13 @@ function useHistoryBracket(
   // the step is not refused for a bracket whose gesture already ended. A
   // pointer still holding the bracket keeps it — undo mid-drag stays refused.
   // Reconciled every render, since the targets arrive as a fresh array each
-  // time and only the stores in it matter.
+  // time and only the stores in it matter — and those a bracket is still open
+  // on, which the selection may have left mid-run.
   const watched = useRef(new Map<SceneStore, () => void>());
   useEffect(() => {
     const next = new Set(stores);
     for (const [store, off] of watched.current) {
-      if (next.has(store)) continue;
+      if (next.has(store) || open.current.has(store)) continue;
       off();
       watched.current.delete(store);
     }

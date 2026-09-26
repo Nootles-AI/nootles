@@ -566,9 +566,9 @@ export function parseFragment(
   const scene: Scene = {
     w: num(root, ["w", "width"]),
     h: num(root, ["h", "height"]),
-    // By presence: a tab from before `wide` was modelled carries it through
-    // `attrs` and writes it back as `wide=""`.
-    ...(wrapped && root.hasAttribute("wide") ? { wide: true as const } : {}),
+    // Read as `locked` is, so `wide=""` — what a tab from before `wide` was
+    // modelled writes back through `attrs` — is wide, and `wide="false"` not.
+    ...(wrapped && bool(root, "wide") ? { wide: true as const } : {}),
     style: parseStyleAttr(root.getAttribute("style") ?? ""),
     nodes: childNodes(root, mint),
     edges: collectEdges(root, mint, []),

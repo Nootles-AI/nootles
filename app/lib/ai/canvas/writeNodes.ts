@@ -455,7 +455,7 @@ export function fitNotes(fit: readonly SceneOp[], scene: Scene): string[] {
 
 /** Root attributes that pinned an old diagram's size. A write never brings
  *  them back — a band's width follows from `wide`, and its height from `h`. */
-const LEGACY_ROOT_ATTRS = ["w", "data-width", "data-height"] as const;
+const LEGACY_ROOT_ATTRS = ["data-width", "data-height"] as const;
 
 function omit(attrs: Record<string, string>, keys: readonly string[]): Record<string, string> {
   const out = { ...attrs };

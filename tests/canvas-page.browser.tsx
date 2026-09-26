@@ -93,6 +93,7 @@ const source = (): NmlDocument =>
   }) as unknown as NmlDocument;
 
 let editor: Editor;
+let ydoc: ReturnType<typeof createNmlYDoc>;
 let mirror: NmlLegacyMirror;
 let page: PageCanvas | null = null;
 let spine: WorkspaceHistory | null = null;
@@ -146,7 +147,7 @@ function Pane() {
 }
 
 function mount() {
-  const ydoc = createNmlYDoc(source());
+  ydoc = createNmlYDoc(source());
   editor = BlockNoteEditor.create(
     withCollaboration({
       schema,
@@ -241,6 +242,13 @@ const harness = {
   canUndo: (blockId: string) => entry(blockId)?.api.store.canUndo() ?? null,
   /** The blocks on the page, by id and type. */
   blocks: () => editor.document.map((block) => `${block.id}:${block.type}`),
+  /** The blocks the shared doc holds, in order — what the view must agree with. */
+  docBlocks: () =>
+    [...ydoc.getXmlFragment("prosemirror").toString().matchAll(/<blockcontainer[^>]*?\bid="([^"]+)"/gi)].map(
+      (match) => match[1],
+    ),
+  /** The blocks the view shows. */
+  viewBlocks: () => editor.document.map((block) => block.id),
   /** The blocks selected as blocks. */
   blockSelection: () => [...blockSelection(editor).getSnapshot().ids],
   /** Where the keyboard is: a band, the page's text, or somewhere else. */
@@ -286,6 +294,9 @@ const harness = {
   /** The diagram blocks on the page, in order. */
   diagrams: () => (page?.entries() ?? []).map((diagram) => diagram.blockId),
   undo: () => spine?.undo(),
+  /** Entries on the page's text history. */
+  textSteps: () =>
+    (window as unknown as { __ntTextUndo?: { undoStack: unknown[] } }).__ntTextUndo?.undoStack.length ?? null,
   redo: () => spine?.redo(),
   /**
    * The page as a document not served from NML — the app's default — whose
@@ -295,8 +306,17 @@ const harness = {
    */
   unserve: () => mirror.stop(),
   clear: () => page?.selection.clearAll(),
+  /** Adds shapes of a diagram to the page's selection, as a Shift-click would. */
+  add: (blockId: string, ids: string[]) => page?.selection.selectIn(blockId, ids, { keep: true }),
   /** Picks the page's tool, as the bar does. */
   pick: (tool: string) => page?.tools?.set(tool as never),
+  /** Nests a block under the one before it, as Tab would; whether it could. */
+  nest: (blockId: string) => {
+    editor.setTextCursorPosition(blockId);
+    if (!editor.canNestBlock()) return "false";
+    editor.nestBlock();
+    return "true";
+  },
   /** A block's box on screen, whatever it holds. */
   block: (blockId: string) => box(document.querySelector(`.bn-block-outer[data-id="${CSS.escape(blockId)}"]`)),
   /** A new empty line after a block; its id. */

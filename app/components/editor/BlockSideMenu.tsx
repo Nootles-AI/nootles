@@ -18,8 +18,7 @@ import {
   type MiddlewareState,
 } from "@floating-ui/react";
 import { useEffect, type ReactElement, type SVGProps } from "react";
-import { effectiveScale } from "@/app/lib/columnScale";
-import { onZoomWithin } from "@/app/lib/docZoom";
+import { effectiveScale, onScaleWithin } from "@/app/lib/columnScale";
 
 import * as Icon from "../Icons";
 import { duplicateAndSelect } from "./blockKeys";
@@ -452,7 +451,7 @@ export function BlockSideMenu() {
   // Placement tracks the pointer, not the page, so after a zoom the handle
   // would stand where its block used to be until the next move.
   useEffect(
-    () => onZoomWithin(() => editor.domElement, () => sideMenu.hideMenuIfNotFrozen()),
+    () => onScaleWithin(() => editor.domElement, () => sideMenu.hideMenuIfNotFrozen()),
     [editor, sideMenu],
   );
   return (

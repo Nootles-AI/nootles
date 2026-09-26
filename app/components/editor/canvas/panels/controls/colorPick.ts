@@ -14,11 +14,10 @@
  * out the colour under the pointer (or the screen pixel), and hand it to
  * `apply` exactly once per successful pick.
  *
- * The canvas source is a `SurfaceMode` (`engine/surfaceMode.ts`, shared with
- * SELECT/STAGE) rather than a parallel branch in `CanvasSurface`'s own
- * handlers — while this mode is active, the surface's default click/hover/
- * marquee/draw behaviour does not run; this module sees every pointer event
- * for the viewport instead.
+ * The canvas source is a `SurfaceMode` (`engine/surfaceMode.ts`) rather than a
+ * parallel branch in `CanvasSurface`'s own handlers — while this mode is
+ * active, the surface's default click/hover/marquee/draw behaviour does not
+ * run; this module sees every pointer event for the viewport instead.
  */
 
 import { createContext, useContext, useSyncExternalStore } from "react";

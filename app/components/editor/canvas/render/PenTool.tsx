@@ -359,7 +359,7 @@ export function PenTool({
   // Every render is a structural change; positions are written here, not in JSX.
   useLayoutEffect(paint);
 
-  // Pan and zoom move the overlay without changing anything React renders.
+  // The viewport moves the overlay without changing anything React renders.
   useEffect(() => viewport.subscribe(paint), [viewport, paint]);
 
   /**
@@ -483,9 +483,10 @@ export function PenTool({
     endNudgeRun();
     const id = idRef.current;
     if (anchorsRef.current.length < 2) {
-      // Its own, taken back: a diagram that held nothing else was empty
-      // before the pen began, and the last-shape guard is not asked.
-      if (id) store.dispatch({ type: "remove", ids: [id] }, { guard: false });
+      // A path the pen began, taken back: a diagram that held nothing else was
+      // empty before the pen began, and the last-shape guard is not asked. One
+      // it was handed to edit is a shape going like any other.
+      if (id) store.dispatch({ type: "remove", ids: [id] }, nodeId === null ? { guard: false } : undefined);
       onDrawing?.(false);
       onFinish(null);
       return;
@@ -493,7 +494,7 @@ export function PenTool({
     write();
     onDrawing?.(false);
     onFinish(id);
-  }, [endNudgeRun, store, write, onFinish, onDrawing]);
+  }, [endNudgeRun, store, write, onFinish, onDrawing, nodeId]);
 
   /** One visual update and one committed edit per frame, never per event. */
   const schedule = useCallback(() => {

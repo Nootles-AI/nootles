@@ -185,7 +185,7 @@
 }
 
 /* The one transformed element. Every shape is absolutely positioned inside it,
-   so pan and zoom are a single composited transform. */
+   so a wide band's offset and a shot's scale are a single composited transform. */
 .nt-canvas-scene {
   position: absolute;
   inset: 0;
@@ -402,7 +402,7 @@
    Docked at the foot of the page column and centred on it, where the hand
    already is — not on the diagram, which can be taller than the window or
    scrolled half out of it. The dock follows the column's edges as
-   `--nt-stage-l`/`--nt-stage-r` (`app/lib/columnEdges.ts`), kept current
+   `--nt-col-l`/`--nt-col-r` (`app/lib/columnEdges.ts`), kept current
    while a rail opens or closes, so the bar recentres with the sheet. With no
    shell around it (a shared page) they are unset and it centres on the
    window.
@@ -415,9 +415,9 @@
 
 .nt-toolbar-dock {
   position: fixed;
-  right: var(--nt-stage-r, 0px);
+  right: var(--nt-col-r, 0px);
   bottom: calc(var(--inset) + 16px);
-  left: var(--nt-stage-l, 0px);
+  left: var(--nt-col-l, 0px);
   display: flex;
   justify-content: center;
   pointer-events: none;
@@ -762,7 +762,7 @@
    top-right corner, and their selections outlined in their colour — the
    outline following their drag live, ahead of the committed write. Painted
    imperatively from collab/presence.ts; ghosts live inside the transformed
-   scene layer, so pan and zoom carry them for free.
+   scene layer, so its transform carries them for free.
 
    Geometry is scene px; the chrome — outline weight, caret bar, name flag —
    is screen px, counter-scaled through `--k` exactly as the selection

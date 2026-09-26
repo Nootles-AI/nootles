@@ -895,3 +895,10 @@ export const PICKING_PROBES: readonly Probe[] = [
 export function anchorNode(where: ProbeAnchor): NodeId | null {
   return "node" in where ? where.node : null;
 }
+
+/** The ids of every shape in a serialized scene — never the root's, never an edge's. */
+export function shapeIdsIn(html: string): Set<string> {
+  return new Set(
+    [...html.matchAll(/<nt-(?!diagram\b|edge\b)[a-z]+\b[^>]*\sid="([^"]*)"/g)].map((m) => m[1]),
+  );
+}
