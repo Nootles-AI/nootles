@@ -21,6 +21,7 @@
  *    places that look random.
  */
 
+import { BAND, bandHeight, bandLeft, bandWidth } from "./bandGeometry";
 import { nodeBounds, unionBounds } from "./geometry";
 import { findParent, selectedNodes } from "./types";
 import type {
@@ -87,15 +88,26 @@ export function alignNodes(
  * The single-node case is Figma's, and it is the one users actually rely on —
  * aligning one node to its own bounds does nothing, which is not what pressing
  * the button appears to promise. A node's container in its own coordinate space
- * is its parent group's box with the origin at zero, or the canvas surface at
- * the top level.
+ * is its parent group's box with the origin at zero, or the surface at the top
+ * level: a frame's own box, or the band a diagram is drawn in — across its
+ * full width, and down within its margins. A band is as tall as its lowest
+ * shape plus a margin, so a shape aligned to the band's own bottom edge would
+ * push that edge down with it on every press.
  */
 export function alignTarget(
   scene: Scene,
   ids: readonly NodeId[],
   relativeTo?: AlignTarget,
 ): Rect {
-  const surface: Rect = { x: 0, y: 0, w: scene.w, h: scene.h };
+  const surface: Rect =
+    scene.w > 0
+      ? { x: 0, y: 0, w: scene.w, h: scene.h }
+      : {
+          x: bandLeft(scene),
+          y: BAND,
+          w: bandWidth(scene),
+          h: Math.max(0, bandHeight(scene) - 2 * BAND),
+        };
   if (ids.length === 0) return surface;
 
   const target = relativeTo ?? (ids.length > 1 ? "selection" : "parent");

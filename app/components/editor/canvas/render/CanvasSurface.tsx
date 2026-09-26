@@ -108,14 +108,8 @@ import {
   type Scene,
   type StylePatch,
 } from "../scene/types";
-import {
-  CANVAS_MIN_H,
-  CANVAS_MIN_W,
-  FIXED,
-  HEIGHT_ATTR,
-  WIDTH_ATTR,
-  sceneBlockHeight,
-} from "../types";
+import { bandFloor, WIDE_W } from "../scene/band";
+import { sceneBlockHeight } from "../types";
 import { defaultBox, newNode, type DrawKind } from "./newShape";
 import { Overlay, type OverlayApi } from "./Overlay";
 import { shapeWriter, type ShapeWriter } from "./svgShape";
@@ -146,9 +140,6 @@ function insetFrom(outer: DOMRect, inner: DOMRect, round: string): string {
   const left = inner.left - outer.left;
   return `inset(${top}px ${right}px ${bottom}px ${left}px round ${round})`;
 }
-
-/** Kept clear either side, so a widened block cannot reach the window's edge. */
-const CANVAS_GUTTER = 32;
 
 /** The screen's canvas chrome. A press in it is not a press outside the canvas.
  *  The mention and inspector menus are portalled to the body but speak for a
@@ -211,12 +202,6 @@ function writeStyle(style: CSSStyleDeclaration | undefined, decls: StylePatch) {
     if (value === undefined) style.removeProperty(prop);
     else style.setProperty(prop, value);
   }
-}
-
-/** The widest the block may be drawn without escaping the document's scroller. */
-function maxWidth(el: HTMLElement): number {
-  const room = el.closest("main")?.clientWidth ?? window.innerWidth;
-  return Math.max(CANVAS_MIN_W, room - CANVAS_GUTTER);
 }
 
 /** The corner that makes a drag from `origin` square — Shift, while drawing. */
@@ -485,12 +470,12 @@ export interface CanvasApi {
    */
   reveal(ids: readonly NodeId[]): void;
   /**
-   * Show a width and/or height on the block without committing it, so a scrub
-   * of the panel's W/H previews every frame. Written straight to the element,
-   * exactly as the grips do; the axes left out are untouched. Land it with
-   * {@link setDiagram}, which is what React then renders from.
+   * Show a height on the band without committing it, so a scrub of the
+   * panel's H previews every frame. Written straight to the element, exactly
+   * as the grip does. Land it with {@link setDiagram}, which is what React
+   * then renders from. A frame shows none: the board sizes its element.
    */
-  previewSize(size: { w?: number; h?: number }): void;
+  previewSize(h: number): void;
   /**
    * The same, for the diagram's own declarations — its background, its colour
    * variables. Written straight onto the viewport element, so a drag in the
@@ -594,7 +579,12 @@ export function CanvasSurface({
   storeKey,
   frame,
 }: CanvasSurfaceProps) {
-  const store = useScene({ source, onChange, cacheKey: storeKey });
+  const store = useScene({
+    source,
+    onChange,
+    cacheKey: storeKey,
+    frame: frame && { w: frame.w, h: frame.h },
+  });
   const scene = useSceneSnapshot(store);
   // Every family the scene names, asked for once. The declaration is the
   // manifest; nothing else records which faces a diagram is set in.
@@ -1037,6 +1027,11 @@ export function CanvasSurface({
     latest.current = { onApi };
   });
 
+  // Existence only, so `setDiagram`, `changeTool` — and the api memoised on
+  // them — keep their identity when the container re-renders the frame object
+  // with equal values.
+  const inFrame = frame !== undefined;
+
   /**
    * The diagram's own properties, as an op like any other — one undoable
    * entry, and on the shared pipeline one per-key meta write. (These used to
@@ -1045,44 +1040,39 @@ export function CanvasSurface({
    */
   const setDiagram = useCallback(
     (patch: DiagramPatch) => {
-      const attrs: Record<string, string | undefined> = {};
-      if (patch.h !== undefined) attrs[HEIGHT_ATTR] = FIXED;
-      if (patch.w !== undefined) attrs[WIDTH_ATTR] = FIXED;
       store.dispatch({
         type: "setDiagram",
-        ...(patch.w !== undefined ? { w: patch.w } : {}),
+        // A band's width is `wide`, never a number: a stated one would read
+        // back as a root from before bands.
+        ...(patch.w !== undefined && inFrame ? { w: patch.w } : {}),
         ...(patch.h !== undefined ? { h: patch.h } : {}),
+        ...(patch.wide !== undefined ? { wide: patch.wide } : {}),
         ...(patch.style ? { style: patch.style } : {}),
-        ...(Object.keys(attrs).length ? { attrs } : {}),
       });
     },
-    [store],
+    [store, inFrame],
   );
 
-  const previewSize = useCallback((size: { w?: number; h?: number }) => {
-    const el = wrap.current;
-    if (!el) return;
-    if (size.h !== undefined) {
-      el.style.height = `${Math.max(CANVAS_MIN_H, size.h)}px`;
-    }
-    if (size.w !== undefined) {
-      el.style.width = `${Math.max(CANVAS_MIN_W, size.w)}px`;
-    }
-  }, []);
+  const previewSize = useCallback(
+    (h: number) => {
+      const el = wrap.current;
+      if (!el || inFrame) return;
+      el.style.height = `${Math.max(bandFloor(store.getScene()), h)}px`;
+    },
+    [store, inFrame],
+  );
 
   const previewStyle = useCallback(
     (decls: StylePatch) => writeStyle(containerRef.current?.style, decls),
     [containerRef],
   );
 
-  /** Back to a size the layout derives — double-click on a grip. */
-  const fit = useCallback(
-    (attr: string) => {
-      if (store.getScene().attrs[attr] === undefined) return;
-      store.dispatch({ type: "setDiagram", attrs: { [attr]: undefined } });
-    },
-    [store],
-  );
+  /** Back to the height the content needs — double-click on the grip. */
+  const fit = useCallback(() => {
+    const scene = store.getScene();
+    const floor = bandFloor(scene);
+    if (scene.h !== floor) setDiagram({ h: floor });
+  }, [store, setDiagram]);
 
   /**
    * What a gesture is allowed to assume for its whole duration: nothing
@@ -1258,9 +1248,6 @@ export function CanvasSurface({
    * whole surface, so a tool chosen underneath it would be a tool you could not
    * reach — and the tool bar showing something the surface is not doing.
    */
-  // Existence only, so `changeTool` — and the api memoised on it — keeps its
-  // identity when the container re-renders the frame object with equal values.
-  const inFrame = frame !== undefined;
   const changeTool = useCallback(
     (next: CanvasTool) => {
       // A shot has no use for either: the hand pans a viewport that is locked
@@ -1934,9 +1921,8 @@ export function CanvasSurface({
   );
 
   const height = sceneBlockHeight(scene);
-  /** Unset until widened, so the block tracks the document column by default. */
-  const width =
-    scene.attrs[WIDTH_ATTR] === FIXED ? Math.max(CANVAS_MIN_W, scene.w) : null;
+  /** Unset unless wide, so the block tracks the document column by default. */
+  const width = scene.wide ? WIDE_W : null;
 
   const onGripDown = (event: ReactPointerEvent) => {
     const el = wrap.current;
@@ -1944,38 +1930,16 @@ export function CanvasSurface({
     event.preventDefault();
     const startY = event.clientY;
     const startH = el.offsetHeight;
+    const floor = bandFloor(store.getScene());
     let next = startH;
     drag(
       (move) => {
-        next = Math.max(CANVAS_MIN_H, Math.round(startH + move.clientY - startY));
+        next = Math.max(floor, Math.round(startH + move.clientY - startY));
         // Written straight to the element; React learns the number once, from
         // the source this commits.
         el.style.height = `${next}px`;
       },
       () => setDiagram({ h: next }),
-    );
-  };
-
-  /**
-   * The right grip. The left edge stays pinned to the text column, exactly as
-   * the top does, so a diagram grows into the right margin and the prose above
-   * and below it keeps its own left edge.
-   */
-  const onSideGripDown = (event: ReactPointerEvent) => {
-    const el = wrap.current;
-    if (event.button !== 0 || !el) return;
-    event.preventDefault();
-    const startX = event.clientX;
-    const startW = el.offsetWidth;
-    const limit = maxWidth(el);
-    let next = startW;
-    drag(
-      (move) => {
-        const grown = startW + (move.clientX - startX);
-        next = Math.round(Math.min(limit, Math.max(CANVAS_MIN_W, grown)));
-        el.style.width = `${next}px`;
-      },
-      () => setDiagram({ w: next }),
     );
   };
 
@@ -2127,24 +2091,14 @@ export function CanvasSurface({
       </div>
 
       {!readOnly && !frame && (
-        <>
-          <div
-            className="nt-canvas-grip"
-            role="separator"
-            aria-label="Resize canvas height"
-            title="Drag to resize · double-click to fit"
-            onPointerDown={onGripDown}
-            onDoubleClick={() => fit(HEIGHT_ATTR)}
-          />
-          <div
-            className="nt-canvas-grip-x"
-            role="separator"
-            aria-label="Resize canvas width"
-            title="Drag to resize · double-click to fit the column"
-            onPointerDown={onSideGripDown}
-            onDoubleClick={() => fit(WIDTH_ATTR)}
-          />
-        </>
+        <div
+          className="nt-canvas-grip"
+          role="separator"
+          aria-label="Resize canvas height"
+          title="Drag to resize · double-click to fit"
+          onPointerDown={onGripDown}
+          onDoubleClick={fit}
+        />
       )}
 
       {menu}

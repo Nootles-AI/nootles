@@ -4,6 +4,7 @@ import { DOMParser } from "linkedom";
 import * as Y from "yjs";
 import { describe, expect, it } from "vitest";
 import { canvasMapName, populateCanvas } from "@/app/components/editor/canvas/collab/ymap";
+import { readCanvasSource } from "@/app/components/editor/canvas/scene/migrate";
 import {
   UNDERSTOOD_LEGACY_CODES,
   buildLegacyShadow,
@@ -161,6 +162,26 @@ describe("canvas map/HTML pair", () => {
     const diff = compareScenes(mirror, drifted);
     expect(diff.length).toBeGreaterThan(0);
     expect(diff[0].class).toBe("canvas-shape-fields");
+  });
+
+  it("reads maps the band migration has not reached as the band their mirror reads as", () => {
+    const input = loadFixture("canvas-html.json");
+    const data = String((input.blocks[0].props as { data: string }).data);
+    const doc = new Y.Doc();
+    // Laid down from the old root as written, as a client before bands did.
+    populateCanvas(doc.getMap<unknown>(canvasMapName("canvas1")) as Y.Map<unknown>, readCanvasSource(data));
+    const maps = canvasSceneFromMaps(doc, "canvas1")!;
+    expect(maps.w).toBe(0);
+    expect(compareScenes(canvasSceneFromMirror(data), maps)).toEqual([]);
+  });
+
+  it("compares wide and h always, and w only where one side states one", () => {
+    const mirror = canvasSceneFromMirror(String((loadFixture("canvas-html.json").blocks[0].props as { data: string }).data));
+    const classes = (other: typeof mirror) => compareScenes(mirror, other).map((diff) => diff.class);
+    expect(classes({ ...mirror, wide: true })).toEqual(["canvas-wide"]);
+    expect(classes({ ...mirror, h: mirror.h + 1 })).toEqual(["canvas-size"]);
+    expect(classes({ ...mirror, w: 320 })).toEqual(["canvas-size"]);
+    expect(classes({ ...mirror })).toEqual([]);
   });
 
   it("returns null map state for a block that has never been collaborated on", () => {

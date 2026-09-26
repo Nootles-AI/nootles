@@ -17,6 +17,7 @@ import {
   type StylePatch,
   isBoolean,
 } from "../scene/types";
+import { bandHeight } from "../scene/band";
 import { canBoolean } from "../scene/boolean";
 import {
   ColorVariablesContext,
@@ -77,7 +78,7 @@ export type SectionProps = {
  * The diagram's own properties. Handed back to the canvas surface, which owns
  * turning them into a `setDiagram` op — the panel never sees the scene root.
  */
-export type DiagramPatch = { w?: number; h?: number; style?: StylePatch };
+export type DiagramPatch = { w?: number; h?: number; wide?: boolean; style?: StylePatch };
 
 export type StylePanelProps = {
   store: SceneStore;
@@ -88,8 +89,8 @@ export type StylePanelProps = {
   onDiagramChange: (patch: DiagramPatch) => void;
   /** The boolean row makes a group and then wants it selected. */
   onSelect: (ids: readonly NodeId[]) => void;
-  /** `CanvasApi.previewSize` — a size shown without being committed. */
-  onPreviewSize?: (size: { w?: number; h?: number }) => void;
+  /** `CanvasApi.previewSize` — a height shown without being committed. */
+  onPreviewSize?: (h: number) => void;
   /** `CanvasApi.previewStyle` — declarations shown without being committed. */
   onPreviewStyle?: (decls: StylePatch) => void;
 };
@@ -236,27 +237,31 @@ function DiagramFields({
 }: {
   scene: Scene;
   onChange: (patch: DiagramPatch) => void;
-  onPreviewSize?: (size: { w?: number; h?: number }) => void;
+  onPreviewSize?: (h: number) => void;
   onPreviewStyle?: (decls: StylePatch) => void;
 }) {
+  // A band states no width — it is the column's, or wide — and is drawn at
+  // least as tall as what it holds. Only a frame has a W to show.
+  const framed = scene.w > 0;
   return (
     <PanelSection title="Canvas">
       <div className="nt-ctl-grid">
-        <NumberField
-          label="W"
-          name="Canvas width"
-          value={scene.w}
-          min={1}
-          onChange={(w) => onChange({ w })}
-          onPreview={onPreviewSize && ((w) => onPreviewSize({ w }))}
-        />
+        {framed && (
+          <NumberField
+            label="W"
+            name="Canvas width"
+            value={scene.w}
+            min={1}
+            onChange={(w) => onChange({ w })}
+          />
+        )}
         <NumberField
           label="H"
           name="Canvas height"
-          value={scene.h}
+          value={framed ? scene.h : bandHeight(scene)}
           min={1}
           onChange={(h) => onChange({ h })}
-          onPreview={onPreviewSize && ((h) => onPreviewSize({ h }))}
+          onPreview={onPreviewSize}
         />
       </div>
       <div className="nt-ctl-row">

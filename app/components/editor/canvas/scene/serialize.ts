@@ -6,10 +6,10 @@ import {
   hasText,
   isEdgeAttr,
   isReservedAttr,
+  isReservedRootAttr,
   type Scene,
   type SceneEdge,
   type SceneNode,
-  type SceneNodeKind,
   type StyleMap,
 } from "./types";
 
@@ -80,10 +80,10 @@ function styleAttr(decls: StyleMap): string {
 /** Carried attributes, minus anything the model already owns a column for. */
 function extraAttrs(
   attrs: Record<string, string>,
-  kind?: SceneNodeKind,
+  reserved: (name: string) => boolean,
 ): string {
   return Object.entries(attrs)
-    .filter(([name]) => !isReservedAttr(name, kind))
+    .filter(([name]) => !reserved(name))
     .map(([name, value]) => attr(name, value))
     .join("");
 }
@@ -122,7 +122,7 @@ function nodeHtml(node: SceneNode, depth: number, computed: boolean): string {
   // nothing an attribute has to escape — and escaping it would leave `&amp;`
   // sitting in a `d` that a renderer hands straight to the SVG parser.
   if (node.kind === "path" && node.d) head += ` d="${node.d}"`;
-  head += extraAttrs(node.attrs, node.kind) + styleAttr(node.style);
+  head += extraAttrs(node.attrs, (name) => isReservedAttr(name, node.kind)) + styleAttr(node.style);
 
   const open = `${pad}<${tag}${head}>`;
   if (node.kind === "group") {
@@ -157,12 +157,17 @@ function edgeHtml(edge: SceneEdge, depth: number): string {
   return `${INDENT.repeat(depth)}<${EDGE_TAG}${head}>${escText(edge.label)}</${EDGE_TAG}>`;
 }
 
+/**
+ * The root: `id`, then `w` only when one is held (a frame's; a band states
+ * none), `h` always, a bare `wide`, the carried attributes and `style`.
+ */
 export function serializeScene(scene: Scene): string {
   const head =
     (scene.id ? attr("id", scene.id) : "") +
-    numAttr("w", scene.w) +
+    (scene.w > 0 ? numAttr("w", scene.w) : "") +
     numAttr("h", scene.h) +
-    extraAttrs(scene.attrs) +
+    (scene.wide ? " wide" : "") +
+    extraAttrs(scene.attrs, isReservedRootAttr) +
     styleAttr(scene.style);
 
   const open = `<${SCENE_TAG}${head}>`;

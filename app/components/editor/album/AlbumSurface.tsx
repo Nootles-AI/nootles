@@ -679,9 +679,9 @@ export function AlbumSurface({
   };
 
   /**
-   * The right grip. The left edge stays pinned to the text column, exactly as
-   * the canvas's does, so widening an album grows it into the right margin and
-   * the prose above and below keeps its own left edge.
+   * The right grip. The left edge stays pinned to the text column, so widening
+   * an album grows it into the right margin and the prose above and below
+   * keeps its own left edge.
    */
   const grip = (event: ReactPointerEvent) => {
     const el = wrap.current;

@@ -22,9 +22,9 @@
   align-items: start;
 }
 
-/* The width grip — the canvas block's, on the board's own right edge. Widening
-   is how the column count changes: the shots scale until the width crosses a
-   boundary, then snap to the new count. */
+/* The width grip, on the board's own right edge. Widening is how the column
+   count changes: the shots scale until the width crosses a boundary, then snap
+   to the new count. */
 .nt-sb-grip {
   position: absolute;
   top: 0;

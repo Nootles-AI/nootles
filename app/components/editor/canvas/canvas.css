@@ -153,8 +153,7 @@
     0 0 0 1px oklch(0.25 0.005 90 / 0.07),
     0 12px 32px -16px oklch(0.25 0.005 90 / 0.12);
 }
-.nt-canvas[data-stage] > .nt-canvas-grip,
-.nt-canvas[data-stage] > .nt-canvas-grip-x {
+.nt-canvas[data-stage] > .nt-canvas-grip {
   display: none;
 }
 .nt-canvas[data-stage] .nt-canvas-hint {
@@ -252,7 +251,7 @@
 }
 
 /* The way back, bottom-right, only while the diagram is off screen. Clear of
-   both grips, so the corner they share stays draggable. */
+   the grip, so the edge stays draggable. */
 .nt-canvas-refit {
   position: absolute;
   right: 14px;
@@ -363,38 +362,9 @@
   opacity: 0.7;
 }
 
-/* Right edge only: drag to widen into the right margin, double-click to go back
-   to the column. The left edge stays pinned where the prose starts, exactly as
-   the top does, so widening a diagram never shifts the text around it. */
-.nt-canvas-grip-x {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 8px;
-  cursor: ew-resize;
-}
-.nt-canvas-grip-x::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  right: 3px;
-  width: 3px;
-  height: 32px;
-  margin-top: -16px;
-  border-radius: 999px;
-  background: var(--faint);
-  opacity: 0;
-  transition: opacity var(--dur) var(--ease);
-}
-.nt-canvas:hover .nt-canvas-grip-x::after {
-  opacity: 0.7;
-}
-
 /* Under the pointer the bar darkens and lengthens — it is the handle now, and
    says so before the press. */
-.nt-canvas-grip::after,
-.nt-canvas-grip-x::after {
+.nt-canvas-grip::after {
   transition:
     opacity var(--dur) var(--ease),
     background var(--dur-fast) var(--ease),
@@ -404,11 +374,6 @@
   opacity: 1;
   background: var(--muted);
   transform: scaleX(1.4);
-}
-.nt-canvas .nt-canvas-grip-x:hover::after {
-  opacity: 1;
-  background: var(--muted);
-  transform: scaleY(1.4);
 }
 
 /* ===== Context menu ======================================================

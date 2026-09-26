@@ -161,6 +161,21 @@ describe("canonical NML canvas commands", () => {
     expect(deriveCanvasMirror(parseScene(mirror, (html) => parseHTML(html).document as unknown as Document))).toBe(mirror);
   });
 
+  it("turns a diagram wide and back as an attrs patch, with AST/Yjs/HTML parity", async () => {
+    const narrow: Scene = { ...scene(), w: 0, h: 312 };
+    const wide: Scene = { ...narrow, wide: true };
+    const doc = createNmlYDoc(document(narrow));
+
+    const on = await applyCompiled(doc, narrow, wide);
+    expect(on.commands).toEqual([
+      { type: "updateCanvas", canvasId: "canvas", patch: { attrs: { "data-mode": "test", wide: "" } } },
+    ]);
+    expect(deriveCanvasMirror(decodedScene(doc))).toMatch(/^<nt-diagram id="canvas" h="312" wide data-mode="test" /);
+
+    await applyCompiled(doc, wide, narrow);
+    expect("wide" in decodedScene(doc)).toBe(false);
+  });
+
   it("routes the complete canvas operation vocabulary through canonical commands", async () => {
     const start = scene();
     const doc = createNmlYDoc(document(start));

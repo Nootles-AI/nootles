@@ -1,4 +1,5 @@
 import { laidOutScene, measureGroup } from "@/app/components/editor/canvas/scene/autoLayout";
+import { BAND } from "@/app/components/editor/canvas/scene/band";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import type {
   EllipseNode,
@@ -127,9 +128,15 @@ function group(
   };
 }
 
-function scene(w: number, h: number, nodes: SceneNode[], opts: { id?: string; edges?: Scene["edges"]; style?: StyleMap } = {}): Scene {
+/**
+ * A band root, as every diagram is stored now: no width, and a height that
+ * already holds the content. The harness mounts through the diagram reader,
+ * which would move an old root's content to fit the band — and every probe's
+ * point with it.
+ */
+function scene(h: number, nodes: SceneNode[], opts: { id?: string; edges?: Scene["edges"]; style?: StyleMap } = {}): Scene {
   return {
-    w,
+    w: 0,
     h,
     style: opts.style ?? { background: "#fff" },
     nodes,
@@ -198,7 +205,7 @@ function smallDiagram(): Fixture {
   const s1 = rect("s1", 60, 60, 160, 72, { background: "#6366f1" }, { label: "Start" });
   return fixtureFrom(
     "small-diagram",
-    scene(960, 540, [s1, g1], {
+    scene(540, [s1, g1], {
       id: "small",
       edges: [{ id: "e1", from: "s1", to: "g1", label: "", style: {}, attrs: {} }],
     }),
@@ -278,7 +285,7 @@ function nestedFlex(): Fixture {
     background: "#f5f5f4",
   });
 
-  return fixtureFrom("nested-flex", scene(700, 400, [outer], { id: "nested-flex" }));
+  return fixtureFrom("nested-flex", scene(400, [outer], { id: "nested-flex" }));
 }
 
 // ---------------------------------------------------------------------------
@@ -349,9 +356,8 @@ export function flatBoard(count = FLAT_COLS * FLAT_ROWS, seed = 1): Fixture {
     }
   }
 
-  const w = FLAT_ORIGIN.x * 2 + (FLAT_COLS - 1) * FLAT_PITCH.x + FLAT_SIZE.w;
-  const h = FLAT_ORIGIN.y * 2 + (FLAT_ROWS - 1) * FLAT_PITCH.y + FLAT_SIZE.h;
-  return fixtureFrom("flat-board", scene(w, h, nodes, { id: "board" }));
+  const h = FLAT_ORIGIN.y + (FLAT_ROWS - 1) * FLAT_PITCH.y + FLAT_SIZE.h + BAND;
+  return fixtureFrom("flat-board", scene(h, nodes, { id: "board" }));
 }
 
 // ---------------------------------------------------------------------------
@@ -459,11 +465,11 @@ function layersDupeNameRegion(): SceneNode[] {
   ];
 }
 
-/** Every standalone `pick-*` region fixture shares `pick-all`'s 1600×1200
+/** Every standalone `pick-*` region fixture shares `pick-all`'s 1200-tall
  *  scene so its absolute coordinates need no re-basing — "own scene" just
  *  means a distinct `Scene` object holding only that region's nodes. */
 function regionFixture(name: FixtureName, nodes: SceneNode[]): Fixture {
-  return fixtureFrom(name, scene(1600, 1200, nodes, { id: name }));
+  return fixtureFrom(name, scene(1200, nodes, { id: name }));
 }
 
 function pickAll(): Fixture {
@@ -478,7 +484,7 @@ function pickAll(): Fixture {
     ...layersLockedRegion(),
     ...layersDupeNameRegion(),
   ];
-  return fixtureFrom("pick-all", scene(1600, 1200, nodes, { id: "pick" }));
+  return fixtureFrom("pick-all", scene(1200, nodes, { id: "pick" }));
 }
 
 // ---------------------------------------------------------------------------

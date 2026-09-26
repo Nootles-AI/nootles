@@ -26,14 +26,15 @@
  * still there to read.
  */
 
+import { normalizeDiagram } from "./band";
 import { textToLabel } from "./label";
 import { mintIds } from "./ops";
 import { parseScene, type ParseHtml } from "./parse";
 import type { Scene, SceneEdge, SceneNode, StyleMap } from "./types";
 
-/** A blank surface, in the size the grammar's examples use. */
-export const DEFAULT_SCENE_W = 960;
-export const DEFAULT_SCENE_H = 540;
+/** The least surface the old canvas drew a legacy graph on. */
+const LEGACY_W = 960;
+const LEGACY_H = 540;
 
 /** Breathing room left around migrated content, and the amount the content is
  *  shifted by so that a diagram authored at negative coordinates lands on the
@@ -87,11 +88,12 @@ export function detectCanvasFormat(source: string): CanvasFormat {
   }
 }
 
-/** A blank canvas — also what an unreadable source falls back to. */
+/** A blank band — also what an unreadable source falls back to. Its height
+ *  is the floor's (`bandHeight`), not a number of its own. */
 export function emptyScene(): Scene {
   return {
-    w: DEFAULT_SCENE_W,
-    h: DEFAULT_SCENE_H,
+    w: 0,
+    h: 0,
     style: {},
     nodes: [],
     edges: [],
@@ -100,10 +102,25 @@ export function emptyScene(): Scene {
 }
 
 /**
- * Stored source → `Scene`, for either format. `parseHtml` is forwarded to
- * {@link parseScene} for callers without a DOM (the round-trip harness).
+ * A diagram block's stored source → its band, for either format. The one
+ * reader every diagram-prop consumer goes through, so an old root is read as
+ * the band it becomes (`normalizeDiagram`) whether or not the migration has
+ * reached it. `parseHtml` is forwarded to {@link parseScene} for callers
+ * without a DOM (the round-trip harness, the Node migration).
  */
 export function migrateLegacyCanvas(
+  source: string,
+  parseHtml?: ParseHtml,
+): Scene {
+  return normalizeDiagram(readCanvasSource(source, parseHtml));
+}
+
+/**
+ * Stored source → `Scene` exactly as written, for either format — a storyboard
+ * frame's reader. A shot's root looks just like an old diagram's, and making
+ * a band of it would rescale the drawing.
+ */
+export function readCanvasSource(
   source: string,
   parseHtml?: ParseHtml,
 ): Scene {
@@ -145,8 +162,8 @@ function fromLegacyJson(source: string): Scene {
 
   place(nodes);
   return {
-    w: Math.max(DEFAULT_SCENE_W, Math.ceil(extent(nodes, "x"))),
-    h: Math.max(DEFAULT_SCENE_H, Math.ceil(extent(nodes, "y"))),
+    w: Math.max(LEGACY_W, Math.ceil(extent(nodes, "x"))),
+    h: Math.max(LEGACY_H, Math.ceil(extent(nodes, "y"))),
     style: {},
     nodes,
     edges: toSceneEdges(edges, nodes),

@@ -1,9 +1,6 @@
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import {
-  CANVAS_MIN_H,
-  sceneBlockHeight,
-} from "@/app/components/editor/canvas/types";
+import { sceneBlockHeight } from "@/app/components/editor/canvas/types";
 import { loadKatex } from "@/app/components/editor/math/katex";
 import { runsToHtml } from "@/app/lib/ai/html/serialize";
 import type { AnyBlock } from "@/app/lib/ai/projection";
@@ -296,6 +293,9 @@ export function disposePreview(node: Node): void {
   }
 }
 
+/** The waiting box's height: no diagram yet, so no band to take one from. */
+const SKELETON_H = 260;
+
 /**
  * The box a diagram is about to land in, before there is one to draw.
  *
@@ -317,7 +317,7 @@ export function diagramSkeleton(label: string): HTMLElement {
   wrap.appendChild(headEl({ label, live: true }));
 
   const surface = div("nt-diagram-preview-surface is-waiting");
-  surface.style.height = `${CANVAS_MIN_H}px`;
+  surface.style.height = `${SKELETON_H}px`;
   for (let i = 0; i < 3; i++) {
     if (i) surface.appendChild(div("nt-skeleton-link"));
     surface.appendChild(div("nt-skeleton-shape"));

@@ -1,5 +1,6 @@
 import type * as Y from "yjs";
 import type { SceneStore } from "../engine/useScene";
+import { normalizeDiagram } from "../scene/band";
 import { migrateLegacyCanvas } from "../scene/migrate";
 import { setMintTag } from "../scene/ops";
 import { serializeScene } from "../scene/serialize";
@@ -19,43 +20,20 @@ export function ensureCollaborativeCanvasMintTag() {
 }
 import {
   applySceneDiff,
+  CANVAS_EDIT_KEY as EDIT,
   CANVAS_EXTERNAL,
   CANVAS_LOCAL,
   CANVAS_MIGRATE,
+  CANVAS_MIRROR_KEY as MIRROR,
   canvasMapName,
   hasCanvasState,
   materializeCanvas,
+  mirrorStamp,
   populateCanvas,
 } from "./ymap";
 
-/**
- * The root key a client marks its block-prop mirror with, just before writing
- * it. Written in the same task as the prop, so the two leave in one sync flush,
- * and when two people's mirrors cross, both keys settle on the same writer.
- */
-const MIRROR = "mirror";
-
 /** How many recent stamps still identify a mirror (see `stamps`). */
 const STAMPS = 8;
-
-/**
- * The root key carrying the last thing anybody DID — a fresh token, written in
- * the same transaction as the shape writes it accompanies.
- *
- * `measure` and `amend` (`engine/useScene.ts`) change the model without anyone
- * doing anything: a text reporting the box its browser gave it, a picture
- * moving into storage. Locally they are marked as non-edits by their
- * transaction origin — but an origin is this client's own note to itself and
- * is gone by the time the bytes reach anyone else. A collaborator sees map
- * keys moving and nothing more, so it read every one of them as concurrent
- * work and paid the documented price: a fresh undo horizon, for a box nobody
- * typed (NT-27).
- *
- * The fact travels in the maps instead. An edit moves this key; housekeeping
- * leaves it where it is. A peer that sees the diagram change under an unmoved
- * token knows nobody did it, and keeps its history.
- */
-const EDIT = "edit";
 
 /**
  * The transaction meta a block's mirror write carries, so the rest of the
@@ -66,16 +44,6 @@ const EDIT = "edit";
  * (NT-70, `ReviewOverlay`).
  */
 export const CANVAS_MIRROR_META = "nt-canvas-mirror";
-
-/** A mark of the mirror rather than a copy of it: its length and FNV-1a. */
-function mirrorStamp(html: string): string {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < html.length; i++) {
-    hash ^= html.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return `${html.length}:${(hash >>> 0).toString(36)}`;
-}
 
 /**
  * One diagram's bridge between the SceneStore and its CRDT maps.
@@ -416,7 +384,15 @@ export class CanvasCollab {
     ) {
       this.staleMirror?.(html);
     }
-    if (serializeScene(this.store.getScene()) === html) return;
+    // Compared as bands on both sides. The store reads through
+    // `migrateLegacyCanvas`, so it holds the band an old-format diagram reads
+    // as; and a local edit can leave it holding less height than its content
+    // is drawn at. Raw against either, the two would never match, and a
+    // remount would cost a warm store its history (and its pending flush) for
+    // nothing.
+    const band = normalizeDiagram(merged);
+    const want = band === merged ? html : serializeScene(band);
+    if (serializeScene(normalizeDiagram(this.store.getScene())) === want) return;
     // Somebody's work costs the horizon; the browser's own housekeeping — a
     // measured box, a hoisted picture — must not (NT-27).
     if (edited) this.store.adoptRemote(html);

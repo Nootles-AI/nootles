@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { familyName } from "@/app/components/editor/canvas/render/fonts";
 import { isAutoSize } from "@/app/components/editor/canvas/render/ShapeView";
 import { laidOutScene } from "@/app/components/editor/canvas/scene/autoLayout";
+import { normalizeDiagram } from "@/app/components/editor/canvas/scene/band";
 import { absoluteBounds, toLocal } from "@/app/components/editor/canvas/scene/geometry";
 import { parseScene } from "@/app/components/editor/canvas/scene/parse";
 import { hitTestPath } from "@/app/components/editor/canvas/scene/picking";
@@ -69,6 +70,17 @@ describe("fixtures.parseEquals", () => {
       // Redundant with the line above by construction (`html` IS
       // `serializeScene(scene)`) but states the contract literally.
       expect(parse(html)).toEqual(scene);
+    });
+  }
+});
+
+// The harness mounts through the diagram reader. A fixture it moved would move
+// every probe's point off the shape the probe names.
+describe("fixtures.bandRoots", () => {
+  for (const name of FIXTURE_NAMES) {
+    it(name, () => {
+      const scene = parse(FIXTURES[name].html);
+      expect(normalizeDiagram(scene)).toBe(scene);
     });
   }
 });

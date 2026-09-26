@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { track } from "@/app/lib/telemetry";
+import { COLUMN_WIDTH } from "@/app/lib/column";
 import { useColumnEdges } from "@/app/lib/columnEdges";
 import { useSpineState, useWorkspaceHistory } from "@/app/lib/history/useWorkspaceHistory";
 import type { LiveEditor, EditorRegistry } from "./editor/EditorRegistry";
@@ -11,10 +12,11 @@ import { Button, PaletteButton, REDO, TOOLS, ToolRow, UNDO } from "./editor/canv
 import { isApplePlatform, shortcutHint, type CanvasTool, type ShortcutId } from "./editor/canvas/engine/shortcuts";
 import { handTool } from "./editor/canvas/engine/handedTool";
 import { defaultBox, newNode, type DrawKind } from "./editor/canvas/render/newShape";
+import { BAND, bandFloor, bandHeight } from "./editor/canvas/scene/band";
 import { emptyScene, migrateLegacyCanvas } from "./editor/canvas/scene/migrate";
 import { mintId } from "./editor/canvas/scene/ops";
-import { canvasHeightFor, FIXED, WIDTH_ATTR } from "./editor/canvas/types";
 import { serializeScene } from "./editor/canvas/scene/serialize";
+import type { Scene } from "./editor/canvas/scene/types";
 
 /**
  * Drawing on the page itself.
@@ -197,8 +199,8 @@ function normalise(a: { x: number; y: number }, b: { x: number; y: number }, squ
 /**
  * Where a diagram drawn from `y` goes: in place of an empty line it was drawn
  * on, or else before or after the top-level block it was drawn against,
- * whichever half of it the drag began in. Also the column it will stand in —
- * the text's own left edge and width, which the diagram's frame takes.
+ * whichever half of it the drag began in. Also the left edge of the text it
+ * will stand in, which is the diagram's origin.
  */
 function placeAt(editor: LiveEditor, y: number) {
   const blocks = editor.document as { id: string; type: string; content?: unknown }[];
@@ -221,7 +223,7 @@ function placeAt(editor: LiveEditor, y: number) {
     ?.querySelector<HTMLElement>(`[data-id="${ref.id}"] .bn-block-content`)
     ?.getBoundingClientRect();
   return {
-    column: column ? { left: column.left, width: column.width } : null,
+    column: column ? { left: column.left } : null,
     /** Puts the diagram there. Returns its block id. */
     insert(data: string): string {
       if (on && empty) {
@@ -237,27 +239,21 @@ function placeAt(editor: LiveEditor, y: number) {
 /**
  * The diagram a shape drawn on the page becomes. Across, the shape stays where
  * it was drawn against the text's left edge — moved only if it was drawn past
- * that edge, and the frame widened if it runs past the column's right. Down,
- * it is centred in the height the block takes for it: the block goes between
- * lines, so where it lands vertically is the block's to decide anyway.
+ * that edge, and the diagram made wide if it runs past the column's right.
+ * Down, it sits a band below the top: the block goes between lines, so where
+ * it lands vertically is the block's to decide anyway.
  */
-function sceneFor(kind: DrawKind, drawn: Box, column: { left: number; width: number } | null) {
-  const scene = emptyScene();
-  const nodeId = mintId(scene);
+function sceneFor(kind: DrawKind, drawn: Box, column: { left: number } | null) {
+  const nodeId = mintId(emptyScene());
   const w = Math.round(drawn.w);
-  const h = Math.round(drawn.h);
   const x = column ? Math.max(0, Math.round(drawn.x - column.left)) : 0;
-  const y = Math.max(0, Math.round((canvasHeightFor([{ y: 0, height: h }]) - h) / 2));
-  scene.nodes = [newNode(kind, nodeId, { x, y, w, h })];
-  if (column && x + w > column.width) {
-    scene.w = x + w + WIDEN_PAD;
-    scene.attrs[WIDTH_ATTR] = FIXED;
-  }
-  return { scene, nodeId };
+  const drawnScene: Scene = {
+    ...emptyScene(),
+    nodes: [newNode(kind, nodeId, { x, y: BAND, w, h: Math.round(drawn.h) })],
+    ...(x + w > COLUMN_WIDTH ? { wide: true as const } : {}),
+  };
+  return { scene: { ...drawnScene, h: bandFloor(drawnScene) }, nodeId };
 }
-
-/** Room left past a shape that widened its frame, so it does not touch the edge. */
-const WIDEN_PAD = 24;
 
 /**
  * The diagram already on the page that a shape drawn beside it belongs to:
@@ -280,11 +276,11 @@ function besideDiagram(editor: LiveEditor, drawn: Box) {
 }
 
 /**
- * Puts the shape into that diagram where it was drawn, widening the frame out
- * to it. Screen to scene through the view the diagram is showing, so it lands
- * under the pointer at whatever pan and zoom it has; written as the block's
- * whole scene — the same write an edit from outside the canvas makes, which
- * the diagram's own shapes merge through untouched.
+ * Puts the shape into that diagram where it was drawn, making it wide: beside
+ * it is past its right edge. Screen to scene through the view the diagram is
+ * showing, so it lands under the pointer at whatever pan and zoom it has;
+ * written as the block's whole scene — the same write an edit from outside the
+ * canvas makes, which the diagram's own shapes merge through untouched.
  */
 function extendDiagram(
   editor: LiveEditor,
@@ -300,21 +296,20 @@ function extendDiagram(
   const m = new DOMMatrixReadOnly(layer ? getComputedStyle(layer).transform : "none");
   const zoom = m.a || 1;
   const nodeId = mintId(scene);
-  scene.nodes = [
-    ...scene.nodes,
-    newNode(kind, nodeId, {
-      x: Math.round((drawn.x - origin.left - (view?.clientLeft ?? 0) - m.e) / zoom),
-      y: Math.round((drawn.y - origin.top - (view?.clientTop ?? 0) - m.f) / zoom),
-      w: Math.round(drawn.w / zoom),
-      h: Math.round(drawn.h / zoom),
-    }),
-  ];
-  const reach = Math.ceil(drawn.x + drawn.w - frame.left + WIDEN_PAD);
-  if (reach > frame.width) {
-    scene.w = reach;
-    scene.attrs[WIDTH_ATTR] = FIXED;
-  }
-  editor.updateBlock(block, { props: { data: serializeScene(scene) } });
+  const grown: Scene = {
+    ...scene,
+    nodes: [
+      ...scene.nodes,
+      newNode(kind, nodeId, {
+        x: Math.round((drawn.x - origin.left - (view?.clientLeft ?? 0) - m.e) / zoom),
+        y: Math.round((drawn.y - origin.top - (view?.clientTop ?? 0) - m.f) / zoom),
+        w: Math.round(drawn.w / zoom),
+        h: Math.round(drawn.h / zoom),
+      }),
+    ],
+    wide: true,
+  };
+  editor.updateBlock(block, { props: { data: serializeScene({ ...grown, h: bandHeight(grown) }) } });
   return nodeId;
 }
 

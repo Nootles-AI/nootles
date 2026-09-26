@@ -1,4 +1,4 @@
-import { safeHref } from "@/app/lib/ai/html/parse";
+import { safeHref } from "@/app/lib/safeHref";
 import { iconFor } from "../icons/registry";
 import { labelOfElement } from "./label";
 import { scalePath } from "./path";
@@ -7,6 +7,7 @@ import {
   isEdgeAttr,
   isEdgeTag,
   isReservedAttr,
+  isReservedRootAttr,
   kindForTag,
   type Scene,
   type SceneEdge,
@@ -166,6 +167,13 @@ function attrsOf(el: Element, kind?: SceneNodeKind): Record<string, string> {
     if (isReservedAttr(attr, kind) || attr in GEOMETRY_ALIASES) continue;
     out[name] = value;
   }
+  return out;
+}
+
+/** The root's carried attributes: {@link attrsOf}, minus those only a root owns. */
+function rootAttrsOf(el: Element): Record<string, string> {
+  const out = attrsOf(el);
+  for (const name of Object.keys(out)) if (isReservedRootAttr(name)) delete out[name];
   return out;
 }
 
@@ -524,8 +532,8 @@ export type Fragment = {
   /** Ids written on an element in the fragment — shape or edge. Anything else
    *  in `scene`/`edges` was minted by this parse. */
   authored: ReadonlySet<string>;
-  /** The wrapper's own attributes, minus {@link RESERVED_ATTRS} (already
-   *  excluded by `attrsOf`) and minus {@link STUB_ATTRS}. Empty for bare
+  /** The wrapper's own attributes, minus {@link RESERVED_ATTRS} and `wide`
+   *  (already excluded, as from `scene.attrs`) and minus {@link STUB_ATTRS}. Empty for bare
    *  shapes, where there is no wrapper (`root === doc.body`). */
   rootAttrs: Record<string, string>;
   /** True when the wrapper stated BOTH a width and a height — `parseScene`
@@ -554,14 +562,18 @@ export function parseFragment(
   const mint: Mint = { taken, used: new Set(), n: 0 };
   const id = root.getAttribute("id")?.trim();
   const wrapped = root !== doc.body;
+  const attrs = wrapped ? rootAttrsOf(root) : {};
   const scene: Scene = {
     w: num(root, ["w", "width"]),
     h: num(root, ["h", "height"]),
+    // By presence: a tab from before `wide` was modelled carries it through
+    // `attrs` and writes it back as `wide=""`.
+    ...(wrapped && root.hasAttribute("wide") ? { wide: true as const } : {}),
     style: parseStyleAttr(root.getAttribute("style") ?? ""),
     nodes: childNodes(root, mint),
     edges: collectEdges(root, mint, []),
     ...(id ? { id } : {}),
-    attrs: wrapped ? attrsOf(root) : {},
+    attrs,
   };
   return {
     scene,
@@ -569,7 +581,7 @@ export function parseFragment(
     // `mint.used` — so it stands for exactly the ids the fragment's own
     // elements carried, before any minting.
     authored: taken,
-    rootAttrs: wrapped ? omit(attrsOf(root), STUB_ATTRS) : {},
+    rootAttrs: wrapped ? omit(attrs, STUB_ATTRS) : {},
     rootSized:
       wrapped &&
       (root.hasAttribute("w") || root.hasAttribute("width")) &&

@@ -78,10 +78,27 @@ describe("takeBackDiagram", () => {
   });
 
   test("the surface's own fields go back unless the person changed them", () => {
-    const asked = `<nt-diagram w="900" h="300">\n${rect("a", 0)}\n</nt-diagram>`;
-    expect(migrateLegacyCanvas(takeBackDiagram(WAS, asked, asked)).w).toBe(400);
-    const resized = `<nt-diagram w="1200" h="300">\n${rect("a", 0)}\n</nt-diagram>`;
-    expect(migrateLegacyCanvas(takeBackDiagram(WAS, asked, resized)).w).toBe(1200);
+    const surface = (html: string) => {
+      const scene = migrateLegacyCanvas(html);
+      return { h: scene.h, wide: scene.wide === true };
+    };
+    // WAS is an old root: its band is as tall as the old canvas drew it.
+    const asked = `<nt-diagram h="400" wide>\n${rect("a", 0)}\n</nt-diagram>`;
+    expect(surface(takeBackDiagram(WAS, asked, asked))).toEqual({ h: 260, wide: false });
+    const resized = `<nt-diagram h="500" wide>\n${rect("a", 0)}\n</nt-diagram>`;
+    expect(surface(takeBackDiagram(WAS, asked, resized))).toEqual({ h: 500, wide: true });
+    const narrowed = `<nt-diagram h="400">\n${rect("a", 0)}\n</nt-diagram>`;
+    expect(surface(takeBackDiagram(WAS, asked, narrowed))).toEqual({ h: 400, wide: false });
+  });
+
+  test("moving the change's shape further down is not a change to the surface", () => {
+    const box = (id: string, y: number) =>
+      `  <nt-rect id="${id}" x="0" y="${y}" w="100" h="72"></nt-rect>`;
+    const was = `<nt-diagram h="120">\n${box("a", 24)}\n</nt-diagram>`;
+    const asked = `<nt-diagram h="246">\n${box("a", 24)}\n${box("b", 150)}\n</nt-diagram>`;
+    const live = `<nt-diagram h="246">\n${box("a", 24)}\n${box("b", 400)}\n</nt-diagram>`;
+    const back = takeBackDiagram(was, asked, live);
+    expect([migrateLegacyCanvas(back).h, shapes(back)]).toEqual([120, ["a@0"]]);
   });
 
   test("a shape the person drew inside a group the change added is theirs", () => {

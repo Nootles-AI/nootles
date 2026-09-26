@@ -112,6 +112,18 @@ describe("canonical NML Yjs encoding", () => {
     expect(blocks.get(6).get("domain")).toBeInstanceOf(Y.Map);
   });
 
+  it("carries a wide diagram's flag inside the scene's attrs, and decodes it back to the scene", () => {
+    const wide = structuredClone(document);
+    const block = wide.blocks[5];
+    if (block.type !== "canvas") throw new Error("Expected canvas");
+    block.scene = { ...block.scene, w: 0, h: 312, wide: true };
+    const doc = createNmlYDoc(wide, origin);
+    const scene = blockMap(doc, 5).get("scene") as Y.Map<unknown>;
+    expect([...scene.keys()].sort()).toEqual(["attrs", "edges", "h", "id", "schemaVersion", "shapes", "style", "w"]);
+    expect((scene.get("attrs") as Y.Map<unknown>).toJSON()).toEqual({ title: "Board", wide: "" });
+    expect(decodeNmlDocument(doc)).toEqual(normalizeDocument(wide));
+  });
+
   it("decodes the same AST after update chunking and in an independent runtime document", () => {
     const source = createNmlYDoc(document);
     const update = Y.encodeStateAsUpdate(source);

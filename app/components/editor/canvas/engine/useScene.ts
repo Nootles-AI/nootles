@@ -3,7 +3,12 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { isApplyingAi, pushHumanOp } from "@/app/lib/debugRing";
 import { track } from "@/app/lib/telemetry";
-import { migrateLegacyCanvas } from "../scene/migrate";
+import {
+  detectCanvasFormat,
+  emptyScene,
+  migrateLegacyCanvas,
+  readCanvasSource,
+} from "../scene/migrate";
 import { applyOps } from "../scene/ops";
 import { serializeScene } from "../scene/serialize";
 import {
@@ -103,6 +108,21 @@ export type SceneHistoryEvent =
   /** A collaborator's merge reset both stacks. */
   | { type: "clear" };
 
+/** Stored source → scene: how a store reads every string it is handed. */
+export type SceneReader = (source: string) => Scene;
+
+/**
+ * A storyboard frame's reader: the source as written, never made a band, and
+ * an empty shot born at the frame's own size. Born anywhere else, its first
+ * drawing is written at that size and the next read rescales it to the frame.
+ */
+export function frameReader(frame: { w: number; h: number }): SceneReader {
+  return (source) =>
+    detectCanvasFormat(source) === "empty"
+      ? { ...emptyScene(), w: frame.w, h: frame.h }
+      : readCanvasSource(source);
+}
+
 export class SceneStore {
   private scene: Scene;
   /** Id → node for the current scene, built on demand and dropped on change. */
@@ -131,8 +151,12 @@ export class SceneStore {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
 
-  constructor(source: string) {
-    this.scene = migrateLegacyCanvas(source);
+  /** `read` is a diagram block's by default; a frame passes {@link frameReader}. */
+  constructor(
+    source: string,
+    private readonly read: SceneReader = migrateLegacyCanvas,
+  ) {
+    this.scene = read(source);
     this.lastSource = source;
   }
 
@@ -432,7 +456,7 @@ export class SceneStore {
     this.past = [];
     this.future = [];
     this.emitHistory({ type: "clear" });
-    this.setScene(migrateLegacyCanvas(source), false);
+    this.setScene(this.read(source), false);
   };
 
   /**
@@ -458,7 +482,7 @@ export class SceneStore {
     // a pending debounce would only write that merge back as if it were news.
     this.cancelPersist();
     this.dirty = false;
-    this.setScene(migrateLegacyCanvas(source), false);
+    this.setScene(this.read(source), false);
   };
 
   /**
@@ -544,7 +568,7 @@ export class SceneStore {
     this.dirty = false;
     this.record(this.scene, this.captureSelection());
     this.future = [];
-    this.setScene(migrateLegacyCanvas(source), false);
+    this.setScene(this.read(source), false);
   }
 
   private captureSelection(): RestoreSelection | null {
@@ -591,6 +615,8 @@ export interface UseSceneOptions {
    * tokens outlive the page, so the entries behind them must too.
    */
   cacheKey?: string;
+  /** A storyboard frame's size: the store reads as {@link frameReader}. Read once. */
+  frame?: { w: number; h: number };
 }
 
 /**
@@ -622,7 +648,7 @@ export function peekSceneStore(cacheKey: string): SceneStore | null {
  * The store for one canvas block. Parsed once, from whichever format the block
  * was written in; written back on a 500ms debounce.
  */
-export function useScene({ source, onChange, cacheKey }: UseSceneOptions): SceneStore {
+export function useScene({ source, onChange, cacheKey, frame }: UseSceneOptions): SceneStore {
   const [store] = useState(() => {
     const held = cacheKey ? warm.get(cacheKey) : null;
     if (held) {
@@ -631,7 +657,7 @@ export function useScene({ source, onChange, cacheKey }: UseSceneOptions): Scene
       warm.set(cacheKey!, held);
       return held;
     }
-    const made = new SceneStore(source);
+    const made = new SceneStore(source, frame && frameReader(frame));
     if (cacheKey) {
       warm.set(cacheKey, made);
       for (const [oldest, old] of warm) {
