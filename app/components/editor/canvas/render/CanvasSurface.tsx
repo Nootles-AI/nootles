@@ -50,6 +50,7 @@ import {
   useSyncExternalStore,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
   type RefObject,
 } from "react";
 
@@ -494,6 +495,8 @@ export interface CanvasSurfaceProps {
   keymap?: "container" | "page";
   /** The last-shape guard: a diagram block's, which goes with its last shape. */
   onEmpty?: () => void;
+  /** Shown by an empty band in place of its "Add shapes" line. */
+  placeholder?: ReactNode;
 }
 
 export function CanvasSurface({
@@ -507,6 +510,7 @@ export function CanvasSurface({
   page,
   keymap = "container",
   onEmpty,
+  placeholder,
 }: CanvasSurfaceProps) {
   const store = useScene({
     source,
@@ -1946,7 +1950,7 @@ export function CanvasSurface({
         {/* An empty diagram says what it is for in the page's own placeholder
             voice, and the words are the way in: a press on them arms the
             rectangle, which the next press on the band draws. */}
-        {scene.nodes.length === 0 && !readOnly && !frame && tool === "move" && (
+        {scene.nodes.length === 0 && !readOnly && !frame && tool === "move" && (placeholder ?? (
           <button
             type="button"
             className="nt-canvas-placeholder"
@@ -1960,7 +1964,7 @@ export function CanvasSurface({
           >
             Add shapes
           </button>
-        )}
+        ))}
       </div>
 
       {offersAuto && (

@@ -7,7 +7,8 @@
 export interface PaneDiagrams {
   /**
    * Enter on a selected diagram block: into its shapes, or — an empty one —
-   * the rectangle in hand. False when the block is not one of this pane's.
+   * onto its presets while it offers them, else the rectangle in hand. False
+   * when the block is not one of this pane's.
    */
   enter(blockId: string): boolean;
   /** A diagram the page's paste just made: its shapes selected, once it is up. */

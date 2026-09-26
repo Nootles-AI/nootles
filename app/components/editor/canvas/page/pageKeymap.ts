@@ -319,8 +319,9 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.isComposing || e.defaultPrevented) return;
     const target = e.target;
-    // A storyboard's shots keep a keymap of their own.
-    if (target instanceof Element && target.closest(".nt-canvas-shot, .nt-sb-full")) return;
+    // A storyboard's shots keep a keymap of their own, and so does a new
+    // diagram's preset bar.
+    if (target instanceof Element && target.closest(".nt-canvas-shot, .nt-sb-full, .nt-canvas-presets")) return;
     // A gesture in hand owns the keys; its Escape was heard before this.
     if (canvas.pressing()) return;
     const id = matchShortcut(e, apple);
@@ -442,9 +443,12 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
       const entry = canvas.get(blockId);
       if (!entry || entry.readOnly) return false;
       const front = pickable(entry).at(-1);
+      const preset = entry.api.band.current?.querySelector<HTMLElement>(".nt-canvas-presets button");
       if (front) {
         entry.api.selection.select([front.id]);
         entry.api.focus();
+      } else if (preset) {
+        preset.focus();
       } else {
         tools.set("rect");
       }

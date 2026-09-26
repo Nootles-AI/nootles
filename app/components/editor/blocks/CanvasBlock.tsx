@@ -44,6 +44,9 @@ import type { Scene } from "../canvas/scene/types";
 import { CanvasSurface, type CanvasApi } from "../canvas/render/CanvasSurface";
 import { usePageCanvas } from "../canvas/page/PageCanvas";
 import { deleteDiagramBlock, mergeOps, type LifecycleEditor } from "../canvas/page/lifecycle";
+import { PresetBar } from "../canvas/page/PresetBar";
+import { usePresetOffer, withdrawPresets } from "../canvas/page/presetOffer";
+import { presetOps, type Preset } from "../canvas/presets";
 import { blockSelection, type BlockSelectionEditor } from "../blockSelection";
 
 /** How many preceding blocks of page text to hand the canvas for context. */
@@ -555,6 +558,34 @@ function CanvasBlockView({
     if (below) page.dismissMerge(blockId, below);
     reseam();
   };
+  // A diagram the slash menu made offers presets while it is empty. Its first
+  // shape, however it arrives, ends the offer for good: an undo back to empty
+  // is a diagram someone has already started.
+  const offered = usePresetOffer(blockId) && !readOnly;
+  useEffect(() => {
+    if (!offered || !liveApi) return;
+    const store = liveApi.store;
+    const started = () => {
+      if (store.getScene().nodes.length > 0) withdrawPresets(blockId);
+    };
+    started();
+    return store.subscribe(started);
+  }, [offered, liveApi, blockId]);
+  const pickPreset = (preset: Preset) => {
+    if (!liveApi) return;
+    const { ops, ids } = presetOps(liveApi.store.getScene(), preset);
+    withdrawPresets(blockId);
+    page.batch(() => {
+      liveApi.store.dispatch(ops);
+      liveApi.selection.select(ids);
+    });
+    liveApi.focus();
+  };
+  const closePresets = () => {
+    withdrawPresets(blockId);
+    liveApi?.focus();
+  };
+
   const blocks = useMemo(() => blockSelection(editor as unknown as BlockSelectionEditor), [editor]);
   const onPage = useMemo(() => (page.pane ? { canvas: page, blockId } : undefined), [page, blockId]);
   useEffect(() => {
@@ -604,6 +635,7 @@ function CanvasBlockView({
           page={onPage}
           keymap={page.pane ? "page" : "container"}
           onEmpty={onEmpty}
+          placeholder={offered && liveApi ? <PresetBar onPick={pickPreset} onClose={closePresets} /> : undefined}
           onApi={(next) => {
             api.current = next;
             setLiveApi(next);

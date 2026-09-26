@@ -1,7 +1,8 @@
 // A diagram made, taken away and another made where it was, as the slash menu
 // makes them: the page's own Y.Doc, the canvas block's CRDT binding, the warm
 // scene stores and the history spine. The runner (`canvas-rebirth.browser.mjs`)
-// checks the new diagram starts empty and the old one comes back whole.
+// checks the new diagram starts empty and the old one comes back whole, and
+// that a new one offers its presets until it is started.
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import * as Y from "yjs";
@@ -25,7 +26,8 @@ import {
   usePaneCanvas,
   type PageCanvas,
 } from "../app/components/editor/canvas/page/PageCanvas";
-import { bearDiagram, type BirthEditor } from "../app/components/editor/canvas/page/birth";
+import { bearFromSlash, type BirthEditor } from "../app/components/editor/canvas/page/birth";
+import { presetsOffered } from "../app/components/editor/canvas/page/presetOffer";
 import { deleteDiagramBlock, type LifecycleEditor } from "../app/components/editor/canvas/page/lifecycle";
 import { WIDE_DIAGRAM_SOURCE } from "../app/components/editor/canvas/scene/bandSpan";
 import type { SceneNode } from "../app/components/editor/canvas/scene/types";
@@ -120,7 +122,7 @@ const harness = {
   },
   /** A diagram of this kind at the caret's line, as the slash menu makes one; its id. */
   slash: (kind: "diagram" | "wide", lineId: string) =>
-    bearDiagram(editor as unknown as BirthEditor, lineId, kind === "wide" ? WIDE_DIAGRAM_SOURCE : ""),
+    bearFromSlash(editor as unknown as BirthEditor, lineId, kind === "wide" ? WIDE_DIAGRAM_SOURCE : ""),
   /** A new empty line after a block; its id. */
   addLine: (after: string) => editor.insertBlocks([{ type: "paragraph" }], after, "after")[0].id,
   /** A diagram taken out as its last shape going takes it. */
@@ -151,6 +153,13 @@ const harness = {
     const scene = entry(blockId)?.api.store.getScene();
     return scene ? { wide: scene.wide ?? false, nodes: scene.nodes.map((node) => node.id) } : null;
   },
+  /** Each shape's kind and label, in order. */
+  shapes: (blockId: string) =>
+    entry(blockId)?.api.store.getScene().nodes.map((node) => ({ kind: node.kind, label: node.label })) ?? null,
+  selected: (blockId: string) => entry(blockId)?.api.ownSelection.getSnapshot().ids.length ?? 0,
+  /** Whether the block still offers presets, drawn or not. */
+  offered: (blockId: string) => presetsOffered(blockId),
+  setTool: (tool: "move" | "rect") => page?.tools?.set(tool),
   blocks: () => editor.document.map((block) => block.type),
   ids: () => editor.document.map((block) => block.id),
   undo: () => spine?.undo(),

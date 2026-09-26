@@ -646,6 +646,72 @@ export function WideDiagram(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** A step into a decision, and the decision's two ways out: the flowchart preset. */
+export function Flowchart(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="8" y="2" width="8" height="5" rx="1.5" />
+      <path d="M12 7v2M12 9l3.5 3.5-3.5 3.5-3.5-3.5Z" />
+      <path d="M8.5 12.5H6v4M15.5 12.5H18v4" />
+      <rect x="2.5" y="16.5" width="7" height="4.5" rx="2.25" />
+      <rect x="14.5" y="16.5" width="7" height="4.5" rx="2.25" />
+    </svg>
+  );
+}
+
+/** A phone's outline and its notch. */
+export function Phone(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="6.5" y="2" width="11" height="20" rx="2.5" />
+      <path d="M10.5 5h3" />
+    </svg>
+  );
+}
+
+/** A window with its toolbar ruled off and two of its dots. */
+export function Browser(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 9h18M6.5 6.5h.01M9 6.5h.01" />
+    </svg>
+  );
+}
+
+/** A square quartered: the two-by-two. */
+export function Matrix(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M12 3v18M3 12h18" />
+    </svg>
+  );
+}
+
+/** Three milestones strung on a line. */
+export function Timeline(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="5" cy="12" r="2" />
+      <circle cx="12" cy="12" r="2" />
+      <circle cx="19" cy="12" r="2" />
+      <path d="M7 12h3M14 12h3" />
+    </svg>
+  );
+}
+
+/** Three columns of cards, each as long as its list. */
+export function Kanban(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="4" width="5" height="9" rx="1" />
+      <rect x="9.5" y="4" width="5" height="15" rx="1" />
+      <rect x="16" y="4" width="5" height="6" rx="1" />
+    </svg>
+  );
+}
+
 /** Shot frames with the caption lines that sit under them. */
 export function Storyboard(props: SVGProps<SVGSVGElement>) {
   return (

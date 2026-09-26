@@ -2,7 +2,8 @@
  * A diagram made, taken away, and another made where it was
  * (`canvas-rebirth.browser.tsx`): the new one starts empty and narrow, however
  * the old one went — taken back with ⌘Z or deleted with its last shape — and
- * undoing back to the old one brings it back wide, with its shapes.
+ * undoing back to the old one brings it back wide, with its shapes. And a new
+ * one offers its presets: chosen, closed, or drawn past, the offer ends.
  *
  *   node tests/canvas-rebirth.browser.mjs
  */
@@ -168,6 +169,101 @@ try {
   check("takes the new one away", (await at("ids")).includes(second), false);
   await mounted(first);
   check("brings it back wide, with its shapes", await at("scene", first), { wide: "pinned", nodes: ["w2"] });
+
+  // ---- The presets a new diagram offers ----------------------------------
+  const bar = (id) => page.locator(`[data-id="${id}"] .nt-canvas-presets`);
+  const barShown = async (id) => (await bar(id).count()) === 1;
+  const kinds = (shapes) => shapes.map((shape) => shape.kind);
+
+  [intro, line] = await at("seed");
+  await frame();
+  const flow = await at("slash", "diagram", line);
+  await mounted(flow);
+  await frame();
+  check("a diagram from the slash menu offers presets", await barShown(flow), true);
+  check("in place of its Add shapes line", await page.locator(`[data-id="${flow}"] .nt-canvas-placeholder`).count(), 0);
+  check(
+    "six of them and a close",
+    await bar(flow).locator("button").evaluateAll((buttons) => buttons.map((b) => b.textContent || b.getAttribute("aria-label"))),
+    ["Flowchart", "iPhone", "Browser", "Matrix", "Timeline", "Board", "Close presets"],
+  );
+  await bar(flow).locator('[data-preset="flowchart"]').click();
+  await frame();
+  check("choosing Flowchart draws it", await at("shapes", flow), [
+    { kind: "rect", label: "Process" },
+    { kind: "polygon", label: "Condition" },
+    { kind: "rect", label: "End state" },
+    { kind: "rect", label: "End state" },
+  ]);
+  check("with its shapes selected", await at("selected", flow), 4);
+  check("and the bar gone", await barShown(flow), false);
+  check("with the band holding the keyboard", await page.evaluate((id) => !!document.activeElement?.closest(`[data-id="${id}"]`), flow), true);
+  await at("undo");
+  await frame();
+  check("one undo takes the preset back", await at("shapes", flow), []);
+  check("and leaves the diagram", await at("blocks"), ["paragraph", "canvas"]);
+  check("without offering the presets again", await barShown(flow), false);
+
+  [intro, line] = await at("seed");
+  await frame();
+  const closed = await at("slash", "diagram", line);
+  await mounted(closed);
+  await frame();
+  await bar(closed).locator(".nt-canvas-presets-no").click();
+  await frame();
+  check("× closes the bar", await barShown(closed), false);
+  check("and Add shapes is back", await page.locator(`[data-id="${closed}"] .nt-canvas-placeholder`).count(), 1);
+
+  [intro, line] = await at("seed");
+  await frame();
+  const drawn = await at("slash", "diagram", line);
+  await mounted(drawn);
+  await frame();
+  await at("setTool", "rect");
+  await frame();
+  const band = await page.locator(`[data-id="${drawn}"] .nt-canvas`).first().boundingBox();
+  await page.mouse.move(band.x + 60, band.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(band.x + 180, band.y + 60, { steps: 4 });
+  await page.mouse.up();
+  await frame();
+  check("a shape drawn instead is drawn", kinds(await at("shapes", drawn)), ["rect"]);
+  check("and ends the offer", [await barShown(drawn), await at("offered", drawn)], [false, false]);
+  await at("setTool", "move");
+
+  [intro, line] = await at("seed");
+  await frame();
+  const wideBar = await at("slash", "wide", line);
+  await mounted(wideBar);
+  await frame();
+  check("a wide canvas offers them too", await barShown(wideBar), true);
+  await bar(wideBar).locator("button").first().focus();
+  await page.keyboard.press("ArrowRight");
+  check("the arrows walk the bar", await page.evaluate(() => document.activeElement?.getAttribute("data-preset")), "phone");
+  await page.keyboard.press("Enter");
+  await frame();
+  check("Enter chooses: the iPhone is one flattened shape", kinds(await at("shapes", wideBar)), ["path"]);
+  check("and the canvas stays wide", (await at("scene", wideBar)).wide, "pinned");
+
+  [intro, line] = await at("seed");
+  await frame();
+  const escaped = await at("slash", "diagram", line);
+  await mounted(escaped);
+  await frame();
+  await bar(escaped).locator("button").first().focus();
+  await page.keyboard.press("Escape");
+  await frame();
+  check("Escape closes the bar", await barShown(escaped), false);
+  check("without taking the diagram", await at("blocks"), ["paragraph", "canvas"]);
+
+  [intro, line] = await at("seed");
+  await frame();
+  const removed = await at("slash", "diagram", line);
+  await mounted(removed);
+  await frame();
+  await at("remove", removed);
+  await page.waitForTimeout(20);
+  check("a diagram taken away takes its offer", await at("offered", removed), false);
 
   check("no page errors", guards.errors(), []);
   check("no requests off the fixture", guards.requests(), []);

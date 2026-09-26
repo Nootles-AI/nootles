@@ -13,6 +13,8 @@
  * finds the old diagram exactly as it was.
  */
 
+import { offerPresets } from "./presetOffer";
+
 /** The editor calls a diagram's birth needs. */
 export type BirthEditor = {
   transact<T>(fn: () => T): T;
@@ -43,4 +45,15 @@ export function bearDiagram(editor: BirthEditor, blockId: string, data: string):
     if (replace) editor.removeBlocks([blockId]);
     return made.id;
   });
+}
+
+/**
+ * A diagram from the slash menu: {@link bearDiagram}, offering its presets
+ * (`PresetBar`) for as long as it stays empty. Only here — a diagram pasted or
+ * drawn into being already has what it was made for.
+ */
+export function bearFromSlash(editor: BirthEditor, blockId: string, data: string): string {
+  const id = bearDiagram(editor, blockId, data);
+  offerPresets(id);
+  return id;
 }

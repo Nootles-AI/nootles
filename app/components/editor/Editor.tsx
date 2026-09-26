@@ -83,7 +83,7 @@ import * as Icon from "../Icons";
 import { ReadOnlyContext, useReadOnly } from "./readOnly";
 import { usePageCanvas } from "./canvas/page/PageCanvas";
 import { WIDE_DIAGRAM_SOURCE } from "./canvas/scene/bandSpan";
-import { bearDiagram, type BirthEditor } from "./canvas/page/birth";
+import { bearFromSlash, type BirthEditor } from "./canvas/page/birth";
 import { filterItems } from "./slashRank";
 import { useAttachCommentsEditor } from "../comments/editorSlot";
 import { trailingParagraphExtension } from "./trailingParagraph";
@@ -235,7 +235,7 @@ const badgeFor = (key: string) => tidyBadge(formatKeyboardShortcut(key));
  */
 function slashDiagram(editor: EditorInstance, data: string) {
   const at = editor.getTextCursorPosition().block;
-  const id = bearDiagram(editor as unknown as BirthEditor, at.id, data);
+  const id = bearFromSlash(editor as unknown as BirthEditor, at.id, data);
   blockSelection(editor).select([id]);
   track("block_created", { type: "canvas" });
 }

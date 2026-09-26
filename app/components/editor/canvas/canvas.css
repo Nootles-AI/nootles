@@ -337,6 +337,44 @@
   cursor: pointer;
 }
 
+/* A diagram the slash menu just made offers somewhere to start, where its
+   "Add shapes" line would be, in the Merge offer's quiet voice. */
+.nt-canvas-presets {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  max-width: calc(100% - 16px);
+  transform: translate(-50%, -50%);
+  font-size: var(--text-meta-lg);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.nt-canvas-presets > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.nt-canvas-presets > .nt-canvas-presets-no {
+  margin-left: 4px;
+  padding: 0 6px;
+}
+.nt-canvas-presets > button:hover,
+.nt-canvas-presets > button:focus-visible {
+  background: var(--hover);
+  color: var(--foreground);
+  outline: none;
+}
+
 /* Two diagrams that touch can be one. The offer sits at their seam, in the
    right margin, only while the block below is a diagram too (read off the
    page's own structure) and until its × is pressed. Quiet: the page's muted
