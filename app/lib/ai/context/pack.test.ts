@@ -109,6 +109,98 @@ describe("projectPack with documents", () => {
   });
 });
 
+describe("projectPack keeps room for the page list (NT-96)", () => {
+  const styled = (name: string) => ({
+    fullName: name,
+    files: 300,
+    areas: Array.from({ length: 30 }, (_, i) => ({
+      title: `Area ${i}`,
+      concerns: ["Routing", "State", "Rendering", "Persistence"],
+    })),
+    styling: Array.from({ length: 200 }, (_, i) => `--${name}-token-${i}: oklch(0.5 0.1 ${i})`).join(
+      "\n",
+    ),
+  });
+  const full = (pages: number) =>
+    inputs({
+      notes: [
+        { question: "What is this project?", answer: "word ".repeat(1500) },
+        { question: "Who is it for?", answer: "word ".repeat(1500) },
+      ],
+      code: [styled("kestrel/rover"), styled("kestrel/ground")],
+      documents: Array.from({ length: 40 }, (_, i) => ({
+        title: `Spec ${i}`,
+        source: "file" as const,
+        brief: "What the rover must do when it loses the link. ".repeat(3),
+      })),
+      pages: Array.from({ length: pages }, (_, i) => page(i)),
+    });
+
+  it("lists every page of a 30-page project with full notes, two styled repos and documents", () => {
+    const text = projectPack(full(30), 2000);
+    expect(tokens(text)).toBeLessThanOrEqual(2000);
+    for (let i = 0; i < 30; i++) expect(text).toContain(`- Page ${i} — ${page(i).pageId}`);
+    expect(text).not.toContain("list_pages has them all");
+    // The rest still get their say.
+    expect(text).toContain("What is this project?");
+    expect(text).toContain("How kestrel/rover looks");
+    expect(text).toContain("How kestrel/ground looks");
+    expect(text).toContain("Code linked to this project");
+  });
+
+  it("lists the first pages of a large one, and says where the rest are", () => {
+    const text = projectPack(full(400), 2000);
+    expect(tokens(text)).toBeLessThanOrEqual(2000);
+    const listed = text.match(/^- Page \d+ — /gm) ?? [];
+    expect(listed.length).toBeGreaterThanOrEqual(30);
+    expect(text).toContain(`- Page 0 — ${page(0).pageId}`);
+    expect(text).toMatch(/…and \d+ more — list_pages has them all\.$/);
+  });
+
+  it("caps styling across repositories together, not per repository", () => {
+    const text = projectPack(inputs({ code: [styled("a/one"), styled("b/two")] }), 2000);
+    const styling = text.split("\n").filter((l) => /^--(a\/one|b\/two)-token/.test(l));
+    expect(styling.join("\n").length).toBeLessThanOrEqual(2000 * 4 * 0.3);
+    expect(styling.some((l) => l.startsWith("--a/one"))).toBe(true);
+    expect(styling.some((l) => l.startsWith("--b/two"))).toBe(true);
+  });
+
+  it("gives a short list all the room it needs and holds back no more", () => {
+    const text = projectPack(full(2), 2000);
+    expect(text).toContain(`- Page 1 — ${page(1).pageId}`);
+    // What the list did not need went to the rest: more notes than with a long list.
+    const notes = (t: string) => t.split("The pages in this project")[0].length;
+    expect(notes(text)).toBeGreaterThan(notes(projectPack(full(30), 2000)));
+  });
+
+  it("meets its budget whatever the project holds", () => {
+    let seed = 7;
+    const rand = (n: number) => {
+      seed = (seed * 1103515245 + 12345) % 2 ** 31;
+      return seed % n;
+    };
+    for (let run = 0; run < 300; run++) {
+      const budget = 50 + rand(2500);
+      const code = Array.from({ length: rand(4) }, (_, i) =>
+        rand(2) ? styled(`r/${i}`) : { ...styled(`r/${i}`), styling: undefined },
+      );
+      const text = projectPack(
+        inputs({
+          notes: Array.from({ length: rand(4) }, () => ({
+            question: "Q",
+            answer: "word ".repeat(rand(3000)),
+          })),
+          code,
+          documents: full(0).documents.slice(0, rand(40)),
+          pages: Array.from({ length: rand(300) }, (_, i) => page(i)),
+        }),
+        budget,
+      );
+      expect(tokens(text), `run ${run}, budget ${budget}`).toBeLessThanOrEqual(budget);
+    }
+  });
+});
+
 describe("pagePack", () => {
   it("leaves out the open page, and puts what it links to first", () => {
     const text = pagePack(
