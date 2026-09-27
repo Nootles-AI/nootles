@@ -522,6 +522,48 @@
   color: var(--foreground);
 }
 
+/* The diagram's symbol in the right margin, mirroring the block handle in the
+   left: a 24px box off the band's edge by the handle's gap, centred where the
+   handle centres on a tall block. Faint at rest, a touch firmer under the
+   pointer, and in ink while the diagram is being worked in. Never a target —
+   the margin stays somewhere to draw from. */
+.nt-canvas-mark {
+  position: absolute;
+  top: 16px;
+  left: calc(100% + 4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-sm);
+  height: var(--control-sm);
+  border-radius: var(--radius);
+  color: var(--faint);
+  opacity: 0.55;
+  pointer-events: none;
+  transition:
+    color var(--dur) var(--ease),
+    opacity var(--dur) var(--ease);
+}
+.nt-canvas:hover > .nt-canvas-mark {
+  opacity: 1;
+}
+.nt-canvas:is([data-holding], [data-target]) > .nt-canvas-mark {
+  color: var(--muted);
+  opacity: 1;
+}
+/* Pulled in over the band for want of room, it takes the handle's paper
+   (editor.css, `data-nt-tight`) — and gives it up over a selected block. */
+.nt-canvas-mark[data-tight] {
+  background: var(--background);
+  box-shadow:
+    0 1px 2px oklch(0.25 0.005 90 / 0.06),
+    0 2px 8px oklch(0.25 0.005 90 / 0.09);
+}
+.nt-editor .nt-block-selected .nt-canvas-mark[data-tight] {
+  background: transparent;
+  box-shadow: none;
+}
+
 /* Bottom edge: drag to pin a height, double-click to follow the content again. */
 .nt-canvas-grip {
   position: absolute;

@@ -55,6 +55,7 @@ import {
 } from "react";
 
 import { ArrowDown, ArrowUp, X } from "@/app/components/Icons";
+import { BandMark } from "./BandMark";
 import { useContextMenu } from "../ContextMenu";
 import { CANVAS_CHROME, type PageCanvas } from "../page/PageCanvas";
 import type { GestureHost } from "../page/pageGesture";
@@ -2047,6 +2048,8 @@ export function CanvasSurface({
           </button>
         ))}
       </div>
+
+      {page && !readOnly && !frame && <BandMark />}
 
       {offersAuto && (
         <div ref={offer} className="nt-canvas-autoh">
