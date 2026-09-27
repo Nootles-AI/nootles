@@ -7,7 +7,8 @@ import { commentText, type Thread } from "./types";
  * The browser holds the comments document, so it builds the digest (`toDigest`)
  * and sends it with a chat request; the route validates it (`parseDigest`),
  * lets the comments gate decide whether this turn needs it, and renders it
- * (`formatDigest`) below the cache breakpoint. Plain text on the wire rather
+ * (`formatDigest`) into the turn's context beside the question
+ * (`chat/turnContext.ts`). Plain text on the wire rather
  * than NML: the model needs who said what about which words, and a validator
  * over inline content would be the whole NML grammar again for no gain.
  *

@@ -299,30 +299,47 @@ project that way and the chat shows it as the same chip the page does.`;
  *
  * Without it the model knows a page is open but not which one, and every tool
  * that acts on a page takes an id — so it had to call `list_pages` and match on
- * title, which are not unique. Re-derived per request rather than fixed for the
- * turn, because `open_page` and every write move what is on screen mid-turn.
+ * title, which are not unique.
  *
- * Sent as its own instruction rather than appended to `SYSTEM`, because it is the
- * one part of the prompt that changes mid-turn and a cached prefix has to match
- * exactly: concatenated, one navigation would throw away the cached copy of
- * everything above it — the tool schemas included — for the sake of a sentence.
+ * Part of the turn's context (`turnContext.ts`), which is fixed when the
+ * question is asked and rides just ahead of it: a note that moved with the page
+ * sat above the whole conversation, and one navigation changed the prefix of
+ * everything after it (NT-97). Where the agent has gone since is `nowOpenNote`.
  *
  * The id is checked against the shape Convex mints before it goes anywhere near
- * the prompt: it arrives from the client, and text in a system prompt is
- * instruction.
+ * the prompt: it arrives from the client.
  */
-export function openPageNote(pageId: string | undefined): string {
-  if (!pageId || !/^[a-z0-9]{20,40}$/.test(pageId)) return "";
+export function openPageNote(pageId: string | undefined | null): string {
+  if (!isPageId(pageId)) return "";
   return `The open page is ${pageId} — that is what "this page" means.`;
 }
 
+/** Whether `id` has the shape of a page id Convex minted. */
+export function isPageId(id: unknown): id is string {
+  return typeof id === "string" && /^[a-z0-9]{20,40}$/.test(id);
+}
+
 /**
- * The first line of the open page's comments digest, which reaches the model as
- * a user message: it says who put it there, so neither the model nor the user's
- * own words are taken for the collaborators'.
+ * The first line of the turn's context, which reaches the model as a user
+ * message: it says who put it there, so neither the model nor the user's own
+ * words are taken for the collaborators' comments it may carry.
  */
-export const ATTACHED_COMMENTS =
-  "[Attached by Nootles, not written by the user: the open page's comments, as context.]";
+export const ATTACHED =
+  "[Attached by Nootles, not written by the user: the page they asked from and what surrounds it, as context.]";
+
+/**
+ * The page on screen once the turn has moved off the one it was asked from —
+ * by `open_page`, by a write to another page, or by the user. A page tool given
+ * no pageId acts on the page on screen, so the model has to know which that is;
+ * what "this page" meant in the question does not move with it.
+ */
+export function nowOpenNote(open: string, askedFrom: string | undefined): string {
+  return [
+    "[Attached by Nootles, not written by the user.]",
+    `The page open on screen is now ${open}; a page tool given no pageId acts on it.`,
+    ...(askedFrom ? [`"This page" in the question still means ${askedFrom}.`] : []),
+  ].join(" ");
+}
 
 /**
  * Closes a turn that has spent its tool budget. Sent as the last thing the

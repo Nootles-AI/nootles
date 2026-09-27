@@ -203,8 +203,9 @@ const sum = (ns: number[]) => ns.reduce((a, b) => a + b, 0);
 /**
  * What surrounds the open page: the pages it mentions, the pages that mention
  * it, and what else was edited lately — each with its brief. The open page
- * itself is left out; the agent reads it directly. Sent below the cache
- * breakpoint, with the note naming the open page, since it moves with it.
+ * itself is left out; the agent reads it directly. Part of the turn's context
+ * (`chat/turnContext.ts`), rendered once when the question is asked and sent
+ * beside it for the rest of the turn, since it moves with the open page.
  */
 export function pagePack(
   inputs: PackInputs,
@@ -253,9 +254,9 @@ export function pagePack(
 }
 
 /**
- * The open page's comments, for a turn the comments gate let them into. Below
- * the cache breakpoint beside `pagePack`, since they move with the page and
- * with every reply.
+ * The open page's comments, for a turn the comments gate let them into. In the
+ * turn's context beside `pagePack`, since they move with the page and with
+ * every reply.
  */
 export function commentsPack(digest: CommentsDigest, budgetTokens: number): string {
   return formatDigest(digest, budgetTokens * CHARS_PER_TOKEN);
