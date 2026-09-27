@@ -360,7 +360,7 @@ and a request carries definitions only for what the conversation is using.
   verbs it offers, and whether this member has connected it. About 20 tokens each. Discovery
   rests entirely on that line, so it is written with the care of a skill's description.
 - **`open_toolbox(name)`** registers that toolbox's tools for the rest of the thread — AI SDK
-  `activeTools`, which `app/api/chat/route.ts` already uses — and returns a short usage note plus
+  `activeTools` — and returns a short usage note plus
   this project's native handles for that provider, read from the graph: the Linear team and
   project ids, the repos. Seam 1 is delivered here, so handles arrive when needed instead of
   riding in every pack.

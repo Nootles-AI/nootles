@@ -19,14 +19,28 @@ type Page = PackInputs["pages"][number];
 
 /** Rough on purpose: a budget, not a bill. */
 const CHARS_PER_TOKEN = 4;
+/** Room kept for a section's "…and N more" line. */
+const MORE_CHARS = 90;
 /** The most of a chat budget the user's own notes may take before the rest. */
 const NOTES_SHARE = 0.45;
-/** A codebase's look, for drawing and mocking up its screens — kept whatever else is cut. */
+/**
+ * A codebase's look, for drawing and mocking up its screens — kept whatever else
+ * is cut. One share for every linked repository together, not one each: two
+ * styled repos at a share apiece took 60% of the pack.
+ */
 const STYLING_SHARE = 0.3;
 /** The map of each repository: areas and their concerns. */
 const CODE_SHARE = 0.15;
 /** Documents read into context — uploaded files, linked Notion pages. */
 const DOCUMENTS_SHARE = 0.12;
+/**
+ * Held back for the page list before anything else takes its share — about
+ * forty pages at a typical title. Every page tool needs a page id, and without
+ * them the model spends a step on `list_pages` or guesses (NT-96). A list that
+ * needs less holds back only what it needs; one that needs more also gets
+ * whatever the rest leave.
+ */
+const PAGES_SHARE = 0.3;
 const RECENT_PAGES = 6;
 
 /**
@@ -49,101 +63,149 @@ export function projectPack(inputs: PackInputs, budgetTokens: number): string {
    * line it writes is counted, the note that says there is more included, so
    * the pack as a whole meets its budget.
    */
-  const section = (
-    head: string[],
-    lines: string[],
-    allowance: number,
-    options: { partial?: boolean; more?: (cut: number) => string } = {},
-  ) => {
-    const reserve = options.more ? 90 : 0;
-    const kept = fit(lines, Math.min(allowance, room) - size(head) - reserve, options.partial);
-    const tail = kept.cut && options.more ? [options.more(kept.cut)] : [];
+  const render = ({ head, lines, partial, more }: Section, allowance: number) => {
+    const avail = Math.min(allowance, room);
+    // Room for the note that says there is more, only when there is more — a
+    // list that fits exactly would otherwise lose its last lines to it.
+    const all = fit(lines, avail - size(head), partial);
+    const short = all.cut > 0 && !!more;
+    const kept = short ? fit(lines, avail - size(head) - MORE_CHARS, partial) : all;
+    // Not even the heading fits: say nothing, rather than a heading that runs
+    // the pack past its budget and into the room held for the pages.
+    if (avail < size(head) + (short ? MORE_CHARS : 0)) return 0;
+    const tail = kept.cut && more ? [more(kept.cut)] : [];
     out.push(...head, ...kept.lines, ...tail);
-    room -= size(head) + size(kept.lines) + size(tail);
+    const used = size(head) + size(kept.lines) + size(tail);
+    room -= used;
+    return used;
   };
 
   const title = inputs.title.trim();
-  section(
-    [`The project you are working in is called ${title ? `"${title}"` : "Untitled project"}.`],
-    [],
-    total,
+  const named: Section = {
+    head: [`The project you are working in is called ${title ? `"${title}"` : "Untitled project"}.`],
+    lines: [],
+  };
+  const notes: Section | null = inputs.notes.length
+    ? {
+        head: [
+          "",
+          "What the user has said about it. This holds for every page in the project — treat it",
+          "as their standing instructions, and let it shape what you write and how you write it.",
+        ],
+        lines: inputs.notes.flatMap((n) => ["", n.question.trim(), n.answer.trim()]),
+        partial: true,
+        more: () => "(What they wrote goes on, but past the room this context has.)",
+      }
+    : null;
+  const styling: Section[] = inputs.code.flatMap((repo) =>
+    repo.styling
+      ? [
+          {
+            head: [
+              "",
+              `How ${repo.fullName} looks — its styling and components. Use these exact tokens,`,
+              "fonts and component names when drawing, mocking up or describing its screens.",
+            ],
+            lines: repo.styling.split("\n"),
+            partial: true,
+          },
+        ]
+      : [],
   );
+  const code: Section | null = inputs.code.length
+    ? {
+        head: [
+          "",
+          "Code linked to this project, by area and its concerns. search_context finds a file",
+          "by its path or what it exports; read_context reads one.",
+        ],
+        lines: inputs.code.flatMap((repo) => [
+          `${repo.fullName}${repo.files ? ` (${repo.files} files)` : " (still being read)"}`,
+          ...repo.areas.map((a) => `- ${a.title}: ${a.concerns.join(", ")}`),
+        ]),
+        more: (cut) => `…and ${cut} more areas — search_context finds them.`,
+      }
+    : null;
+  const documents: Section | null = inputs.documents.length
+    ? {
+        head: ["", "Documents added to this project's context. read_context reads one whole."],
+        lines: inputs.documents.map(
+          (d) => `- ${d.title} (${d.source})${d.brief ? `: ${d.brief}` : ""}`,
+        ),
+        more: (cut) => `…and ${cut} more documents — search_context finds them.`,
+      }
+    : null;
+  const pages: Section | null = inputs.pages.length
+    ? {
+        head: [
+          "",
+          "The pages in this project, by title and id. search_context finds a page by what it",
+          "says; read_page reads one.",
+        ],
+        lines: inputs.pages.map((p) => `- ${p.title.trim() || "Untitled"} — ${p.pageId}`),
+        more: (cut) => `…and ${cut} more — list_pages has them all.`,
+      }
+    : null;
 
-  if (inputs.notes.length) {
-    section(
-      [
-        "",
-        "What the user has said about it. This holds for every page in the project — treat it",
-        "as their standing instructions, and let it shape what you write and how you write it.",
-      ],
-      inputs.notes.flatMap((n) => ["", n.question.trim(), n.answer.trim()]),
-      Math.floor(room * NOTES_SHARE),
-      { partial: true, more: () => "(What they wrote goes on, but past the room this context has.)" },
-    );
+  // Held back before the rest take their shares, and handed back to the pages last.
+  const held = pages
+    ? Math.min(
+        whole(pages),
+        // Short of the whole list, it also needs the note that says there is more.
+        Math.max(Math.floor(total * PAGES_SHARE), size(pages.head) + MORE_CHARS),
+      )
+    : 0;
+  room -= held;
+  // What the other sections share, each its part of it.
+  const rest = total - held;
+
+  render(named, total);
+
+  if (notes) {
+    // Their share, or whatever the sections after them would leave unused if
+    // that is more — a project with no code has no call to hold room for it.
+    const after =
+      Math.min(Math.floor(rest * STYLING_SHARE), sum(styling.map(whole))) +
+      Math.min(Math.floor(rest * CODE_SHARE), code ? whole(code) : 0) +
+      Math.min(Math.floor(rest * DOCUMENTS_SHARE), documents ? whole(documents) : 0) +
+      (pages ? whole(pages) - held : 0);
+    render(notes, Math.max(Math.floor(room * NOTES_SHARE), room - after));
   }
 
-  for (const repo of inputs.code) {
-    if (!repo.styling) continue;
-    section(
-      [
-        "",
-        `How ${repo.fullName} looks — its styling and components. Use these exact tokens,`,
-        "fonts and component names when drawing, mocking up or describing its screens.",
-      ],
-      repo.styling.split("\n"),
-      Math.floor(total * STYLING_SHARE),
-      { partial: true },
-    );
+  // One share for every repository together, split evenly, and what one leaves
+  // the next may use.
+  let styled = Math.floor(rest * STYLING_SHARE);
+  for (const [i, repo] of styling.entries()) {
+    styled -= render(repo, Math.floor(styled / (styling.length - i)));
   }
+  if (code) render(code, Math.floor(rest * CODE_SHARE));
+  if (documents) render(documents, Math.floor(rest * DOCUMENTS_SHARE));
 
-  if (inputs.code.length) {
-    section(
-      [
-        "",
-        "Code linked to this project, by area and its concerns. search_context finds a file",
-        "by its path or what it exports; read_context reads one.",
-      ],
-      inputs.code.flatMap((repo) => [
-        `${repo.fullName}${repo.files ? ` (${repo.files} files)` : " (still being read)"}`,
-        ...repo.areas.map((a) => `- ${a.title}: ${a.concerns.join(", ")}`),
-      ]),
-      Math.floor(total * CODE_SHARE),
-      { more: (cut) => `…and ${cut} more areas — search_context finds them.` },
-    );
-  }
-
-  if (inputs.documents.length) {
-    section(
-      [
-        "",
-        "Documents added to this project's context. read_context reads one whole.",
-      ],
-      inputs.documents.map((d) => `- ${d.title} (${d.source})${d.brief ? `: ${d.brief}` : ""}`),
-      Math.floor(total * DOCUMENTS_SHARE),
-      { more: (cut) => `…and ${cut} more documents — search_context finds them.` },
-    );
-  }
-
-  if (inputs.pages.length) {
-    section(
-      [
-        "",
-        "The pages in this project, by title and id. search_context finds a page by what it",
-        "says; read_page reads one.",
-      ],
-      inputs.pages.map((p) => `- ${p.title.trim() || "Untitled"} — ${p.pageId}`),
-      room,
-      { more: (cut) => `…and ${cut} more — list_pages has them all.` },
-    );
-  }
+  room += held;
+  if (pages) render(pages, room);
   return out.join("\n");
 }
+
+/** One block of the project pack: a heading and the lines under it. */
+type Section = {
+  head: string[];
+  lines: string[];
+  /** The first line that does not fit may be cut short. See `fit`. */
+  partial?: boolean;
+  /** The note that says `cut` lines were left out, and where they are. */
+  more?: (cut: number) => string;
+};
+
+/** What a section takes written out in full. */
+const whole = (s: Section) => size(s.head) + size(s.lines);
+const sum = (ns: number[]) => ns.reduce((a, b) => a + b, 0);
 
 /**
  * What surrounds the open page: the pages it mentions, the pages that mention
  * it, and what else was edited lately — each with its brief. The open page
- * itself is left out; the agent reads it directly. Sent below the cache
- * breakpoint, with the note naming the open page, since it moves with it.
+ * itself is left out; the agent reads it directly. Part of the turn's context
+ * (`chat/turnContext.ts`), rendered once when the question is asked and sent
+ * beside it for the rest of the turn, since it moves with the open page.
  */
 export function pagePack(
   inputs: PackInputs,
@@ -192,9 +254,9 @@ export function pagePack(
 }
 
 /**
- * The open page's comments, for a turn the comments gate let them into. Below
- * the cache breakpoint beside `pagePack`, since they move with the page and
- * with every reply.
+ * The open page's comments, for a turn the comments gate let them into. In the
+ * turn's context beside `pagePack`, since they move with the page and with
+ * every reply.
  */
 export function commentsPack(digest: CommentsDigest, budgetTokens: number): string {
   return formatDigest(digest, budgetTokens * CHARS_PER_TOKEN);

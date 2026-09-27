@@ -173,7 +173,7 @@ export function mentionedPeople(picks: MentionPick[]): string[] {
 /**
  * What each mention was pointing at, read when the message is sent.
  *
- * A page goes through the same two tools the agent reads pages with, and for the
+ * A page goes through the same tool the agent reads pages with, and for the
  * same reason: the open one is read from the live editor, down to the keystroke
  * before Send, and any other from the copy on the server. Building a second way
  * to read a page is how the two would come to disagree.
@@ -191,12 +191,10 @@ export async function resolveMentions(
   return await Promise.all(
     readable.map(async (pick): Promise<MentionData> => {
       if (pick.kind === "file") return { kind: "file", filename: pick.filename };
-      const live = ctx.openPageId() === pick.pageId;
-      const content = await runClientTool(
-        live ? "read_open_page" : "read_page",
-        live ? {} : { pageId: pick.pageId },
-        ctx,
-      ).catch((error: Error) => error.message);
+      // `read_page` itself decides which: the open page is read live.
+      const content = await runClientTool("read_page", { pageId: pick.pageId }, ctx).catch(
+        (error: Error) => error.message,
+      );
       return {
         kind: "page",
         pageId: pick.pageId,

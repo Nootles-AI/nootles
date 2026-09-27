@@ -144,7 +144,7 @@ describe("C-09's retry, spliced into the board as it reads", () => {
     // What C-09 is answering: the power path read in full, with the width a
     // read states.
     const read = serializeScene({ ...parseScene(POWER_PATH, dom), id: "b7" }, { readWidth: true });
-    const answered: StageContext = { ...ctx, results: [{ toolName: "read_open_page", output: read }] };
+    const answered: StageContext = { ...ctx, results: [{ toolName: "read_page", output: read }] };
     const call = C09.steps.flatMap((step) => step.call ?? []).find((c) => c.tool === "edit_page")!;
     const input = (call.input as (c: StageContext) => { html: string } | null)(answered);
     const scene = fitToBand(adoptScene(parseFragment(input!.html, dom).scene));

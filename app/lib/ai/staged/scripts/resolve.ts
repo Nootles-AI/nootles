@@ -52,14 +52,14 @@ export function asText(output: unknown): string {
  * chained calls work on whatever diagram is actually there.
  */
 export function canvasBlockId(ctx: StageContext): string | null {
-  const html = asText(lastOutput(ctx, "read_open_page") ?? lastOutput(ctx, "read_page"));
+  const html = asText(lastOutput(ctx, "read_page"));
   const found = /<nt-diagram\b[^>]*\bid="([^"]+)"/i.exec(html);
   return found ? found[1] : null;
 }
 
 /** The canvas markup itself, once a step has asked for it in full. */
 export function canvasHtml(ctx: StageContext): string | null {
-  const html = asText(lastOutput(ctx, "read_open_page") ?? lastOutput(ctx, "read_page"));
+  const html = asText(lastOutput(ctx, "read_page"));
   const found = /<nt-diagram\b[^>]*>[\s\S]*?<\/nt-diagram\s*>/i.exec(html);
   // A stub closes immediately; a real read has shapes between the tags.
   return found && /<nt-(rect|ellipse|polygon|path|group|text|edge)\b/i.test(found[0])

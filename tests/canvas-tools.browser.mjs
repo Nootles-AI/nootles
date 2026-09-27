@@ -369,7 +369,10 @@ try {
   await fresh();
   const id6 = await blockId();
   const report = await run("get_geometry", { pageId: "page", blockId: id6 });
-  const c1 = report.nodes.find((n) => n.id === "c1");
+  // One row per shape (NT-98): id kind "name" parent depth x y w h rot.
+  const row = report.split("\n").find((line) => line.startsWith("c1 "));
+  const [x, y] = row.replace(/^c1 \S+ "(?:[^"\\]|\\.)*" /, "").split(" ").slice(2, 4).map(Number);
+  const c1 = { x, y };
   const rect = await domRect("c1");
   checkTrue("c1's reported x matches its DOM box within 0.5px", Math.abs(c1.x - rect.x) < 0.5);
   checkTrue("c1's reported y matches its DOM box within 0.5px", Math.abs(c1.y - rect.y) < 0.5);

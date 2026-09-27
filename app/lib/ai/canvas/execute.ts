@@ -3,7 +3,7 @@ import { fitOps } from "@/app/components/editor/canvas/scene/band";
 import { applyOps } from "@/app/components/editor/canvas/scene/ops";
 import { parseFragment } from "@/app/components/editor/canvas/scene/parse";
 import type { NodeId, Scene, SceneOp } from "@/app/components/editor/canvas/scene/types";
-import { geometryReport } from "./geometry";
+import { geometryReport, geometryText, shapeRows } from "./geometry";
 import { isRefusal, type CanvasHost, type CanvasRead, type WriteReceipt } from "./host";
 import { stylesReport } from "./styles";
 import { planUpdateStyles, type StylePatchInput } from "./updateStyles";
@@ -21,8 +21,8 @@ export type { CanvasToolName };
  * Parses `input` against the tool's own zod schema, resolves the diagram
  * through {@link CanvasHost}, calls the matching pure planner, and — for a
  * mutating tool — lands the plan through `host.writeScene` and formats the
- * result in `edit_page`'s voice. Read tools return plain objects; write
- * tools return strings.
+ * result in `edit_page`'s voice. `get_styles` and `get_html` return
+ * plain objects; `get_geometry` and the write tools return strings.
  *
  * This is the ONE place the "nothing to do" / "no such diagram" / "storyboard
  * shot" sentences are written, so every one of the six tools says the same
@@ -48,11 +48,13 @@ export async function runCanvasTool(
 
   switch (name) {
     case "get_geometry":
-      return geometryReport(read.scene, {
-        ids: parsed.ids as string[] | undefined,
-        depth: parsed.depth as number | undefined,
-        max: AI.chat.canvas.maxGeometryNodes,
-      });
+      return geometryText(
+        geometryReport(read.scene, {
+          ids: parsed.ids as string[] | undefined,
+          depth: parsed.depth as number | undefined,
+          max: AI.chat.canvas.maxGeometryNodes,
+        }),
+      );
     case "get_styles":
       return stylesReport(read.scene, {
         ids: parsed.ids as string[] | undefined,
@@ -96,7 +98,8 @@ export async function runCanvasTool(
           `Done: ${summarize(plan)}. The user reviews this and may discard it.`,
           ...plan.notes,
           "",
-          JSON.stringify({ nodes: tail.nodes }),
+          SHAPE_TAIL,
+          ...shapeRows(tail.nodes),
         ].join("\n");
       });
     }
@@ -151,6 +154,9 @@ function shiftNotes(fit: readonly SceneOp[]): string[] {
       : [],
   );
 }
+
+/** The columns of a write's tail, as `get_geometry` names them. */
+const SHAPE_TAIL = 'Where they landed — id kind "name" parent depth x y w h rot, in canvas pixels:';
 
 /** Shared by `write_nodes`, `update_styles` and `canvas_edit`: the identity
  *  no-op check, the real write, and the zero-receipt safety net that catches

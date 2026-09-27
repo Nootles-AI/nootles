@@ -39,6 +39,7 @@ import { CANVAS_TOOLS, noSuchPage, TOOLS, type CanvasToolName, type ClientToolNa
 import { lastContentBlock } from "@/app/lib/documentTail";
 import { retryableMutationResult } from "./mutationResult";
 import { notWritten } from "./notWritten";
+import { photoRefs, redeemPhotos } from "./placePhotos";
 import { SECTION_REF, splitSection } from "./writer";
 
 /** The surface the agent acts on: the page on screen, and its live editor. */
@@ -49,9 +50,9 @@ export type ToolContext = {
   review: ReviewSession;
   /**
    * The page on screen, as the workspace resolved it. Read when the tool runs,
-   * not when the call arrived: one step routinely carries an `open_page` and
-   * the tools that act on what it opened, and the workspace only resolves the
-   * new page a React commit later.
+   * not when the call arrived: one step routinely carries an `edit_page` or a
+   * comment write, which opens its page, and the tools that act on what it
+   * opened — and the workspace only resolves the new page a React commit later.
    */
   openPageId: () => Id<"pages"> | null;
   openPage: (pageId: Id<"pages">) => void;
@@ -139,6 +140,16 @@ export async function redeemSections(
   };
 }
 
+/** Every place photograph named in the model's HTML, swapped for its address. */
+async function redeemPlacePhotos(
+  ctx: ToolContext,
+  html: string,
+): Promise<{ html: string } | { missing: string[] }> {
+  const refs = photoRefs(html);
+  if (!refs.length) return { html };
+  return redeemPhotos(html, await ctx.convex.query(api.ai.drawings.get, { refs }));
+}
+
 /** One tool's browser-side body: parse `input`, do the work. */
 type Executor = (input: unknown, ctx: ToolContext, call: ToolCallInfo) => Promise<unknown>;
 
@@ -155,20 +166,16 @@ type Executor = (input: unknown, ctx: ToolContext, call: ToolCallInfo) => Promis
  */
 const CLIENT_EXECUTORS: Record<ClientToolName, Executor> = {
   read_page: async (input, ctx) => {
-    const { pageId, expand, after } = TOOLS.read_page.inputSchema.parse(input);
-    return await readPage(ctx, pageId as Id<"pages">, { expand, after });
+    const { pageId, expand, after } = TOOLS.read_page.inputSchema.parse(input ?? {});
+    return await readPage(ctx, namedOrOpen(ctx, pageId), { expand, after });
   },
   open_page: async (input, ctx) => {
     const { pageId } = TOOLS.open_page.inputSchema.parse(input);
     return await openPage(ctx, pageId as Id<"pages">);
   },
-  read_open_page: async (input, ctx) => {
-    const { expand, after } = TOOLS.read_open_page.inputSchema.parse(input ?? {});
-    return await readOpenPage(ctx, { expand, after });
-  },
   edit_page: async (input, ctx) => {
     const { pageId, html, replacing } = TOOLS.edit_page.inputSchema.parse(input);
-    return await editPage(ctx, pageId as Id<"pages">, html, replacing);
+    return await editPage(ctx, namedOrOpen(ctx, pageId), html, replacing);
   },
   album_edit: async (input, ctx) => {
     const { pageId, blockId, ops } = TOOLS.album_edit.inputSchema.parse(input);
@@ -180,7 +187,7 @@ const CLIENT_EXECUTORS: Record<ClientToolName, Executor> = {
   },
   read_comments: async (input, ctx) => {
     const { pageId, includeResolved } = TOOLS.read_comments.inputSchema.parse(input ?? {});
-    const { scope } = await commentsScope(ctx, pageId, { navigate: false });
+    const { scope } = await commentsScope(ctx, pageId);
     return readComments(scope, { includeResolved }, AI.chat.maxPageChars);
   },
   create_comment: async (input, ctx, call) => {
@@ -226,26 +233,29 @@ export async function runClientTool(
 }
 
 /**
+ * The page a tool names, or the open one when it names none — the one default
+ * every page tool shares, so "this page" never costs the model a lookup.
+ */
+function namedOrOpen(ctx: ToolContext, pageId: string | undefined): Id<"pages"> {
+  const page = pageId ?? ctx.openPageId();
+  if (!page) throw new Error("No page is open. Pass a pageId from list_pages.");
+  return page as Id<"pages">;
+}
+
+/**
  * The comments a comment tool acts on: the named page's, or the open one's.
- * A write to a page that is not on screen opens it first, as `edit_page`
- * does — its comments document is held by the page, and only a page on
- * screen has one. A read does not navigate; it asks for the page instead.
+ * A page that is not on screen is opened first, as `edit_page` does — its
+ * comments document is held by the page, and only a page on screen has one.
+ * Reads included: refusing one only sent the model to `open_page` and back,
+ * a round trip that ended in the same navigation (NT-93).
  */
 async function commentsScope(
   ctx: ToolContext,
   pageId: string | undefined,
-  { navigate = true }: { navigate?: boolean } = {},
 ): Promise<{ scope: CommentsScope; pageId: Id<"pages"> }> {
   const open = ctx.openPageId();
-  const page = (pageId ?? open) as Id<"pages"> | null;
-  if (!page) throw new Error("No page is open. Call list_pages, then open_page.");
+  const page = namedOrOpen(ctx, pageId);
   if (page !== open) {
-    // A read never moves what the user is looking at.
-    if (!navigate) {
-      throw new Error(
-        "Comments can be read only on the open page. Open that page with open_page first, if the user wants to work there.",
-      );
-    }
     await fetchPage(ctx, page);
     ctx.openPage(page);
   }
@@ -463,7 +473,17 @@ async function editPage(
       "Use the ref each write call returned, exactly as it came back — or call write again.",
     ].join("\n");
   }
-  const html = sections.html;
+  // Then place photographs, named the same way (see `placePhotos`).
+  const photos = await redeemPlacePhotos(ctx, sections.html);
+  if ("missing" in photos) {
+    return [
+      `That edit was not applied, and nothing on the page changed. There ${
+        photos.missing.length === 1 ? "is no photograph" : "are no photographs"
+      } named ${photos.missing.map((r) => `"${r}"`).join(", ")}.`,
+      "Use the photos find_places returned, exactly as they came back — or call find_places again.",
+    ].join("\n");
+  }
+  const html = photos.html;
   const loose = refsOutsideShots(html);
   if (loose.length) {
     return [
@@ -620,8 +640,78 @@ async function editPage(
         ]
       : []),
     "",
-    pageHtml(editor.document as unknown as AnyBlock[], page.title),
+    editEcho(document, editor.document as unknown as AnyBlock[], page.title, new Set(taggedIds(next))),
   ].join("\n");
+}
+
+/**
+ * What an edit hands back of the page: the blocks it touched, each with the
+ * block either side, and a line for every run it left alone.
+ *
+ * It used to hand back the whole page, up to 24K characters after every edit,
+ * with every diagram collapsed to its stub — so a model at work on a board it
+ * had expanded got the stub back and read the board whole again before its next
+ * change (NT-98). The echo is for the ids an edit minted and for seeing where
+ * it landed; the untouched rest the model has already read.
+ *
+ * `addressed` is every id the model wrote: a touched diagram among them is one
+ * it rewrote by id, so one it had read whole, and it is echoed whole. A diagram
+ * it added new, or the writer drafted, stays a stub.
+ */
+export function editEcho(
+  before: AnyBlock[],
+  after: AnyBlock[],
+  title: string,
+  addressed: ReadonlySet<string>,
+): string {
+  const whole = (block: AnyBlock) => toDocHtml([block]);
+  const was = new Map(before.map((block) => [block.id, whole(block)]));
+  const touched = new Set<number>();
+  after.forEach((block, i) => {
+    if (was.get(block.id) !== whole(block)) touched.add(i);
+  });
+  const kept = new Set(after.map((block) => block.id));
+  const removed = before.filter((block) => !kept.has(block.id)).map((block) => block.id);
+
+  const shown = [...touched].flatMap((i) => [i - 1, i, i + 1]).filter((i) => i >= 0 && i < after.length);
+  const indices = [...new Set(shown)].sort((a, b) => a - b);
+  const expandDrawn = new Set(
+    [...touched].map((i) => after[i].id).filter((id) => addressed.has(id)),
+  );
+  const opts = { collapseDiagrams: true, collapseAlbums: true, expandDrawn };
+
+  const out = [toDocHtml([], { title }).trimEnd()];
+  if (!after.length) out.push("<!-- this page is empty -->");
+  let left = AI.chat.maxPageChars;
+  let from = 0;
+  for (let i = 0; i < indices.length; ) {
+    let end = i;
+    while (end + 1 < indices.length && indices[end + 1] === indices[end] + 1) end++;
+    const start = indices[i];
+    if (start > from) out.push(unchanged(start - from, from === 0 ? "before these" : "between"));
+    const run = after.slice(start, indices[end] + 1);
+    const { html, dropped } = toDocHtmlWithin(run, left, opts);
+    out.push(html);
+    left -= toDocHtml(run.slice(0, run.length - dropped), { ...opts, expandDrawn: undefined }).length;
+    from = indices[end] + 1 - dropped;
+    i = end + 1;
+    if (dropped || (left <= 0 && i < indices.length)) {
+      out.push(`<!-- More of this edit is not shown. Read on with after: "${after[from - 1].id}". -->`);
+      return finish(out);
+    }
+  }
+  if (from < after.length) out.push(unchanged(after.length - from, indices.length ? "after these" : "on the page"));
+  if (removed.length) out.push(`<!-- removed: ${removed.join(", ")} -->`);
+  return finish(out);
+}
+
+function unchanged(n: number, where: string): string {
+  return `<!-- ${n} unchanged block${n === 1 ? "" : "s"} ${where} -->`;
+}
+
+function finish(lines: string[]): string {
+  const html = lines.filter(Boolean).join("\n");
+  return html.includes(' holds="') ? `${html}\n${STUB_NOTE}` : html;
 }
 
 /**
@@ -677,11 +767,11 @@ async function openPage(
  * way is a page as it was a moment ago — and an edit written against that reads
  * the last thing typed as a block to delete.
  */
-async function readOpenPage(ctx: ToolContext, read: PageReadOptions = {}): Promise<string> {
-  const pageId = ctx.openPageId();
-  if (!pageId) {
-    throw new Error("No page is open. Call list_pages, then open_page.");
-  }
+async function readOpenPage(
+  ctx: ToolContext,
+  pageId: Id<"pages">,
+  read: PageReadOptions = {},
+): Promise<string> {
   const [page, editor] = await Promise.all([
     fetchPage(ctx, pageId),
     ctx.editorFor(pageId),
@@ -721,7 +811,7 @@ async function readPage(
   // the user has since typed into, and echoing it back unchanged compiles to a
   // setBlockContent that reverts them. Valid ids throughout, so neither the
   // id guard nor `resolveBatch` catches it.
-  if (ctx.openPageId() === pageId) return await readOpenPage(ctx, read);
+  if (ctx.openPageId() === pageId) return await readOpenPage(ctx, pageId, read);
 
   const page = await fetchPage(ctx, pageId);
   return await pageRead(ctx, await storedBlocks(ctx, page.docId), page.title, read);
@@ -782,6 +872,9 @@ export async function fetchPage(ctx: ToolContext, pageId: Id<"pages">) {
   return page;
 }
 
+const STUB_NOTE =
+  '<!-- A diagram reads as a stub: at names it, holds says how big it is, text is every word on it. Return it as given to keep it where it is; write new shapes inside it to add them to it; pass its block id in expand to read it whole — every shape, style and path — which is what matching its look, copying its logo or icons, or editing it takes. -->';
+
 /** What a read asks for beyond the page: blocks to read whole, and where to start. */
 type PageReadOptions = { expand?: string[]; after?: string };
 
@@ -830,11 +923,7 @@ export function pageHtml(blocks: AnyBlock[], title: string, read: PageReadOption
       `<!-- read from after block ${after}: the ${start} block${start === 1 ? "" : "s"} before it are not shown -->`,
     );
   }
-  if (html.includes(' holds="')) {
-    notes.push(
-      '<!-- A diagram reads as a stub: at names it, holds says how big it is, text is every word on it. Return it as given to keep it where it is; write new shapes inside it to add them to it; pass its block id in expand to read it whole — every shape, style and path — which is what matching its look, copying its logo or icons, or editing it takes. -->',
-    );
-  }
+  if (html.includes(' holds="')) notes.push(STUB_NOTE);
   if (dropped) {
     const last = shown[shown.length - dropped - 1]?.id;
     notes.push(
@@ -842,5 +931,28 @@ export function pageHtml(blocks: AnyBlock[], title: string, read: PageReadOption
         `Read on with after: "${last}". -->`,
     );
   }
+  // Only the expanded block goes uncapped, not the page, so one asked for
+  // outside this part is not in the read: say where it is, or the read looks
+  // like it ignored the ask. An album is exempt — expanding one appends its
+  // index below wherever it sits.
+  const end = start + shown.length - dropped;
+  for (const id of expand ?? []) {
+    const at = blocks.findIndex((b) => blockById(b, id));
+    if (at < 0 || (at >= start && at < end) || blockById(blocks[at], id)?.type === "album") continue;
+    notes.push(
+      `<!-- ${id} is not in this part of the page, so it was not expanded. Read it with ` +
+        (at ? `after: "${blocks[at - 1].id}"` : "no after") +
+        ` and expand: ["${id}"]. -->`,
+    );
+  }
   return notes.length ? `${html}\n${notes.join("\n")}` : html;
+}
+
+function blockById(block: AnyBlock, id: string): AnyBlock | undefined {
+  if (block.id === id) return block;
+  for (const child of block.children ?? []) {
+    const found = blockById(child, id);
+    if (found) return found;
+  }
+  return undefined;
 }

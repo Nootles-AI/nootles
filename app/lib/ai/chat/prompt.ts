@@ -70,14 +70,16 @@ step — every search, expansion and read you already know you need, side by sid
 one after another. Each step is a round trip the user waits through; a question that takes
 ten lookups should take two or three steps, not ten.
 
-One page is open on screen. read_open_page returns that one as it stands, down to the last
-keystroke; read_page reads any page from the copy on the server. open_page moves what the
-user is looking at — do that to work on a page, not to answer a question about one.
+One page is open on screen; a page tool given no pageId acts on it. read_page reads the open
+page live, down to the last keystroke, and any other from the server's copy without leaving
+this one. open_page only shows the user a page — never a step before reading, editing or
+commenting, which each reach their page themselves.
 
 You can add a page, retitle one, delete one, and change what one says. edit_page takes the
 blocks you are writing, not the page: send the part you are changing and leave the rest out.
 Read a page before you edit it — every id you send has to be one that page has — and read what
-comes back, which is the page as it now stands.
+comes back, which is the page as it now stands. A page create_page has just made is empty:
+write it without reading it first.
 
 Every edit is applied and then shown to the user as a change they can keep or discard. Say what
 you wrote; do not call it settled.
@@ -135,14 +137,16 @@ Blocks that come from tools, and are written only with what those tools return:
   <nt-location name="Blue Bottle Coffee" address="1 Ferry Building, San Francisco, CA"
     at="37.7955,-122.3937" place="ChIJ…" rating="4.4" votes="1284">
     <note>Why this one, in your own words.</note>
-    <img src="/api/places/photo?ref=places/…/photos/…">
-    <img src="…" off></nt-location>
+    <img src="p3f9a2c1b0e.0">
+    <img src="p3f9a2c1b0e.1" off></nt-location>
   — a place, as a card: a map, the name, the rating out of five, photographs and
   your note. EVERYTHING FACTUAL HERE COMES FROM find_places AND NOTHING FROM
   MEMORY — the name, address, at, place id, rating, votes and every img src are
   copied from what that tool returned for that place, because a rating you
   remember is a rating you are making up and a photo src you compose is a broken
-  picture. Your own contribution is <note> and which pictures to carry: the first
+  picture. A photo is a short name like p3f9a2c1b0e.0, written as the src exactly
+  as given; the page swaps it for the picture. A card already on the page keeps the
+  srcs it reads with. Your own contribution is <note> and which pictures to carry: the first
   two are shown, the rest are kept with an "off" attribute so the reader can swap
   them in. off="rating photos" on the root hides parts of the card. Asked for places
   along a route, call find_places once per stretch of it and write a card each,
@@ -299,30 +303,47 @@ project that way and the chat shows it as the same chip the page does.`;
  *
  * Without it the model knows a page is open but not which one, and every tool
  * that acts on a page takes an id — so it had to call `list_pages` and match on
- * title, which are not unique. Re-derived per request rather than fixed for the
- * turn, because `open_page` moves what is on screen mid-turn.
+ * title, which are not unique.
  *
- * Sent as its own instruction rather than appended to `SYSTEM`, because it is the
- * one part of the prompt that changes mid-turn and a cached prefix has to match
- * exactly: concatenated, one `open_page` would throw away the cached copy of
- * everything above it — the tool schemas included — for the sake of a sentence.
+ * Part of the turn's context (`turnContext.ts`), which is fixed when the
+ * question is asked and rides just ahead of it: a note that moved with the page
+ * sat above the whole conversation, and one navigation changed the prefix of
+ * everything after it (NT-97). Where the agent has gone since is `nowOpenNote`.
  *
  * The id is checked against the shape Convex mints before it goes anywhere near
- * the prompt: it arrives from the client, and text in a system prompt is
- * instruction.
+ * the prompt: it arrives from the client.
  */
-export function openPageNote(pageId: string | undefined): string {
-  if (!pageId || !/^[a-z0-9]{20,40}$/.test(pageId)) return "";
+export function openPageNote(pageId: string | undefined | null): string {
+  if (!isPageId(pageId)) return "";
   return `The open page is ${pageId} — that is what "this page" means.`;
 }
 
+/** Whether `id` has the shape of a page id Convex minted. */
+export function isPageId(id: unknown): id is string {
+  return typeof id === "string" && /^[a-z0-9]{20,40}$/.test(id);
+}
+
 /**
- * The first line of the open page's comments digest, which reaches the model as
- * a user message: it says who put it there, so neither the model nor the user's
- * own words are taken for the collaborators'.
+ * The first line of the turn's context, which reaches the model as a user
+ * message: it says who put it there, so neither the model nor the user's own
+ * words are taken for the collaborators' comments it may carry.
  */
-export const ATTACHED_COMMENTS =
-  "[Attached by Nootles, not written by the user: the open page's comments, as context.]";
+export const ATTACHED =
+  "[Attached by Nootles, not written by the user: the page they asked from and what surrounds it, as context.]";
+
+/**
+ * The page on screen once the turn has moved off the one it was asked from —
+ * by `open_page`, by a write to another page, or by the user. A page tool given
+ * no pageId acts on the page on screen, so the model has to know which that is;
+ * what "this page" meant in the question does not move with it.
+ */
+export function nowOpenNote(open: string, askedFrom: string | undefined): string {
+  return [
+    "[Attached by Nootles, not written by the user.]",
+    `The page open on screen is now ${open}; a page tool given no pageId acts on it.`,
+    ...(askedFrom ? [`"This page" in the question still means ${askedFrom}.`] : []),
+  ].join(" ");
+}
 
 /**
  * Closes a turn that has spent its tool budget. Sent as the last thing the

@@ -23,7 +23,7 @@ export type StageResult = { toolName: string; output: unknown };
  * Deliberately small and all of it cheap: the pages come from one Convex query
  * and everything else is already in the request. Anything a script needs to
  * know about the DOCUMENT it learns the way the agent would — by calling
- * `read_open_page` in an earlier step and reading the result out of `results`.
+ * `read_page` in an earlier step and reading the result out of `results`.
  */
 export type StageContext = {
   projectId: string;

@@ -4,7 +4,15 @@ import { AI } from "../aiConfig";
 import { runCanvasTool } from "../canvas/execute";
 import { parse } from "../canvas/fixtures";
 import type { CanvasHost, CanvasRead } from "../canvas/host";
-import { foldResearch, markCachePoints, shortenStaleReads } from "./transcript";
+import {
+  foldResearch,
+  markCachePoints,
+  shortenStaleMentions,
+  shortenStaleParts,
+  shortenStaleReads,
+  withoutTurnContext,
+} from "./transcript";
+import { convertDataPart } from "./parts";
 import type { AbMessage } from "./types";
 
 const marked = (o: unknown) =>
@@ -17,7 +25,7 @@ describe("markCachePoints", () => {
       {
         role: "assistant",
         content: [
-          { type: "tool-call", toolCallId: "c0", toolName: "read_open_page", input: {} },
+          { type: "tool-call", toolCallId: "c0", toolName: "read_page", input: {} },
           { type: "tool-call", toolCallId: "c1", toolName: "search_context", input: {} },
           { type: "tool-call", toolCallId: "c2", toolName: "expand_context", input: {} },
         ],
@@ -27,7 +35,7 @@ describe("markCachePoints", () => {
         content: [
           { type: "tool-result", toolCallId: "c1", toolName: "search_context", output: { type: "json", value: [] } },
           { type: "tool-result", toolCallId: "c2", toolName: "expand_context", output: { type: "json", value: {} } },
-          { type: "tool-result", toolCallId: "c0", toolName: "read_open_page", output: { type: "text", value: "" } },
+          { type: "tool-result", toolCallId: "c0", toolName: "read_page", output: { type: "text", value: "" } },
         ],
       },
     ];
@@ -100,8 +108,8 @@ describe("foldResearch", () => {
     { role: "user", content: "Document the architecture" },
     call("r1", "read_context"),
     result("r1", "read_context", file),
-    call("p1", "read_open_page"),
-    result("p1", "read_open_page", page),
+    call("p1", "read_page"),
+    result("p1", "read_page", page),
     call("s1", "search_context"),
     result("s1", "search_context", { type: "json", value: [{ id: "n1", title: "convex/schema.ts" }] }),
   ];
@@ -115,8 +123,8 @@ describe("foldResearch", () => {
       ...research,
       call("w1", "write"),
       result("w1", "write", { type: "json", value: { ref: "w1abc", headings: ["Data"] } }),
-      call("p2", "read_open_page"),
-      result("p2", "read_open_page", page),
+      call("p2", "read_page"),
+      result("p2", "read_page", page),
     ];
     const out = foldResearch(after);
     const value = (i: number) => ((out[i] as Extract<ModelMessage, { role: "tool" }>).content[0] as { output: { value: unknown } }).output.value;
@@ -190,16 +198,18 @@ describe("shortenStaleReads on canvas reports", () => {
       expect(value.length).toBeLessThan(AI.chat.staleReadChars + 200);
       expect(value).toMatch(/earlier turn, and the diagram has changed since\. Ask for it again/);
     }
-    // Cut at a field boundary: the head is the report's own opening, whole values only.
+    // Geometry is rows (NT-98), cut at a row: whole rows only.
     const geometry = (stale[0].output as { value: string }).value;
-    expect(geometry.startsWith('{"diagram":{"x":0,"w":720,"h":3000},"nodes":[{"id":"r0"')).toBe(true);
-    expect(geometry).toMatch(/[\w\]}"]… \(The rest/);
+    expect(geometry.startsWith("diagram 720×3000.")).toBe(true);
+    expect(geometry).toMatch(/top level\.\n… \(The rest/);
+    // The other two are still JSON, cut at a field boundary.
+    expect((stale[1].output as { value: string }).value).toMatch(/[\w\]}"]… \(The rest/);
 
     // The turn in flight reads the board in full.
-    expect(live.map((p) => p.output.type)).toEqual(["json", "json", "json"]);
-    const full = live[0].output as unknown as { value: { nodes: unknown[]; edges: unknown[] } };
-    expect(full.value.nodes).toHaveLength(120);
-    expect(full.value.edges).toHaveLength(119);
+    expect(live.map((p) => p.output.type)).toEqual(["text", "json", "json"]);
+    const rows = (live[0].output as { value: string }).value.split("\n");
+    expect(rows.filter((row) => / rect "/.test(row))).toHaveLength(120);
+    expect(rows.filter((row) => /^\S+ \S+>\S+ /.test(row))).toHaveLength(119);
   });
 
   test("before and after: what the earlier turn costs every later request", async () => {
@@ -242,5 +252,133 @@ describe("shortenStaleReads on canvas reports", () => {
     const folded = (out[2] as Extract<ModelMessage, { role: "tool" }>).content[0] as ToolResultPart;
     expect(folded.output.type).toBe("text");
     expect((folded.output as { value: string }).value).toMatch(/Ask for it again/);
+  });
+});
+
+describe("shortenStaleReads on page reads", () => {
+  const page = { type: "text" as const, value: `<title>Overview</title>\n${"<p>words</p>\n".repeat(2000)}` };
+  const turn = (toolName: string): ModelMessage[] => [
+    { role: "user", content: "What does it say?" },
+    { role: "assistant", content: [{ type: "tool-call", toolCallId: "r", toolName, input: {} }] },
+    { role: "tool", content: [{ type: "tool-result", toolCallId: "r", toolName, output: page }] },
+    { role: "user", content: "And now?" },
+  ];
+  const head = (out: ModelMessage[]) =>
+    ((out[2] as Extract<ModelMessage, { role: "tool" }>).content[0] as ToolResultPart).output as { value: string };
+
+  test.each(["read_page", "read_open_page"])("an earlier turn's %s shrinks to its head", (toolName) => {
+    // read_open_page was folded into read_page (NT-93); threads saved before
+    // still carry its reads, and they cost the same every later request.
+    const out = shortenStaleReads(turn(toolName));
+    expect(head(out).value.length).toBeLessThan(AI.chat.staleReadChars + 200);
+    expect(head(out).value).toMatch(/^<title>Overview<\/title>/);
+  });
+});
+
+describe("withoutTurnContext (NT-97)", () => {
+  const answer: AbMessage = {
+    id: "a1",
+    role: "assistant",
+    metadata: {
+      commentsGate: { pageId: "k57abcdefghijklmnopqrstu", include: true },
+      turnContext: { pageId: "k57abcdefghijklmnopqrstu", text: "[Attached by Nootles…] Wiring: The power path." },
+    },
+    parts: [{ type: "text", text: "Done." }],
+  };
+
+  test("drops the turn's context and keeps the rest of the metadata", () => {
+    const kept = withoutTurnContext(answer);
+    expect(kept.metadata).toEqual({ commentsGate: { pageId: "k57abcdefghijklmnopqrstu", include: true } });
+    expect(kept.parts).toBe(answer.parts);
+    expect(answer.metadata?.turnContext).toBeDefined();
+  });
+
+  test("a message without one is returned as it is", () => {
+    const plain: AbMessage = { id: "u1", role: "user", parts: [{ type: "text", text: "Hi" }] };
+    expect(withoutTurnContext(plain)).toBe(plain);
+  });
+});
+
+describe("context reads from an earlier turn (NT-98)", () => {
+  const file = { id: "n1", kind: "file", title: "convex/schema.ts", brief: "The schema.", content: "x".repeat(60_000) };
+  const thread: AbMessage[] = [
+    { id: "u1", role: "user", parts: [{ type: "text", text: "What tables are there?" }] },
+    {
+      id: "a1",
+      role: "assistant",
+      parts: [
+        { type: "tool-read_context", toolCallId: "r1", state: "output-available", input: { id: "n1" }, output: file },
+        { type: "text", text: "Twelve." },
+      ],
+    } as AbMessage,
+    { id: "u2", role: "user", parts: [{ type: "text", text: "And indexes?" }] },
+  ];
+
+  const readOf = (messages: ModelMessage[]) =>
+    (messages.find((m) => m.role === "tool") as Extract<ModelMessage, { role: "tool" }>).content[0] as ToolResultPart;
+
+  test("fold to what they are in every later turn, with no write in sight", async () => {
+    const out = readOf(shortenStaleReads(await convertToModelMessages<AbMessage>(thread)));
+    expect(out.output).toEqual({
+      type: "json",
+      value: { id: "n1", kind: "file", title: "convex/schema.ts", brief: "The schema.", folded: expect.stringContaining("read_context has it again") },
+    });
+  });
+
+  test("stay whole in the turn that read them", async () => {
+    const out = readOf(shortenStaleReads(await convertToModelMessages<AbMessage>(thread.slice(0, 2))));
+    expect((out.output as unknown as { value: { content: string } }).value.content).toHaveLength(60_000);
+  });
+
+  test("the browser sends them folded, and the route leaves them so", async () => {
+    const sent = shortenStaleParts(thread);
+    const part = sent[1].parts[0] as { output: Record<string, unknown> };
+    expect(part.output.content).toBeUndefined();
+    expect(part.output.folded).toMatch(/read_context has it again/);
+    expect(JSON.stringify(sent).length).toBeLessThan(2_000);
+    // The thread itself is untouched: it is the record.
+    expect((thread[1].parts[0] as { output: typeof file }).output.content).toHaveLength(60_000);
+    const routed = readOf(shortenStaleReads(await convertToModelMessages<AbMessage>(sent)));
+    expect(routed.output).toEqual(readOf(shortenStaleReads(await convertToModelMessages<AbMessage>(thread))).output);
+  });
+});
+
+describe("pages mentioned in an earlier message (NT-98)", () => {
+  const content = `<title>Launch plan</title>\n${'<p id="b1">A long paragraph of the plan.</p>\n'.repeat(500)}`;
+  const mention = { type: "data-mention" as const, data: { kind: "page" as const, pageId: "k1", title: "Launch plan", content } };
+  const thread: AbMessage[] = [
+    { id: "u1", role: "user", parts: [{ type: "text", text: "Summarise @Launch plan" }, mention] },
+    { id: "a1", role: "assistant", parts: [{ type: "text", text: "It is a plan." }] },
+    { id: "u2", role: "user", parts: [{ type: "text", text: "Compare it with @Launch plan now" }, mention] },
+  ];
+  const mentionIn = (message: AbMessage) =>
+    (message.parts.find((p) => p.type === "data-mention") as typeof mention).data.content;
+
+  test("an earlier message keeps the page's first line and says to read it again", () => {
+    const out = shortenStaleMentions(thread);
+    const head = mentionIn(out[0]);
+    expect(head.startsWith("<title>Launch plan</title>\n")).toBe(true);
+    expect(head).toMatch(
+      /<\/p>\n<!-- The rest of this page is not shown: it was mentioned in an earlier message, and the page may have changed since\. read_page has it as it is now\. -->$/,
+    );
+    expect(head.length).toBeLessThan(AI.chat.staleReadChars + 200);
+    expect(out[0].parts[0]).toBe(thread[0].parts[0]);
+  });
+
+  test("the message in flight keeps its mention whole", () => {
+    const out = shortenStaleMentions(thread);
+    expect(mentionIn(out[2])).toBe(content);
+    expect(out[2]).toBe(thread[2]);
+    expect(shortenStaleMentions(thread.slice(0, 1))[0]).toBe(thread[0]);
+  });
+
+  test("the browser and the route send the same words, and shortening twice changes nothing", async () => {
+    const browser = shortenStaleParts(thread);
+    expect(shortenStaleMentions(browser)).toEqual(browser);
+    const model = await convertToModelMessages<AbMessage>(shortenStaleMentions(browser), { convertDataPart });
+    const earlier = JSON.stringify(model[0]);
+    expect(earlier).toContain("read_page has it as it is now");
+    expect(earlier.length).toBeLessThan(700);
+    expect(JSON.stringify(model[2]).length).toBeGreaterThan(content.length);
   });
 });

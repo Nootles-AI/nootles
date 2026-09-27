@@ -215,7 +215,7 @@ describe("payloads — validated by the machinery that will run them", () => {
     // a diagram, five made pages, a linked repo.
     const withEverything = ctx({
       results: [
-        { toolName: "read_open_page", output: SCENE_READ },
+        { toolName: "read_page", output: SCENE_READ },
         // Exactly what create_page returns, titles included — C-06 pairs on them.
         ...["Mechanical", "Power & Electrical", "Firmware", "Software & Fleet"].map((title, i) => ({
           toolName: "create_page",
@@ -243,7 +243,7 @@ describe("payloads — validated by the machinery that will run them", () => {
       const input =
         typeof call.input === "function"
           ? (call.input as (c: StageContext) => { html?: string } | null)(
-              ctx({ results: [{ toolName: "read_open_page", output: SCENE_READ }] }),
+              ctx({ results: [{ toolName: "read_page", output: SCENE_READ }] }),
             )
           : (call.input as { html?: string });
       if (!input?.html) continue;
@@ -273,12 +273,12 @@ describe("payloads — validated by the machinery that will run them", () => {
     expect(input?.html).not.toContain("Test &amp; Validation");
   });
 
-  it("client tools carry a page id, because the schema demands one", () => {
+  it("client tools carry a page id, except a read of the open page", () => {
+    // Resolved from the live context, so a script never writes to whatever page
+    // happens to be open; only a plain read may lean on the open-page default.
     for (const { script, call } of everyCall) {
       if (!isClientTool(call.tool)) continue;
-      expect(typeof call.input === "function" || call.tool === "read_open_page", script.id).toBe(
-        true,
-      );
+      expect(typeof call.input === "function" || call.tool === "read_page", script.id).toBe(true);
     }
   });
 });
@@ -404,7 +404,7 @@ describe("the table itself", () => {
   });
 });
 
-/** A page read carrying a diagram, as `read_open_page` returns one. */
+/** A page read carrying a diagram, as `read_page` returns one. */
 const SCENE_READ = `<h1>ICD</h1>
 <p>The power path from the pack to the wheels:</p>
 <nt-diagram id="blk_canvas" at="blk_canvas" w="1200" h="420" wide>

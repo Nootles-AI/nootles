@@ -58,7 +58,7 @@ export function chatModel(): ModelCall {
         // silent through a long turn.
         display: "updates",
         // The route edits history the model has already seen — stale reads
-        // shortened, drawings stripped, the open-page note moving — and a
+        // shortened, drawings stripped, research folded — and a
         // thinking block replayed after an edit is a 400 on newer accounts.
         // Dropping the block keeps the turn; only that step's reasoning goes.
         blockBinding: { prefixMismatchBehavior: "drop_block" },

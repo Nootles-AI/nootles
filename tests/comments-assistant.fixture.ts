@@ -20,9 +20,18 @@ let local: Y.Doc | null = null;
 let peer: Y.Doc | null = null;
 const listeners = new Set<() => void>();
 
+/**
+ * A second page's comments, already there when the harness starts: someone
+ * commented on the roadmap before this session. Not relayed — nothing here
+ * writes to it, and the checks read what the assistant was told.
+ */
+export const ROADMAP = "page2";
+const roadmap = createNmlYDoc(emptyCommentsDocument("roadmap-comments"));
+
 export const commentsFixture = {
   local: () => local,
   peer: () => peer,
+  roadmap: () => roadmap,
   ensured: 0,
   /** Every attributed transaction on the writer's copy, in order. */
   origins: [] as NmlTransactionOrigin[],
@@ -54,8 +63,9 @@ function subscribe(listener: () => void) {
 
 const noSubscription = () => () => {};
 
-export function useCommentsDoc(_pageId: string, { canComment }: { canComment: boolean }): CommentsDocState {
-  const doc = useSyncExternalStore(subscribe, () => local, () => null);
+export function useCommentsDoc(pageId: string, { canComment }: { canComment: boolean }): CommentsDocState {
+  const launch = useSyncExternalStore(subscribe, () => local, () => null);
+  const doc = pageId === ROADMAP ? roadmap : launch;
   const threads = useSyncExternalStore(
     useCallback((listener: () => void) => (doc ? observeThreads(doc, listener) : noSubscription()), [doc]),
     () => (doc ? threadsSnapshot(doc) : NO_THREADS),
@@ -63,12 +73,13 @@ export function useCommentsDoc(_pageId: string, { canComment }: { canComment: bo
   );
   const ensure = useCallback(async () => {
     if (!canComment) throw new Error("You can read these comments but not add to them.");
+    if (pageId === ROADMAP) return roadmap;
     commentsFixture.ensured++;
     return local ?? mint();
-  }, [canComment]);
+  }, [canComment, pageId]);
   return {
     status: doc ? "ready" : "absent",
-    ...(doc ? { docId: "comments-doc", doc } : {}),
+    ...(doc ? { docId: pageId === ROADMAP ? "roadmap-comments" : "comments-doc", doc } : {}),
     threads,
     refusal: null,
     dismissRefusal: () => {},

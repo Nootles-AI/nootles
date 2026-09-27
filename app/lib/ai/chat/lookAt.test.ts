@@ -129,14 +129,14 @@ describe("shortenStaleParts: the thread the browser POSTs", () => {
   const thread = (): AbMessage[] => [
     user("Plan the launch"),
     answer(
-      call("read_open_page", page),
+      call("read_page", page),
       call("get_geometry", report, { blockId: "d1" }),
       call("look_at", looked("a1", "b2"), { blockId: "al", items: ["a1", "b2"] }),
       call("draw", drawing, { subject: "rover" }),
       call("search_web", "Results: " + "x".repeat(4000), { query: "rover" }),
     ),
     user("Now tighten it"),
-    answer(call("read_open_page", page), call("look_at", looked("c3"))),
+    answer(call("read_page", page), call("look_at", looked("c3"))),
   ];
 
   test("is what the route would have made of it: the model reads the same words either way", async () => {

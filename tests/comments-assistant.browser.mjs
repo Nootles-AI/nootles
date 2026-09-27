@@ -43,6 +43,10 @@ const output = await mkdtemp(path.join(tmpdir(), "comments-assistant-"));
 // is recorded, so the notices the tools send can be read back.
 const CONVEX = `
 import { getFunctionName } from "convex/server";
+const PAGES = {
+  page1: { _id: "page1", projectId: "project", title: "Launch plan" },
+  page2: { _id: "page2", projectId: "project", title: "Roadmap" },
+};
 const PEOPLE = [
   { userId: "user_bram", name: "Bram Stoker", imageUrl: null },
   { userId: "user_cleo", name: "Cleo", imageUrl: null },
@@ -52,7 +56,10 @@ export function useQuery(query, args) {
   switch (getFunctionName(query)) {
     case "chat/messages:list": return [];
     case "commentNotices:mentionable": return PEOPLE;
-    case "pages:listByProject": return [{ _id: "page1", title: "Launch plan", order: 0 }];
+    case "pages:listByProject": return [
+      { _id: "page1", title: "Launch plan", order: 0 },
+      { _id: "page2", title: "Roadmap", order: 1 },
+    ];
     default: return undefined;
   }
 }
@@ -62,12 +69,16 @@ const client = {
     globalThis.assistantHarness.mutations.push({ name: getFunctionName(ref), args });
     return null;
   },
-  query: async () => null,
+  // A page read by id, as \`fetchPage\` asks for one; any other id is no page.
+  query: async (ref, args) =>
+    getFunctionName(ref) === "pages:get"
+      ? PAGES[args.pageId] ?? null
+      : null,
 };
 export function useConvex() { return client; }
 `;
 const CLERK = `export function useAuth() { return { isLoaded: true, isSignedIn: true, userId: "user_ada" }; }`;
-const OPEN_PAGE = `export function useOpenPage() { return { open: () => {} }; }`;
+const OPEN_PAGE = `export function useOpenPage() { return { open: (pageId) => globalThis.assistantHarness.open(pageId) }; }`;
 const REVIEW = `
 const review = { beginTurn: async () => null, endTurn: async () => null };
 export function useReview() { return review; }
@@ -485,20 +496,30 @@ try {
   await h(() => globalThis.assistantHarness.discard());
   check("discarding the proposal leaves the words the thread quotes", await h(() => globalThis.assistantHarness.blockText("p1")), "We will ship it by Friday if the review lands.");
 
-  console.log("\nReading another page's comments does not move the user");
+  console.log("\nReading another page's comments opens it, in one call (NT-93)");
+  check("nothing has navigated yet", await h(() => globalThis.assistantHarness.opened), []);
   await ask("What did people say on the roadmap page?");
-  await request(20);
+  body = await request(20);
+  check("the question is asked on the launch plan", body.pageId, "page1");
   answer(20, tools(["call_other", "read_comments", { pageId: "page2" }]));
   body = await request(21);
+  const roadmapRead = String(outputOf(body, "call_other"));
+  check("the roadmap's comments come back, not a refusal", roadmapRead.split("\n")[0].startsWith("Comments on page page2"), true);
+  check("with Bram's thread in them", roadmapRead.includes("Is Q3 still realistic after the review?"), true);
+  check("the roadmap is put on screen, once", await h(() => globalThis.assistantHarness.opened), ["page2"]);
+  check("and the chat now works on it", body.pageId, "page2");
+  answer(21, tools(["call_nopage", "read_comments", { pageId: "page9" }]));
+  body = await request(22);
   check(
-    "a read of a page not on screen asks for it instead of opening it",
-    outputOf(body, "call_other"),
-    "ERROR Comments can be read only on the open page. Open that page with open_page first, if the user wants to work there.",
+    "a page the project does not have is refused by name",
+    outputOf(body, "call_nopage"),
+    'ERROR There is no page with id "page9" in this project. Call list_pages for the ids that exist.',
   );
-  answer(21, words("Open that page and I'll read them."));
+  check("and nothing moves for it", await h(() => globalThis.assistantHarness.opened), ["page2"]);
+  answer(22, words("Bram asks whether Q3 is still realistic after the review."));
   await idle();
 
-  check("every request stayed on this origin", requests.length, 22);
+  check("every request stayed on this origin", requests.length, 23);
 } catch (error) {
   failures.push(`run stopped: ${error.message}`);
 } finally {

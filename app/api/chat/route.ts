@@ -17,12 +17,7 @@ import { downloadAttachments } from "@/app/lib/ai/chat/download";
 import { drawChoiceSchema } from "@/app/lib/ai/drawStyles";
 import { convertDataPart } from "@/app/lib/ai/chat/parts";
 import { chatModel } from "@/app/lib/ai/chat/provider";
-import {
-  ATTACHED_COMMENTS,
-  OUT_OF_STEPS,
-  SYSTEM,
-  openPageNote,
-} from "@/app/lib/ai/chat/prompt";
+import { ATTACHED, OUT_OF_STEPS, SYSTEM, openPageNote } from "@/app/lib/ai/chat/prompt";
 import { commentsPack, pagePack, projectPack } from "@/app/lib/ai/context/pack";
 import { commentsGate } from "@/app/lib/ai/commentsGate";
 import { gateSummary, parseDigest, type CommentsDigest } from "@/app/lib/comments/digest";
@@ -31,10 +26,12 @@ import {
   cached,
   foldResearch,
   markCachePoints,
+  shortenStaleMentions,
   shortenStaleReads,
   stripDrawings,
 } from "@/app/lib/ai/chat/transcript";
-import type { AbMessage } from "@/app/lib/ai/chat/types";
+import { besideQuestion, frozenContext, nowOpen, withoutTail } from "@/app/lib/ai/chat/turnContext";
+import type { AbMessage, TurnContext } from "@/app/lib/ai/chat/types";
 import { recordAiCall } from "@/app/lib/ai/recordCall";
 import { streamLedger } from "@/app/lib/ai/streamLedger";
 import { asSession } from "@/app/lib/convexServer";
@@ -130,12 +127,17 @@ export async function POST(req: Request) {
   // still be written as the user. See `asSession`.
   const convex = asSession(caller);
 
+  // What the question was asked beside, when this request resumes a turn that
+  // already rendered it: the same bytes go in the same place, and neither the
+  // page pack nor the comments gate is asked again (NT-97).
+  const frozen = frozenContext(messages);
+
   // The project's context pack. Read per request rather than per turn because
   // the project is a living thing, and it is one round trip: without it the
   // agent writes into every project as if it were the same project. Started
   // here so it runs beside the limiter below; the paid comments gate waits for
   // it, since it is what says the caller may read this project at all.
-  const note = openPageNote(pageId);
+  const note = frozen ? "" : openPageNote(pageId);
   const reading = convex
     .query(api.context.read.packInputs, { projectId, ...(note ? { pageId } : {}) })
     .catch(() => null);
@@ -147,7 +149,9 @@ export async function POST(req: Request) {
   // otherwise fail every later message in the thread and not just that one.
   //
   // `convertDataPart` is where a mention and an attached text file become
-  // something the model reads; without it they are UI and nothing more.
+  // something the model reads; without it they are UI and nothing more. A page
+  // mentioned in an earlier message is cut to its first line before it gets
+  // there (`shortenStaleMentions`), as an earlier read is.
   // Named explicitly: inference reads `Omit<UI_MESSAGE, "id">` and falls back to
   // the base message, which has no data parts for `convertDataPart` to convert.
   //
@@ -165,7 +169,7 @@ export async function POST(req: Request) {
   );
   const history = stripDrawings(
     shortenStaleReads(
-      await convertToModelMessages<AbMessage>(messages, {
+      await convertToModelMessages<AbMessage>(shortenStaleMentions(messages), {
         ignoreIncompleteToolCalls: true,
         convertDataPart,
         tools,
@@ -227,28 +231,40 @@ export async function POST(req: Request) {
   // Separate instructions, not one concatenated string. The breakpoint goes on
   // the last thing that holds for the whole conversation — the standing prompt
   // and the project's context — so it stands for those and for the tool schemas
-  // above them, while the note that moves with the open page sits below it and
-  // takes nothing with it when it changes.
+  // above them. Nothing that moves with the open page is up here: above the
+  // conversation, a change to it was a change to the prefix of all of it.
   const instructions: SystemModelMessage[] = [{ role: "system", content: SYSTEM }];
   if (about) instructions.push({ role: "system", content: about });
   instructions[instructions.length - 1].providerOptions = cached();
 
-  const around = inputs && note ? pagePack(inputs, pageId, AI.chat.context.pageTokens) : "";
-  const open = [note, around].filter(Boolean).join("\n\n");
-  if (open) instructions.push({ role: "system", content: open });
-
-  // Collaborators' words are never system content: whoever may comment on the
-  // page would otherwise speak to the owner's agent with the app's authority.
-  // They ride beside the user's question instead, marked as attached.
-  const discussed =
-    pageComments && withComments
-      ? `${ATTACHED_COMMENTS}\n\n${commentsPack(pageComments, AI.chat.context.commentsTokens)}`
-      : "";
-  const asked = discussed ? besideQuestion(history, discussed) : history;
+  // The page the question was asked from and what surrounds it, rendered on
+  // the turn's first request and fixed from then on. A user message, not a
+  // system one: it carries page briefs and, when the gate lets them in,
+  // collaborators' comments, and whoever may write on a page would otherwise
+  // speak to the owner's agent with the app's authority. It is also read back
+  // from the browser on the requests that follow.
+  const context: TurnContext = frozen ?? {
+    ...(note ? { pageId } : {}),
+    text: attached([
+      note,
+      inputs && note ? pagePack(inputs, pageId, AI.chat.context.pageTokens) : "",
+      pageComments && withComments
+        ? commentsPack(pageComments, AI.chat.context.commentsTokens)
+        : "",
+    ]),
+  };
+  const asked = besideQuestion(history, context.text);
+  // Last, not beside the question: it changes as the agent moves between
+  // pages, and last is the one place a change moves nothing after it.
+  const moved = nowOpen(context, pageId);
+  const tail: ModelMessage[] = [
+    ...(moved ? [moved] : []),
+    ...(spent ? [{ role: "user" as const, content: OUT_OF_STEPS }] : []),
+  ];
 
   // Taken apart rather than spread: this call's tool typing is what the step
-  // budget and `activeTools` are checked against, and spreading a bundle that
-  // declares an optional `tools` would widen it.
+  // budget is checked against, and spreading a bundle that declares an
+  // optional `tools` would widen it.
   const { model, providerOptions } = call;
 
   // One row per request whichever way it ends — a provider refusal, an error
@@ -277,16 +293,21 @@ export async function POST(req: Request) {
     model,
     providerOptions,
     instructions,
-    messages: spent ? [...asked, { role: "user", content: OUT_OF_STEPS }] : asked,
+    messages: [...asked, ...tail],
     // Marked per step, not once per request: the server tools run several steps
     // inside one request, and each re-sends everything the last one read. Marked
     // only at the request's start, those reads were paid for in full every step —
-    // a research-heavy turn ran at 22% cached.
-    prepareStep: ({ messages }) => ({ messages: markCachePoints(foldResearch(messages)) }),
+    // a research-heavy turn ran at 22% cached. The tail is kept last, and outside
+    // the marks, which belong on what the next step will read again.
+    prepareStep: ({ messages }) => ({
+      messages: [...markCachePoints(foldResearch(withoutTail(messages, tail))), ...tail],
+    }),
     tools,
-    // The tools that could change something are not merely discouraged, they are
-    // absent from the request.
-    activeTools: spent ? [] : undefined,
+    // The tools that could change something are not merely discouraged, they
+    // are refused by the provider. Refused, not removed: the tool schemas head
+    // the cached prefix, and a request without them is a miss on the whole
+    // conversation — on a turn's longest request (NT-97).
+    toolChoice: spent ? "none" : undefined,
     stopWhen: stepCountIs(Math.max(1, budget)),
     experimental_download: downloadAttachments,
     abortSignal: req.signal,
@@ -296,16 +317,18 @@ export async function POST(req: Request) {
   return createUIMessageStreamResponse({
     stream: toUIMessageStream<ToolSet, AbMessage>({
       stream: ledger.watch(result.stream),
-      // The gate's answer rides the answer's metadata, so the requests that
-      // resume this turn read it back instead of asking again.
-      ...(pageComments && withComments !== null
-        ? {
-            messageMetadata: ({ part }) =>
-              part.type === "start"
+      // The turn's context rides the answer's metadata, so the requests that
+      // resume this turn send it back instead of rendering it again; the gate's
+      // answer too, which a turn from before the context was kept still reads.
+      messageMetadata: ({ part }) =>
+        part.type === "start"
+          ? {
+              turnContext: context,
+              ...(pageComments && withComments !== null
                 ? { commentsGate: { pageId: pageComments.pageId, include: withComments } }
-                : undefined,
-          }
-        : {}),
+                : {}),
+            }
+          : undefined,
     }),
   });
 }
@@ -333,11 +356,10 @@ async function commentsWanted(
   return commentsGate(convex, { message: latestUserText(messages), ...summary }, signal, asker);
 }
 
-/** `context` as a user message just ahead of the user's latest one. */
-function besideQuestion(history: ModelMessage[], context: string): ModelMessage[] {
-  const at = history.findLastIndex((message) => message.role === "user");
-  const attached: ModelMessage = { role: "user", content: context };
-  return at < 0 ? [...history, attached] : [...history.slice(0, at), attached, ...history.slice(at)];
+/** The turn's context: what there is of it, under the line that says whose it is. */
+function attached(sections: string[]): string {
+  const said = sections.filter(Boolean);
+  return said.length ? [ATTACHED, ...said].join("\n\n") : "";
 }
 
 /** The words of the user's latest message, without its attachments or mentions. */

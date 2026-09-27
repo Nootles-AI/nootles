@@ -384,17 +384,17 @@ const chat = await generateText({
     "On this open page, change PARITY_TEXT_OLD to PARITY_TEXT_NEW.",
     "In its existing c-main diagram, change shape s-box's visible label to PARITY_BOX_NEW",
     "and move that shape right 20 and down 10.",
-    'First call read_open_page with expand ["c-main"]. After that read returns,',
+    'First call read_page with expand ["c-main"]. After that read returns,',
     "make exactly one edit_page call and one canvas_edit call holding a set_text op and a move op;",
     "the two edits may run in parallel.",
     "Do not replace the whole diagram.",
   ].join("\n"),
   tools: {
-    read_open_page: tool({
-      ...TOOLS.read_open_page,
+    read_page: tool({
+      ...TOOLS.read_page,
       execute: async (input) => {
         chatCalls.push({
-          toolName: "read_open_page",
+          toolName: "read_page",
           input: structuredClone(input),
         });
         return `<p id="p-text">PARITY_TEXT_OLD</p>\n${BASE_SCENE}`;
@@ -430,10 +430,10 @@ await writeFile(
 );
 assert.deepEqual(
   names,
-  new Set(["read_open_page", "edit_page", "canvas_edit"]),
+  new Set(["read_page", "edit_page", "canvas_edit"]),
   "chat must read first and call both requested edit tools",
 );
-for (const name of ["read_open_page", "edit_page", "canvas_edit"]) {
+for (const name of ["read_page", "edit_page", "canvas_edit"]) {
   assert.equal(
     chatCalls.filter((call) => call.toolName === name).length,
     1,
