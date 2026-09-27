@@ -20,11 +20,10 @@ function clipperOf(el: Element): Element | null {
 }
 
 /**
- * The diagram's symbol in the right margin, level with the block handle in the
- * left one: the page saying what this band is. It reads off the band's own
- * edge, so a wide band carries it out with it. With no room past that edge —
- * a narrow pane, or a wide band out to the pane's gutter — it comes in over
- * the band and takes the handle's paper, as the handle does on the other side.
+ * The diagram's symbol at the foot of the left margin, under the block handle
+ * at its head: the page saying what this band is. A narrow pane's gutter may
+ * not hold it, and then it comes in over the band on the handle's paper, as
+ * the handle does. A wide band keeps it inside its own corner (canvas.css).
  */
 export function BandMark() {
   const mark = useRef<HTMLSpanElement>(null);
@@ -40,13 +39,12 @@ export function BandMark() {
     const place = () => {
       frame = 0;
       const k = effectiveScale(host);
-      const right = host.getBoundingClientRect().right;
-      const edge = clipper
-        ? clipper.getBoundingClientRect().left + clipper.clientLeft + clipper.clientWidth - EDGE_PAD
-        : window.innerWidth - EDGE_PAD;
-      const over = right + (GAP + SIZE) * k - edge;
-      const nudge = over > 0 ? over / k : 0;
-      const translate = nudge ? `${-nudge}px 0` : "";
+      const left = host.getBoundingClientRect().left;
+      const edge = clipper ? clipper.getBoundingClientRect().left + clipper.clientLeft + EDGE_PAD : EDGE_PAD;
+      const over = edge - (left - (GAP + SIZE) * k);
+      // A wide band holds it inside its own corner (canvas.css), never out in a margin.
+      const nudge = over > 0 && !host.hasAttribute("data-wide") ? over / k : 0;
+      const translate = nudge ? `${nudge}px 0` : "";
       if (el.style.translate !== translate) el.style.translate = translate;
       el.toggleAttribute("data-tight", nudge > 0);
     };

@@ -522,15 +522,14 @@
   color: var(--foreground);
 }
 
-/* The diagram's symbol in the right margin, mirroring the block handle in the
-   left: a 24px box off the band's edge by the handle's gap, centred where the
-   handle centres on a tall block. Faint at rest, a touch firmer under the
-   pointer, and in ink while the diagram is being worked in. Never a target —
-   the margin stays somewhere to draw from. */
+/* The diagram's symbol at the foot of the left margin, under the block handle
+   at its head: a 24px box off the band's edge by the handle's gap. Faint at
+   rest, a touch firmer under the pointer, and in ink while the diagram is
+   being worked in. Never a target — the margin stays somewhere to draw from. */
 .nt-canvas-mark {
   position: absolute;
-  top: 16px;
-  left: calc(100% + 4px);
+  bottom: 0;
+  right: calc(100% + 4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -543,6 +542,13 @@
   transition:
     color var(--dur) var(--ease),
     opacity var(--dur) var(--ease);
+}
+/* A wide band reaches the pane's gutter, which has no room for it: the mark
+   sits inside the band's own corner instead, bare. */
+.nt-canvas[data-wide] > .nt-canvas-mark {
+  right: auto;
+  bottom: 4px;
+  left: 4px;
 }
 .nt-canvas:hover > .nt-canvas-mark {
   opacity: 1;
