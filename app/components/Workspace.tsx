@@ -219,15 +219,19 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
       frameRef.current = null;
       setFrame(null);
       setPlace(null);
+      hub.clearAll();
       return;
     }
+    // A diagram outranks a place card, so a step back to the card lets the
+    // page's diagrams go — as the step back to nothing does.
+    if (state.kind === "place") hub.clearAll();
     if (state.pageId && pageRef.current !== state.pageId) {
       openRef.current(state.pageId as Id<"pages">);
     }
     // The block brings itself back once it is mounted — after the navigation
     // above, when the restore crossed a page.
     void awaitSurface(state.blockId).then((restore) => restore?.());
-  }, []);
+  }, [hub]);
   // Held in a ref: only event handlers and the spine ever reach it, and the
   // linter rightly refuses render-phase access to ref-reading closures.
   const focusDomainRef = useRef<FocusDomain<WorkspaceFocus> | null>(null);

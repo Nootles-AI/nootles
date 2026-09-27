@@ -179,6 +179,35 @@ describe("a band's root", () => {
     expect(materializeCanvas(root)).toEqual(band());
   });
 
+  test("an older tab's wide, kept in the root's attributes, reads as wide and goes when the band leaves it", () => {
+    // What a tab from before `wide` was modelled writes: the bare attribute,
+    // carried in `attrs` beside another it does not know either.
+    const { doc, root } = fresh(band());
+    doc.transact(() => meta(root).set("attrs", { wide: "", "data-note": "x" }));
+    const read = materializeCanvas(root);
+    expect(read).toEqual(band({ wide: true, attrs: { "data-note": "x" } }));
+
+    // An edit that leaves it wide keeps it wide.
+    const moved = band({ wide: true, attrs: { "data-note": "x" }, h: 400 });
+    doc.transact(() => applySceneDiff(root, read, moved));
+    expect(materializeCanvas(root)).toEqual(moved);
+
+    // Into the column, it stays there.
+    const column = band({ attrs: { "data-note": "x" }, h: 400 });
+    doc.transact(() => applySceneDiff(root, moved, column));
+    expect(meta(root).get("attrs")).toEqual({ "data-note": "x" });
+    expect(materializeCanvas(root)).toEqual(column);
+
+    // A root attribute written over it keeps what it meant.
+    const again = fresh(band());
+    again.doc.transact(() => meta(again.root).set("attrs", { wide: "pinned" }));
+    const pinned = materializeCanvas(again.root);
+    expect(pinned.wide).toBe("pinned");
+    const noted = { ...pinned, attrs: { "data-note": "y" } };
+    again.doc.transact(() => applySceneDiff(again.root, pinned, noted));
+    expect(materializeCanvas(again.root)).toEqual(noted);
+  });
+
   test("a pinned wide is its own value of the one key", () => {
     const pinned = band({ wide: "pinned" });
     const { doc, root } = fresh(pinned);

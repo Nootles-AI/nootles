@@ -1,5 +1,14 @@
 import { COLUMN_WIDTH } from "@/app/lib/column";
-import { bandFloor, bandHeight, bandLeft, bandWidth, EPS, reachesMargins, WIDE_W } from "./bandGeometry";
+import {
+  bandFloor,
+  bandHeight,
+  bandLeft,
+  bandWidth,
+  contentBottom,
+  EPS,
+  reachesMargins,
+  WIDE_W,
+} from "./bandGeometry";
 import { leastMove } from "./bandRoom";
 import { unionBounds } from "./geometry";
 import { applyOps, reflowHugs } from "./ops";
@@ -151,8 +160,10 @@ export function normalizeDiagram(scene: Scene): Scene {
  * amount. `wide` is kept as written — pinned or not — and an old root's
  * hand-widened frame reads as wide.
  *
- * The height is the one stated — scaled with the content — raised to hold
- * what the band now draws; none stated is the content's own.
+ * The height is the one stated, kept while it still holds what the band now
+ * draws — a band pulled up tight stays tight through an edit that fits in it —
+ * and raised to the band's floor once the drawing reaches past it or was
+ * scaled to fit. None stated is the content's own.
  *
  * Ops rather than a scene so `write_nodes` lands the fit through the same
  * vocabulary as the rest of its write. Never asked of a frame.
@@ -161,7 +172,8 @@ export function fitOps(scene: Scene): SceneOp[] {
   const wide = !!scene.wide || widenedByHand(scene);
   const { ops, k } = placement(scene, wide, bandWidth({ wide }));
   const placed = ops.length ? applyOps(scene, ops) : reflowHugs(scene);
-  const h = Math.max(k === 1 ? scene.h : Math.round(scene.h * k), bandFloor(placed));
+  const holds = k === 1 && scene.h > 0 && contentBottom(placed) <= scene.h;
+  const h = holds ? scene.h : Math.max(Math.round(scene.h * k), bandFloor(placed));
   const root: Extract<SceneOp, { type: "setDiagram" }> = { type: "setDiagram" };
   if (scene.w !== 0) root.w = 0;
   if (h !== scene.h) root.h = h;

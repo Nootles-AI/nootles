@@ -452,6 +452,12 @@ const harness = {
       const r = el.getBoundingClientRect();
       return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
     }),
+  /** A path's outline as its diagram's model holds it, or null for no such path. */
+  pathD: (blockId: string, id: string) => {
+    const scene = entry(blockId)?.api.store.getScene();
+    const node = scene && findNode(scene, id);
+    return node?.kind === "path" ? node.d : null;
+  },
 
   /** Which band is outlined as a draw's target. */
   target: () => (page?.entries() ?? []).find((diagram) => diagram.api.band.current?.hasAttribute("data-target"))?.blockId ?? null,

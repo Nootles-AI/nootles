@@ -1,10 +1,11 @@
 import { DOMParser } from "linkedom";
 import { describe, expect, it } from "vitest";
+import { createNudgeRun } from "../engine/shortcuts";
 import { SceneStore } from "../engine/useScene";
 import { createSelectionStore } from "../engine/useSelection";
 import type { CanvasApi } from "../render/CanvasSurface";
 import { isBoolean } from "../scene/types";
-import { commandApplies, PALETTE_COMMANDS, runAcross } from "./pageCommands";
+import { commandApplies, commandsFor, PALETTE_COMMANDS, runAcross } from "./pageCommands";
 import { createPageCanvas, type DiagramEntry } from "./PageCanvas";
 
 // The store parses diagram HTML, and this environment has no DOM.
@@ -129,6 +130,22 @@ describe("running a command over the page's selection", () => {
     expect(b.store.getNode("r3")!.x).toBe(500);
     expect(steps.n).toBe(1);
     expect(runAcross(canvas, "align.distributeV")).toBe(false);
+  });
+
+  it("nudges shapes in two diagrams together, as far as the tightest band lets them", () => {
+    const a = diagram("a", rect("r1", 2));
+    const b = diagram("b", rect("r2", 300));
+    const { canvas } = page(a, b);
+    canvas.selection.selectIn("a", ["r1"]);
+    canvas.selection.selectIn("b", ["r2"], { keep: true });
+    const left = { key: "ArrowLeft", code: "ArrowLeft", shiftKey: true } as KeyboardEvent;
+    const runs = [a, b].map((d) => createNudgeRun(d.store, d.selection));
+    const commands = (target: Parameters<typeof commandsFor>[0], shared: Parameters<typeof commandsFor>[1]) =>
+      commandsFor(target, { nudge: () => runs[target.blockId === "a" ? 0 : 1], ...shared });
+    expect(runAcross(canvas, "move.nudgeFar", left, { commands })).toBe(true);
+    expect(a.store.getNode("r1")!.x).toBe(0);
+    expect(b.store.getNode("r2")!.x).toBe(298);
+    runs.forEach((run) => run.dispose());
   });
 
   it("aligns each diagram's selection, as the keys do", () => {

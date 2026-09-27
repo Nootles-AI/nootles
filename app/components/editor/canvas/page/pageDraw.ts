@@ -119,12 +119,16 @@ export function placeNew(
  */
 export function sceneFor(kind: DrawKind, box: Rect): { scene: Scene; nodeId: string } {
   const nodeId = mintId(emptyScene());
-  const x = Math.max(0, Math.round(box.x));
   const w = Math.round(box.w);
+  const wide = Math.round(box.x) + w > COLUMN_WIDTH;
+  // Past the wide band's right edge it is brought in, as a draw into a
+  // diagram already there is (`landOps`) — never past the text's left edge.
+  const right = bandLeft({ wide }) + bandWidth({ wide });
+  const x = Math.max(0, Math.min(right - w, Math.round(box.x)));
   const drawn: Scene = {
     ...emptyScene(),
     nodes: [newNode(kind, nodeId, { x, y: BAND, w, h: Math.round(box.h) })],
-    ...(x + w > COLUMN_WIDTH ? { wide: true as const } : {}),
+    ...(wide ? { wide: true as const } : {}),
   };
   return { scene: { ...drawn, h: bandFloor(drawn) }, nodeId };
 }
@@ -487,7 +491,10 @@ function armShapes(canvas: PageCanvas, pane: HTMLElement, kind: DrawKind): () =>
         blockId = into.blockId;
       } else {
         const editor = canvas.editor();
-        const place = editor && placeNew(blockBoxes(editor), drawn.y, (id) => isEmptyLine(editor, id));
+        // By where the drag began, as the preview line showed it — not the
+        // drawn box's top, which a click centres on the pointer and a drag
+        // upward lifts above it.
+        const place = editor && placeNew(blockBoxes(editor), origin.y, (id) => isEmptyLine(editor, id));
         if (!editor || !place) throw new Error("the page has no editor to make a diagram in");
         const { left, scale } = columnAt(editor, place.ref) ?? { left: drawn.x, scale: 1 };
         const made = sceneFor(

@@ -4,6 +4,7 @@ import { nodeBounds } from "../scene/geometry";
 import { applyOps } from "../scene/ops";
 import type { Point, Rect, Scene, SceneNode, SceneOp } from "../scene/types";
 import {
+  acceptDecision,
   applyDecision,
   capScale,
   convertDecision,
@@ -21,6 +22,8 @@ import {
   landGesture,
   pullOf,
   pushEdge,
+  readGestureMods,
+  replayAccepted,
   scaleAllowed,
   spillNext,
   WIDEN_PUSH,
@@ -91,7 +94,7 @@ const press = (x = 0, y = 0): PointerLike => ({
 function session(
   d: ReturnType<typeof diagram>,
   mode: "move" | "resize" | "scale" | "rotate",
-  handle: "se" | "e" | null = null,
+  handle: "se" | "ne" | "e" | null = null,
   overrides?: SessionOverrides,
 ): GestureSession {
   const s = createGestureSession(d.o, press(), mode, handle, overrides);
@@ -209,6 +212,16 @@ describe("one gesture over two diagrams", () => {
     const k = capScale(tight, capScale(lead, 3));
     expect(k).toBeCloseTo(1.2);
   });
+
+  it("a shrink is held too, where the shared anchor sits above a band's top", () => {
+    const { b, inB } = setup();
+    // The frame's top-left pins the scale: y -200 in b's px, above b's band.
+    const follower = session(b, "scale", "se", { bounds: inB, sole: false, lockstep: true });
+    const k = capScale(follower, 0.5);
+    expect(k).toBeCloseTo(200 / 220);
+    expect(applyDecision(follower, { kind: "scale", k }, 1)).toBe(true);
+    expect(liveBoxes(follower)[0].y).toBeCloseTo(0);
+  });
 });
 
 describe("one diagram's gesture, held in its band", () => {
@@ -232,6 +245,29 @@ describe("one diagram's gesture, held in its band", () => {
     const { decision } = decideGesture(s, d.o, { x: 60, y: 0 });
     expect(decision).toEqual({ kind: "resize", dx: 60, dy: 0 });
     expect(applyDecision(s, decision, 1)).toBe(false);
+  });
+
+  it("holds a shrink whose pinned corner is past the edge", () => {
+    // Turned a quarter, the box's own corner is 40px left of the band while
+    // what it covers — x 50..70 — is inside.
+    const d = diagram([rect("n", -40, 100, 200, 20, 90)]);
+    const s = session(d, "scale", "se");
+    expect(capScale(s, 0.3)).toBeCloseTo(40 / 90);
+    expect(capScale(s, 0.8)).toBeCloseTo(0.8);
+  });
+
+  it("falls back on a refused resize as it was accepted, not as the keys now read it", () => {
+    const d = diagram([rect("n", 100, 0, 100, 50)]);
+    const s = session(d, "resize", "ne");
+    const wider = { kind: "resize", dx: 300, dy: 0 } as const;
+    expect(applyDecision(s, wider, 1)).toBe(true);
+    acceptDecision(s, wider);
+    // Shift now: the same drag aspect-locked would grow the box up, past the top.
+    readGestureMods(s, { ...press(), shiftKey: true });
+    expect(applyDecision(s, wider, 1)).toBe(false);
+    expect(replayAccepted(s, 1)).toBe(true);
+    const [box] = liveBoxes(s);
+    expect(box).toMatchObject({ x: 100, y: 0, w: 400, h: 50 });
   });
 
   it("clamps a resize of its own exactly", () => {

@@ -164,6 +164,13 @@ function sidesOf(box: { x: number; w: number }): MarginWash {
   return left && right ? "both" : left ? "left" : right ? "right" : null;
 }
 
+/**
+ * On a page of diagrams, the one pen the keyboard speaks to: the last one
+ * pressed, or opened on a path. Every pen listens on the window, and a key
+ * two pens both took would delete, nudge or finish in two diagrams at once.
+ */
+let keyPen: object | null = null;
+
 /** Each mounted pen's hover, by its overlay — see {@link hoverPen}. */
 const HOVERS = new WeakMap<Element, (client: Point | null) => void>();
 
@@ -303,6 +310,8 @@ export function PenTool({
   band = false,
 }: PenToolProps) {
   const [initial] = useState(() => load(store, nodeId));
+  /** This pen's claim on {@link keyPen}. */
+  const [keyToken] = useState(() => ({}));
 
   const anchorsRef = useRef<Anchor[]>(initial.anchors);
   const closedRef = useRef(initial.closed);
@@ -830,6 +839,7 @@ export function PenTool({
     (e: ReactPointerEvent<SVGSVGElement>) => {
       if (e.button !== 0) return;
       e.preventDefault();
+      keyPen = keyToken;
       // A press lands on the drawing where it is, not where it was seen gliding.
       moveRef.current?.finish();
       const p = viewport.clientToScene({ x: e.clientX, y: e.clientY });
@@ -941,6 +951,7 @@ export function PenTool({
       ensureNode,
       finish,
       sync,
+      keyToken,
     ],
   );
 
@@ -1052,8 +1063,16 @@ export function PenTool({
    * about all three, but not while its vectors are open.
    */
   useEffect(() => {
+    if (nodeId) keyPen = keyToken;
+    return () => {
+      if (keyPen === keyToken) keyPen = null;
+    };
+  }, [nodeId, keyToken]);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (isTextEntry(e.target)) return;
+      if (shared && keyPen !== null && keyPen !== keyToken) return;
       const claim = () => {
         e.preventDefault();
         e.stopPropagation();
@@ -1104,7 +1123,7 @@ export function PenTool({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [finish, write, contain, land, sync, nudgeStep, endNudgeRun, shared]);
+  }, [finish, write, contain, land, sync, nudgeStep, endNudgeRun, shared, keyToken]);
 
   // -- Overlay --------------------------------------------------------------
 

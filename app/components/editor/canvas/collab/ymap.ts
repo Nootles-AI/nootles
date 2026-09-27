@@ -221,6 +221,18 @@ function wideIn(value: unknown): Pick<Scene, "wide"> {
 }
 
 /**
+ * A `wide` in the meta's `attrs`: where a tab from before `wide` was modelled
+ * keeps it — the root attribute it parsed and does not know — read as the
+ * parser reads the attribute (`wideOf`), so its diagram stays wide here.
+ */
+function legacyWide(value: string | undefined): Pick<Scene, "wide"> {
+  if (value === undefined) return {};
+  const v = value.trim().toLowerCase();
+  if (v === "pinned") return { wide: "pinned" };
+  return v === "false" || v === "0" || v === "no" ? {} : { wide: true };
+}
+
+/**
  * The scene as the CRDT currently says it, identical on every replica with
  * converged state. Concurrency leaves shapes the tree cannot hold — a parent
  * pointing at a deleted or non-group node, or a reparent cycle — and those
@@ -330,12 +342,12 @@ export function materializeCanvas(root: Y.Map<unknown>): Scene {
   });
   edgeRows.sort((a, b) => byOrder({ ...a, id: a.edge.id }, { ...b, id: b.edge.id }));
 
-  const metaAttrs = { ...((meta?.get("attrs") as Record<string, string>) ?? {}) };
+  const { wide: legacy, ...metaAttrs } = (meta?.get("attrs") as Record<string, string>) ?? {};
   const metaId = meta?.get("id") as string | undefined;
   return {
     w: (meta?.get("w") as number | undefined) ?? 0,
     h: (meta?.get("h") as number | undefined) ?? 0,
-    ...wideIn(meta?.get("wide")),
+    ...(meta?.has("wide") ? wideIn(meta.get("wide")) : legacyWide(legacy)),
     style: { ...((meta?.get("style") as StyleMap) ?? {}) },
     nodes: build(null),
     edges: edgeRows.map((r) => r.edge),
@@ -407,9 +419,14 @@ export function applySceneDiff(
 
   if (prev.w !== next.w) setOrDelete(meta, "w", next.w > 0 ? next.w : undefined);
   if (prev.h !== next.h) meta.set("h", next.h);
-  if (prev.wide !== next.wide) setOrDelete(meta, "wide", next.wide);
+  // An older tab's `wide` in `attrs` goes whenever `attrs` is written, and
+  // must when the band leaves wide — it would read as wide again otherwise —
+  // so its meaning moves to the meta key then.
+  const legacy = "wide" in ((meta.get("attrs") as Record<string, string> | undefined) ?? {});
+  const attrs = !same(prev.attrs, next.attrs) || (legacy && !next.wide);
+  if (prev.wide !== next.wide || (attrs && legacy)) setOrDelete(meta, "wide", next.wide);
   if (!same(prev.style, next.style)) meta.set("style", { ...next.style });
-  if (!same(prev.attrs, next.attrs)) meta.set("attrs", { ...next.attrs });
+  if (attrs) meta.set("attrs", { ...next.attrs });
   if (prev.id !== next.id) setOrDelete(meta, "id", next.id);
 
   type Flat = { node: SceneNode; parentId: NodeId | null };

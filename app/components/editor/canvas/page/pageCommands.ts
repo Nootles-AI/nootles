@@ -1,9 +1,15 @@
 import { deleteSelection } from "../ContextMenu";
-import { createDiagramCommands, type NudgeRun, type ShortcutId } from "../engine/shortcuts";
+import {
+  clampNudge,
+  createDiagramCommands,
+  type NudgeRange,
+  type NudgeRun,
+  type ShortcutId,
+} from "../engine/shortcuts";
 import { distributeByNode } from "../scene/align";
 import { bandLeft, bandWidth } from "../scene/band";
 import { canBoolean } from "../scene/boolean";
-import { topSelection, type SceneOp } from "../scene/types";
+import { topSelection, type Point, type Scene, type SceneOp } from "../scene/types";
 import type { DiagramTarget, PageCanvas } from "./PageCanvas";
 
 /**
@@ -23,9 +29,22 @@ const FOCUSED_ONLY: ReadonlySet<ShortcutId> = new Set([
 
 type Batch = <T>(fn: () => T) => T;
 
+/** What the page decides once for a command, before any diagram runs it. */
+export type Shared = {
+  /** ⌘⇧H and ⌘⇧L: the value every diagram writes. */
+  flag?: boolean;
+  /** An arrow key: the step every diagram takes. */
+  holdNudge?: (dx: number, dy: number) => Point;
+};
+
+const bandRange = (scene: Scene): NudgeRange => {
+  const minX = bandLeft(scene);
+  return { minX, maxX: minX + bandWidth(scene) };
+};
+
 export function commandsFor(
   target: DiagramTarget,
-  opts: { nudge?: () => NudgeRun; flag?: boolean } = {},
+  opts: { nudge?: () => NudgeRun } & Shared = {},
 ) {
   return createDiagramCommands({
     store: target.store,
@@ -33,11 +52,8 @@ export function commandsFor(
     get nudge() {
       return opts.nudge?.();
     },
-    band: () => {
-      const scene = target.store.getScene();
-      const minX = bandLeft(scene);
-      return { minX, maxX: minX + bandWidth(scene) };
-    },
+    band: () => bandRange(target.store.getScene()),
+    holdNudge: opts.holdNudge,
     pathEdit: { set: target.entry.api.openPath },
     labelEdit: { open: target.entry.api.openLabel },
     flag: opts.flag === undefined ? undefined : () => opts.flag!,
@@ -48,6 +64,30 @@ const writable = (canvas: PageCanvas) => canvas.targets().filter((target) => !ta
 
 const held = (target: DiagramTarget) =>
   topSelection(target.store.getScene(), target.selection.getSnapshot().ids);
+
+/**
+ * A nudge held by every band holding part of the selection: each axis goes as
+ * far as the one with the least room lets it, so the shapes keep their places
+ * beside one another as a drag's do.
+ */
+function nudgeHold(targets: readonly DiagramTarget[]) {
+  // Decided by the first diagram to ask, before any of them has moved.
+  let decided: Point | null = null;
+  return (dx: number, dy: number): Point => {
+    if (decided) return decided;
+    let x = dx;
+    let y = dy;
+    for (const target of targets) {
+      const scene = target.store.getScene();
+      const ids = held(target).map((node) => node.id);
+      const step = clampNudge(scene, ids, dx, dy, bandRange(scene));
+      if (Math.abs(step.x) < Math.abs(x)) x = step.x;
+      if (Math.abs(step.y) < Math.abs(y)) y = step.y;
+    }
+    decided = { x, y };
+    return decided;
+  };
+}
 
 /** ⌘⇧H and ⌘⇧L read over the whole page's selection, before any of it changes. */
 function flagValue(targets: readonly DiagramTarget[], flag: "locked" | "hidden"): boolean {
@@ -105,17 +145,17 @@ export function runAcross(
   e?: KeyboardEvent,
   {
     batch = canvas.batch,
-    commands = (target, flag) => commandsFor(target, { flag }),
+    commands = (target, shared) => commandsFor(target, shared),
   }: {
     batch?: Batch;
-    commands?: (target: DiagramTarget, flag?: boolean) => ReturnType<typeof commandsFor>;
+    commands?: (target: DiagramTarget, shared: Shared) => ReturnType<typeof commandsFor>;
   } = {},
 ): boolean {
   const targets = writable(canvas);
   if (FOCUSED_ONLY.has(id)) {
     const focused = canvas.selection.getSnapshot().focused;
     const target = targets.find((t) => t.blockId === focused) ?? targets[0];
-    return !!target && batch(() => commands(target)[id](e));
+    return !!target && batch(() => commands(target, {})[id](e));
   }
   // Ids read up front: a diagram emptied by the delete takes its block, and
   // the caret that lands in the text must not let the next one's go first.
@@ -134,6 +174,10 @@ export function runAcross(
       : id === "toggle.locked"
         ? flagValue(targets, "locked")
         : undefined;
+  const shared: Shared = {
+    flag,
+    holdNudge: id === "move.nudge" || id === "move.nudgeFar" ? nudgeHold(targets) : undefined,
+  };
   const focused = canvas.selection.getSnapshot().focused;
   let handled = id === "toggle.hidden" || spread !== null;
   canvas.selection.keep(() =>
@@ -142,7 +186,7 @@ export function runAcross(
         for (const [target, ops] of spread) target.store.dispatch(ops);
         return;
       }
-      for (const target of targets) if (commands(target, flag)[id](e)) handled = true;
+      for (const target of targets) if (commands(target, shared)[id](e)) handled = true;
     }),
   );
   // Each diagram's own change moved the page's focus onto it.

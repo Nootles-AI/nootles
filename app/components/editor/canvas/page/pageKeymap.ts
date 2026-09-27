@@ -226,7 +226,7 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
   const acrossDiagrams = (id: ShortcutId, e: KeyboardEvent): boolean =>
     runAcross(canvas, id, e, {
       batch,
-      commands: (target, flag) => commandsFor(target, { nudge: () => runFor(target), flag }),
+      commands: (target, shared) => commandsFor(target, { nudge: () => runFor(target), ...shared }),
     });
 
   const decide = (id: ShortcutId, e: KeyboardEvent): boolean => {
@@ -277,6 +277,7 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
       pasteInPlace = id === "edit.pasteInPlace";
       return;
     }
+    pasteInPlace = false;
     // Anything but another nudge closes an open run first — so an unrelated
     // edit is never folded into it.
     if (id !== "move.nudge" && id !== "move.nudgeFar") endNudges();
@@ -353,6 +354,10 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
   };
 
   const onPaste = (e: ClipboardEvent) => {
+    // Spent by the paste it was pressed for, wherever that lands — left set by
+    // one into the text, it would put a later Edit ▸ Paste in place.
+    const inPlace = pasteInPlace;
+    pasteInPlace = false;
     const band = clipboardBand();
     if (!band || band.readOnly) return;
     // Consumed either way: a paste aimed at a diagram must never fall through
@@ -362,8 +367,6 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
     const text = e.clipboardData?.getData("text/plain") ?? "";
     const copy = lastCopy();
     const html = isCanvasHtml(text) ? text : copy?.html;
-    const inPlace = pasteInPlace;
-    pasteInPlace = false;
     if (!html) return;
     const fragment = parseScene(html);
     const store = band.api.store;

@@ -1404,6 +1404,41 @@ try {
     await frame();
   }
 
+  {
+    // ---- One pen answers the keys ---------------------------------------------
+    // A path selected in one diagram opens the pen on it there; points put
+    // down in another make that one the pen the keys speak to. ⌫ and Enter are
+    // the new path's alone — the selected one is left whole.
+    const held = (await at("nodes", pathBorn))[0].id;
+    const heldD = await at("pathD", pathBorn, held);
+    await at("clear");
+    await at("add", pathBorn, [held]);
+    await at("centreBand", "top");
+    await frame();
+    await at("pick", "pen");
+    await frame();
+    const known = (await at("nodes", "top")).map((node) => node.id);
+    const tb = await at("band", "top");
+    const tk = await at("bandScale", "top");
+    for (const [x, y] of [[250, 130], [300, 150], [350, 130]]) {
+      await page.mouse.click(tb.left + x * tk, tb.top + y * tk);
+      await frame();
+    }
+    const drawing = (await at("nodes", "top")).find((node) => !known.includes(node.id))?.id ?? null;
+    check("points put down in another diagram draw a path there", drawing !== null, true);
+    const drawnD = await at("pathD", "top", drawing);
+    await page.keyboard.press("Backspace");
+    await frame();
+    check("⌫ takes a point from the path being drawn", (await at("pathD", "top", drawing)) !== drawnD, true);
+    check("and none from the path selected in the other diagram", await at("pathD", pathBorn, held), heldD);
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => window.canvasPage.tool()?.tool === "move");
+    check("Enter finishes the path being drawn, selected", (await at("selection")).top, [drawing]);
+    check("and leaves the other path as it was", await at("pathD", pathBorn, held), heldD);
+    await at("clear");
+    await frame();
+  }
+
   // ⌫ over a selection spanning diagrams, where the upper one goes with its
   // last shape: the caret that lands in the text lets nothing of the lower
   // one's selection go before it is deleted too.

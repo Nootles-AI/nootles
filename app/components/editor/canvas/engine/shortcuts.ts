@@ -814,7 +814,7 @@ export function createNudgeRun(
  * A step held inside the band: never above its top, never off its sides — and
  * content already past an edge is not pushed further out.
  */
-function clampNudge(
+export function clampNudge(
   scene: Scene,
   ids: readonly NodeId[],
   dx: number,
@@ -838,6 +838,12 @@ export interface DiagramCommandContext {
   nudge?: NudgeRun;
   /** Where a nudge may take the selection; `null` for a frame. */
   band(): NudgeRange | null;
+  /**
+   * A nudge's step as held over every diagram sharing the selection, so the
+   * shapes move together as far as the tightest band lets them — as a drag
+   * does. Omitted, this diagram's band alone holds it.
+   */
+  holdNudge?(dx: number, dy: number): Point;
   /** The tool, for the tool keys and Escape — a surface keeping its own. */
   tool?: ToolController;
   /** Omitted where the surface has no vector edit mode to enter. */
@@ -885,7 +891,9 @@ export function createDiagramCommands(
     const delta = e && nudgeDelta(e);
     const ids = targetIds();
     if (!delta || ids.length === 0 || !ctx.nudge) return false;
-    const { x, y } = clampNudge(scene(), ids, delta.x * step, delta.y * step, ctx.band());
+    const { x, y } = ctx.holdNudge
+      ? ctx.holdNudge(delta.x * step, delta.y * step)
+      : clampNudge(scene(), ids, delta.x * step, delta.y * step, ctx.band());
     ctx.nudge.move(ids, x, y);
     return true;
   };

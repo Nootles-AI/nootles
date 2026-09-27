@@ -163,9 +163,11 @@ function createViewport(options: UseViewportOptions): ViewportEngine {
   const ambientScale = (): number => {
     if (ambientStale) {
       const el = containerRef.current;
+      // Hidden, the container has no width to read a scale off — the 1 that
+      // `effectiveScale` answers then is a guess, not to be held on to.
       if (el) {
         ambient = effectiveScale(el);
-        ambientStale = false;
+        ambientStale = el.offsetWidth === 0;
       }
     }
     return ambient;

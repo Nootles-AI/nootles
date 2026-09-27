@@ -228,6 +228,21 @@ try {
     await page.context().close();
   }
 
+  // ---- Undo walks back past the moment a diagram was chosen -------------------
+  // Choosing a shape is a stop on the workspace's timeline; ⌘Z back past it
+  // lets the diagram go, as a press outside it would.
+  {
+    const { page, at } = await open("undo", { leftOpen: false, rightOpen: false });
+    await page.mouse.click(...centre(await at("shape", "r1")));
+    await wait(SETTLE);
+    check("[undo] a shape chosen holds the diagram", await at("holding"), true);
+    await page.keyboard.press("ControlOrMeta+KeyZ");
+    await wait(SETTLE);
+    const sides = await at("sides");
+    check("[undo] ⌘Z back past it lets the diagram go, panels and all", [await at("holding"), sides.floatLeft, sides.floatRight], [false, null, null]);
+    await page.context().close();
+  }
+
   // ---- The workspace palette runs the diagram's commands ---------------------
   // ⌘K lists what the selection can take, each with its key; typing a command
   // and Enter runs it on the selection, which is still held afterwards.

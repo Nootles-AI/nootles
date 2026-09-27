@@ -127,6 +127,12 @@ describe("caretBesidePlate", () => {
     { id: "below", type: "paragraph", content: "Below" },
     { id: "code", type: "codeBlock", props: { code: "x" } },
     { id: "after", type: "paragraph", content: "After" },
+    {
+      id: "grid",
+      type: "table",
+      content: { type: "tableContent", rows: [{ cells: ["one", "two"] }] },
+    },
+    { id: "end", type: "paragraph", content: "End" },
   ]);
   const reading = blocksInReadingOrder(page);
   const at = (id: string) => reading.find((s) => s.id === id)!;
@@ -145,6 +151,11 @@ describe("caretBesidePlate", () => {
 
   it("leaves a code block to its own keys", () => {
     expect(caretBesidePlate(page, reading, [at("code").pos], 1)).toBeNull();
+  });
+
+  it("leaves a table stepping plate to plate: its cells are not a void", () => {
+    expect(caretBesidePlate(page, reading, [at("grid").pos], 1)).toBeNull();
+    expect(caretBesidePlate(page, reading, [at("grid").pos], -1)).toBeNull();
   });
 
   it("only ever for one block", () => {

@@ -1,4 +1,5 @@
 import {
+  acceptDecision,
   activateGesture,
   applyDecision,
   capScale,
@@ -14,6 +15,8 @@ import {
   liveBoxes,
   pastThreshold,
   readGestureMods,
+  replayAccepted,
+  resetDecision,
   resetGestureRotation,
   scaleAllowed,
   pullOf,
@@ -264,9 +267,12 @@ export function createPageGesture(deps: {
       if (!applyDecision(lane.session, decided[i], lane.min)) fits = false;
     });
     if (fits) {
-      lanes.forEach((lane, i) => (lane.session.accepted = decided[i]));
+      lanes.forEach((lane, i) => acceptDecision(lane.session, decided[i]));
     } else {
-      for (const lane of lanes) applyDecision(lane.session, lane.session.accepted, lane.min);
+      // Together or not at all: one lane back at its start leaves them all there.
+      if (!lanes.every((lane) => replayAccepted(lane.session, lane.min))) {
+        for (const lane of lanes) resetDecision(lane.session, lane.min);
+      }
       guides = NO_GUIDES;
     }
 

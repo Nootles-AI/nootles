@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { newNode } from "../render/newShape";
-import { BAND, bandFloor, WIDE_MARGIN } from "../scene/band";
+import { BAND, bandFloor, bandLeft, bandWidth, WIDE_MARGIN } from "../scene/band";
 import { emptyScene } from "../scene/migrate";
 import { applyOps } from "../scene/ops";
 import { landingIn, landOps, penPoint, pictureOps, placeNew, sceneFor, type BandBox, type BlockBox } from "./pageDraw";
@@ -105,6 +105,13 @@ describe("the diagram a draw on the page makes", () => {
   it("moves a shape drawn past the text's left edge onto it, and is wide past its right", () => {
     expect(sceneFor("ellipse", { x: -30, y: 0, w: 100, h: 50 }).scene.nodes[0].x).toBe(0);
     expect(sceneFor("rect", { x: 680, y: 0, w: 100, h: 50 }).scene.wide).toBe(true);
+  });
+
+  it("brings a shape drawn past the wide band's right edge back inside it", () => {
+    const { scene } = sceneFor("rect", { x: 800, y: 0, w: 200, h: 50 });
+    const right = bandLeft({ wide: true }) + bandWidth({ wide: true });
+    expect(scene.wide).toBe(true);
+    expect(scene.nodes[0]).toMatchObject({ x: right - 200, w: 200 });
   });
 });
 

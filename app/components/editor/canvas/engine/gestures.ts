@@ -599,6 +599,8 @@ interface Session {
   allowed: Allowed | null;
   /** The last decision that stayed inside the fence, for a resize or a rotation to fall back on. */
   accepted: Decision;
+  /** The modifiers `accepted` was placed under — Shift and Alt shape a resize. */
+  acceptedMods: Mods;
   /** What the band itself holds the selection inside — the column's, for a column band. */
   column: Hold;
   /** What a push past a column band's side opens: its margins' hold. `null` where none is offered. */
@@ -1129,6 +1131,7 @@ export function createGestureSession(
     reach,
     allowed: column.allowed,
     accepted: IDENTITY[mode],
+    acceptedMods: { shift: event.shiftKey, alt: event.altKey, free: event.metaKey || event.ctrlKey },
     column,
     spill: wideBand ? holdFor(wideBand, reach) : null,
     spilling: false,
@@ -1434,9 +1437,9 @@ function runFrame(session: Session, o: TransformGestureOptions) {
   const min = o.minSize ?? 1;
   let shown = guides;
   if (applyDecision(session, decision, min)) {
-    session.accepted = decision;
+    acceptDecision(session, decision);
   } else {
-    applyDecision(session, session.accepted, min);
+    fallBack(session, min);
     shown = NO_GUIDES;
   }
   writeGesture(session, o, shown, true);
@@ -1498,6 +1501,38 @@ export function applyDecision(session: Session, decision: Decision, minSize: num
       placeRotate(session, decision.deg);
       return !escapes(session);
   }
+}
+
+/** `decision` stayed inside the fence: what a refused one falls back on. */
+export function acceptDecision(session: Session, decision: Decision) {
+  session.accepted = decision;
+  session.acceptedMods = { ...session.mods };
+}
+
+/**
+ * A refused decision: the last accepted one, placed again under the modifiers
+ * it was placed under — Shift pressed since would re-read a resize as
+ * aspect-locked, a different box that no one checked. Whether it still fits:
+ * the fence it was held by may have narrowed back since.
+ */
+export function replayAccepted(session: Session, minSize: number): boolean {
+  const now = session.mods;
+  session.mods = session.acceptedMods;
+  try {
+    return applyDecision(session, session.accepted, minSize);
+  } finally {
+    session.mods = now;
+  }
+}
+
+/** Back to where the gesture began, which is inside by construction. */
+export function resetDecision(session: Session, minSize: number) {
+  acceptDecision(session, IDENTITY[session.mode]);
+  applyDecision(session, session.accepted, minSize);
+}
+
+function fallBack(session: Session, minSize: number) {
+  if (!replayAccepted(session, minSize)) resetDecision(session, minSize);
 }
 
 /** The frame's writes, in one pass: the shapes, the overlay if it is this session's, the band. */
@@ -1796,10 +1831,15 @@ function decideScale(session: Session, point: Point, minSize: number): Decision 
   return { kind: "scale", k: capScale(session, k) };
 }
 
-/** `k`, no larger than keeps this session's selection inside its band. */
+/**
+ * `k`, held to what keeps this session's selection inside its band. Every
+ * allowed range holds 1, so holding one session's `k` inside another's never
+ * takes it back out of the first.
+ */
 export function capScale(session: Session, k: number): number {
   if (!session.fence) return k;
-  return Math.min(k, scaleCap(session.reach, scaleAnchor(session), session.fence));
+  const { lo, hi } = scaleRange(session.reach, scaleAnchor(session), session.fence);
+  return Math.min(hi, Math.max(lo, k));
 }
 
 function placeScale(session: Session, k: number) {
@@ -1822,18 +1862,31 @@ function placeScale(session: Session, k: number) {
 }
 
 /**
- * The largest factor about `anchor` that keeps `box` inside the fence. A
- * uniform scale takes a rotated box's bounds with it, so the selection's own
- * bounds are all there is to check; at 1 it is inside by construction.
+ * The factors about `anchor` that keep `box` inside the fence. A uniform scale
+ * takes a rotated box's bounds with it, so the selection's own bounds are all
+ * there is to check; at 1 it is inside by construction.
+ *
+ * Shrinking is bounded too: the anchor is not always inside the fence — a
+ * rotated shape's pinned corner can sit past it, and so can the shared anchor
+ * of a selection spanning diagrams, read in the scene of a band it is not in —
+ * and a box drawn toward an anchor outside is drawn out with it.
  */
-function scaleCap(box: Rect, anchor: Point, fence: Fence): number {
-  let cap = Infinity;
-  if (box.x < anchor.x) cap = Math.min(cap, (anchor.x - fence.left) / (anchor.x - box.x));
-  if (box.x + box.w > anchor.x) {
-    cap = Math.min(cap, (fence.right - anchor.x) / (box.x + box.w - anchor.x));
-  }
-  if (box.y < anchor.y) cap = Math.min(cap, (anchor.y - fence.top) / (anchor.y - box.y));
-  return cap;
+function scaleRange(box: Rect, anchor: Point, fence: Fence): { lo: number; hi: number } {
+  let lo = 0;
+  let hi = Infinity;
+  // Each side lands at `anchor + k * d`, which must stay on the fence's side of `edge`.
+  const atLeast = (a: number, d: number, edge: number) => {
+    if (d > 0) lo = Math.max(lo, (edge - a) / d);
+    else if (d < 0) hi = Math.min(hi, (a - edge) / -d);
+  };
+  const atMost = (a: number, d: number, edge: number) => {
+    if (d > 0) hi = Math.min(hi, (edge - a) / d);
+    else if (d < 0) lo = Math.max(lo, (a - edge) / -d);
+  };
+  atLeast(anchor.x, box.x - anchor.x, fence.left);
+  atMost(anchor.x, box.x + box.w - anchor.x, fence.right);
+  atLeast(anchor.y, box.y - anchor.y, fence.top);
+  return { lo, hi };
 }
 
 /**

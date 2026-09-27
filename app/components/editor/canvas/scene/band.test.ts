@@ -300,6 +300,15 @@ describe("fitToBand", () => {
     expect(fitToBand(band([rect("a", 0, 300)])).h).toBe(384);
   });
 
+  test("a band pulled up tight stays tight through an edit that fits in it", () => {
+    // The rect ends at 84; the floor is 108, and the band was pulled up to 90.
+    const tight = band([rect("a", 0, 24, { style: { fill: "#f00" } })], { h: 90 });
+    expect(fitOps(tight)).toEqual([]);
+    expect(fitToBand(tight)).toBe(tight);
+    // Reaching past it, it is raised to the floor.
+    expect(fitToBand(band([rect("a", 0, 40)], { h: 90 })).h).toBe(124);
+  });
+
   test("off the fitted height past a hair, either way, is what Auto height would undo", () => {
     // Fitted: 24 + 60 + 24.
     expect(unfitted(band([rect("a", 0, 24)], { h: 108 }))).toBe(false);
