@@ -7,7 +7,8 @@ import {
   type ShortcutId,
 } from "../engine/shortcuts";
 import { distributeByNode } from "../scene/align";
-import { bandLeft, bandWidth } from "../scene/band";
+import { bandLeft, bandWidth, WIDE_MARGIN } from "../scene/band";
+import { wideMarginOf } from "@/app/lib/columnScale";
 import { canBoolean } from "../scene/boolean";
 import { topSelection, type Point, type Scene, type SceneOp } from "../scene/types";
 import type { DiagramTarget, PageCanvas } from "./PageCanvas";
@@ -53,6 +54,10 @@ export function commandsFor(
       return opts.nudge?.();
     },
     band: () => bandRange(target.store.getScene()),
+    wideMargin: () => {
+      const el = target.entry.api.band.current;
+      return el ? wideMarginOf(el) : WIDE_MARGIN;
+    },
     holdNudge: opts.holdNudge,
     pathEdit: { set: target.entry.api.openPath },
     labelEdit: { open: target.entry.api.openLabel },
