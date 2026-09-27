@@ -11,6 +11,8 @@
  *   diagram's own fields, and a background set there paints the band;
  * - a press inside a floating panel is the diagram's chrome, and a press
  *   outside every band and panel lets the diagram go.
+ * - ⌘K offers the commands the selection can take, with their keys, and
+ *   runs them on it: flip, align, union.
  *
  * Screenshots land in tests/.artifacts/canvas-rails/. No app server, no
  * Convex, no API keys: every off-origin request fails the
@@ -223,6 +225,63 @@ try {
     await wait(SETTLE);
     const sides = await at("sides");
     check("[both away] Escape past the selection lets the diagram go", [sides.floatLeft, sides.floatRight], [null, null]);
+    await page.context().close();
+  }
+
+  // ---- The workspace palette runs the diagram's commands ---------------------
+  // ⌘K lists what the selection can take, each with its key; typing a command
+  // and Enter runs it on the selection, which is still held afterwards.
+  {
+    const { page, at } = await open("palette", { leftOpen: false, rightOpen: false });
+    const palette = async (query) => {
+      await page.keyboard.press("ControlOrMeta+KeyK");
+      await waitFor(page, () => !!document.querySelector(".nt-wpal input"));
+      if (query === undefined) return;
+      await page.keyboard.type(query);
+      await page.keyboard.press("Enter");
+      await wait(SETTLE);
+    };
+    await page.mouse.click(...centre(await at("shape", "r1")));
+    await wait(SETTLE);
+    await palette();
+    await page.keyboard.type("al");
+    await wait(SETTLE);
+    await page.screenshot({ path: path.join(shots, "palette-commands.png") });
+    await page.keyboard.press("ControlOrMeta+a");
+    await page.keyboard.press("Backspace");
+    const apple = await at("apple");
+    const rows = await at("palette");
+    const named = (name) => rows.find((row) => row.name === name) ?? null;
+    check("[palette] one shape: its flips are offered, with their keys", named("Flip horizontally"), {
+      name: "Flip horizontally",
+      key: apple ? "⇧H" : "Shift+H",
+    });
+    check("[palette] and its alignments", named("Align left")?.key, apple ? "⌥A" : "Alt+A");
+    check("[palette] but no boolean and no spacing, which want more shapes", [named("Union"), named("Distribute horizontally")], [null, null]);
+    await page.keyboard.press("Escape");
+    await wait(SETTLE);
+
+    await page.keyboard.down("Shift");
+    await page.mouse.click(...centre(await at("shape", "r2")));
+    await page.keyboard.up("Shift");
+    await wait(SETTLE);
+    const [r1, r2] = [await at("shape", "r1"), await at("shape", "r2")];
+    await palette("flip");
+    const [f1, f2] = [await at("shape", "r1"), await at("shape", "r2")];
+    const near = (a, b) => Math.abs(a - b) <= 1;
+    check("[palette] “flip”, Enter: the two shapes mirror left for right", {
+      r2: near(f2.left, r1.left),
+      r1: near(f1.left + f1.width, r2.left + r2.width),
+    }, { r2: true, r1: true });
+
+    await palette("align left");
+    const [a1, a2] = [await at("shape", "r1"), await at("shape", "r2")];
+    check("[palette] “align left”, Enter: their left edges meet", near(a1.left, a2.left), true);
+
+    await palette("union");
+    const tops = await at("tops");
+    check("[palette] “union”, Enter: one boolean where there were two shapes", [tops.length, tops[0]?.kind], [1, "nt-node-group"]);
+    await page.screenshot({ path: path.join(shots, "palette-union.png") });
     await page.context().close();
   }
 } catch (error) {

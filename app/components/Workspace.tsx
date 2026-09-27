@@ -893,6 +893,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
             leftOpen={compact ? openDrawer === "left" : leftOpen}
             rightOpen={compact ? openDrawer === "right" : rightOpen}
             canChat={!viewer}
+            canvas={activePage}
             onOpenPage={(id) => {
               open(id);
               setDrawer(null);

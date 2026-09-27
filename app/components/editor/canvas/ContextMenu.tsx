@@ -284,6 +284,13 @@ function buildActions(
     run: () => each((part) => part.target.store.dispatch({ type: "reorder", ids: part.ids, to: { at } })),
   });
 
+  const flip = (label: string, shortcut: ShortcutId, axis: "x" | "y"): MenuAction => ({
+    label,
+    shortcut,
+    disabled: none,
+    run: () => each((part) => part.target.store.dispatch({ type: "flip", ids: part.ids, axis })),
+  });
+
   const base: MenuActions = [
     [
       {
@@ -373,6 +380,10 @@ function buildActions(
       arrange("Bring forward", "arrange.forward", "forward"),
       arrange("Send backward", "arrange.backward", "backward"),
       arrange("Send to back", "arrange.back", "back"),
+    ],
+    [
+      flip("Flip horizontally", "arrange.flipH", "x"),
+      flip("Flip vertically", "arrange.flipV", "y"),
     ],
     [
       {

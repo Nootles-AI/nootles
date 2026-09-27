@@ -159,6 +159,31 @@ describe("matchShortcut", () => {
   });
 });
 
+describe("flip and distribute", () => {
+  it("⇧H and ⇧V flip, beside the bare letters, the tool chords and ⌘⇧H", () => {
+    for (const apple of [true, false]) {
+      expect(matchShortcut(keyEvent({ shiftKey: true, key: "H", code: "KeyH" }), apple)).toBe("arrange.flipH");
+      expect(matchShortcut(keyEvent({ shiftKey: true, key: "V", code: "KeyV" }), apple)).toBe("arrange.flipV");
+      expect(matchShortcut(keyEvent({ key: "h", code: "KeyH" }), apple)).toBe("tool.hand");
+      expect(matchShortcut(keyEvent({ altKey: true, shiftKey: true, key: "Ó", code: "KeyH" }), apple)).toBe("tool.hand");
+      expect(matchShortcut(keyEvent({ altKey: true, shiftKey: true, key: "◊", code: "KeyV" }), apple)).toBe("tool.move");
+    }
+    expect(matchShortcut(keyEvent({ metaKey: true, shiftKey: true, key: "h", code: "KeyH" }), true)).toBe("toggle.hidden");
+  });
+
+  it("distribute is ⌃⌥ on a Mac and Ctrl+Alt elsewhere, with Figma's letters", () => {
+    expect(matchShortcut(keyEvent({ ctrlKey: true, altKey: true, key: "˙", code: "KeyH" }), true)).toBe("align.distributeH");
+    expect(matchShortcut(keyEvent({ ctrlKey: true, altKey: true, key: "√", code: "KeyV" }), true)).toBe("align.distributeV");
+    expect(matchShortcut(keyEvent({ ctrlKey: true, altKey: true, key: "h", code: "KeyH" }), false)).toBe("align.distributeH");
+    expect(matchShortcut(keyEvent({ ctrlKey: true, altKey: true, key: "v", code: "KeyV" }), false)).toBe("align.distributeV");
+    // ⌘⌥H is macOS's Hide Others, never ours.
+    expect(matchShortcut(keyEvent({ metaKey: true, altKey: true, key: "˙", code: "KeyH" }), true)).toBeNull();
+    expect(shortcutHint("align.distributeH", true)).toBe("⌃⌥H");
+    expect(shortcutHint("align.distributeV", false)).toBe("Ctrl+Alt+V");
+    expect(shortcutHint("arrange.flipH", true)).toBe("⇧H");
+  });
+});
+
 describe("formatShortcut", () => {
   it("renders ⌘⌃F, ⌘., F11", () => {
     expect(formatShortcut("Mod+Ctrl+f", true)).toBe("⌘⌃F");
@@ -262,6 +287,44 @@ describe("the diagram commands", () => {
     selection.select(["b"]);
     commands["toggle.locked"](keyEvent({}));
     expect(at(store, "b").locked).toBe(false);
+  });
+
+  it("flips the selection in place, one undo step", () => {
+    const { store, selection, commands } = diagram();
+    selection.select(["a"]);
+    expect(commands["arrange.flipV"]()).toBe(true);
+    expect(store.getScene().nodes[0]).toMatchObject({ x: 10, y: 4 });
+    store.undo();
+    expect(commands["arrange.flipH"]()).toBe(true);
+    selection.clear();
+    expect(commands["arrange.flipH"]()).toBe(false);
+  });
+
+  it("distributes only over three or more", () => {
+    const store = new SceneStore(
+      '<nt-diagram h="200">' +
+        '<nt-rect id="a" x="0" y="0" w="100" h="60"></nt-rect>' +
+        '<nt-rect id="b" x="120" y="0" w="100" h="60"></nt-rect>' +
+        '<nt-rect id="c" x="500" y="0" w="100" h="60"></nt-rect></nt-diagram>',
+      undefined,
+      true,
+    );
+    const selection = createSelectionStore(store.getScene());
+    store.subscribe(() => selection.setScene(store.getScene()));
+    const commands = createDiagramCommands({ store, selection, band: () => null });
+    selection.select(["a", "b"]);
+    expect(commands["align.distributeH"]()).toBe(false);
+    selection.select(["a", "b", "c"]);
+    expect(commands["align.distributeH"]()).toBe(true);
+    expect(store.getNode("b")!.x).toBe(250);
+  });
+
+  it("declines an arrow with no nudge run to carry it — a palette's command set", () => {
+    const store = new SceneStore(band, undefined, true);
+    const selection = createSelectionStore(store.getScene());
+    const commands = createDiagramCommands({ store, selection, band: () => null });
+    selection.select(["a"]);
+    expect(commands["move.nudge"](arrow("arrowright"))).toBe(false);
   });
 
   it("hands the tool keys to no one when it has no tool of its own", () => {

@@ -43,7 +43,8 @@ import {
   alignTarget,
   distributeNodes as distributeMoves,
 } from "./align";
-import { hugSize, hugsOf } from "./autoLayout";
+import { hugSize } from "./autoLayout";
+import { flipNodes } from "./flip";
 import { pathStyleOf } from "./paint";
 import {
   absoluteRect,
@@ -58,6 +59,7 @@ import {
 import { labelText } from "./label";
 import { scalePath } from "./path";
 import { scaledStyle } from "./scale";
+import { resizedNode } from "./stretch";
 import {
   edgesTouching,
   findNode,
@@ -138,6 +140,8 @@ export function applyOp(scene: Scene, op: SceneOp): Scene {
       return align(scene, op.ids, op.to, op.relativeTo);
     case "distribute":
       return distribute(scene, op.ids, op.axis, op.spacing);
+    case "flip":
+      return flipNodes(scene, op.ids, op.axis);
     case "addEdge":
       return addEdges(scene, op.edges);
     case "removeEdge":
@@ -288,49 +292,25 @@ export function moveNodes(
   );
 }
 
-/** Absolute boxes, per node. Negative sizes are clamped to 0; every other
- *  constraint (minimum size, aspect lock) belongs to the gesture. */
+/**
+ * Absolute boxes, per node. Negative sizes are clamped to 0; every other
+ * constraint (minimum size, aspect lock) belongs to the gesture.
+ *
+ * What a box change does to what is inside it is {@link resizedNode}'s: a
+ * plain or boolean group stretches its children with it, an auto-layout group
+ * re-flows them, a path stretches its `d`. A frame for a descendant of another
+ * framed node is applied after its ancestor's stretch, so it is where it lands.
+ */
 export function resizeNodes(scene: Scene, frames: readonly NodeFrame[]): Scene {
   if (!frames.length) return scene;
   const byId = new Map(frames.map((frame) => [frame.id, frame]));
   return withNodes(
     scene,
-    mapTree(scene.nodes, new Set(byId.keys()), (node) => {
-      const frame = byId.get(node.id)!;
-      const next = {
-        x: frame.x,
-        y: frame.y,
-        w: Math.max(0, frame.w),
-        h: Math.max(0, frame.h),
-      };
-      if (
-        node.x === next.x &&
-        node.y === next.y &&
-        node.w === next.w &&
-        node.h === next.h
-      ) {
-        return node;
-      }
-      const resized = patch(node, next);
-      if (resized.kind === "path") {
-        return {
-          ...resized,
-          d: scalePath(
-            resized.d,
-            ratio(next.w, node.w),
-            ratio(next.h, node.h),
-          ),
-        };
-      }
-      return isGroup(resized)
-        ? unhug(resized, next.w !== node.w, next.h !== node.h)
-        : resized;
-    }),
+    mapTree(scene.nodes, new Set(byId.keys()), (node) =>
+      resizedNode(node, byId.get(node.id)!),
+    ),
   );
 }
-
-/** How far one axis stretched. An axis with no extent has nothing to stretch. */
-const ratio = (to: number, from: number) => (from > 0 && to > 0 ? to / from : 1);
 
 /**
  * Uniform scale about a point in scene space — the scale tool's landing, and
@@ -387,17 +367,6 @@ function scaled(node: SceneNode, k: number): SceneNode {
       patch(scaled(child, k), { x: child.x * k, y: child.y * k }),
     ),
   };
-}
-
-/** Sizing an axis by hand makes it fixed, as in Figma — otherwise
- *  {@link reflowHugs} would put the hugged size straight back. */
-function unhug(group: GroupNode, w: boolean, h: boolean): GroupNode {
-  const hug = hugsOf(group);
-  if (!(hug.w && w) && !(hug.h && h)) return group;
-  const style = { ...group.style };
-  if (hug.w && w) delete style.width;
-  if (hug.h && h) delete style.height;
-  return { ...group, style };
 }
 
 /** Absolute degrees, normalised into `[0, 360)` so a full turn reads as 0 and

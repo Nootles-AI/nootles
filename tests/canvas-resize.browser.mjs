@@ -13,11 +13,15 @@
  *   - every box inside it lands where the committed scene says (`laidRect`),
  *     and the pixels agree with the scene after release (`domRect`);
  *   - the last live frame is where the release lands, and what it draws
- *     is what the release draws — nothing jumps (see `STRETCHED`);
+ *     is what the release draws — nothing jumps, a boolean's cut included;
  *   - one undo puts the scene back exactly.
  *
- * The landing boxes are pinned in `EXPECTED`, and agree with the behaviour
- * before diagrams became bands (41f3d35).
+ * The landing boxes are pinned in `EXPECTED`. A handle stretches: a plain
+ * group's children and a boolean's operands take the container's factor on
+ * each axis (strokes and type stay as drawn), an auto-layout group re-flows
+ * its children at their own size, and a rotated child keeps its angle (see
+ * `scene/stretch`). The Scale tool scales everything evenly, strokes and type
+ * included.
  *
  *   node tests/canvas-resize.browser.mjs
  */
@@ -30,15 +34,6 @@ const RECORD = process.env.CANVAS_RESIZE_RECORD === "1";
 
 const c = checker();
 
-/**
- * A boolean draws its cut in an SVG whose view box is its own box, stretched
- * to fit, so a resize previews the cut stretched with the box. The `resize`
- * op then lands the box alone — a boolean's operands stay the size they were,
- * as a group's children do — and the cut snaps back to its old size on
- * release. The same at 41f3d35; which of the two is right is still open.
- */
-const STRETCHED = "boolean-resize-preview";
-
 /** The diagram root around one case's content. */
 const root = (body) => `<nt-diagram id="resize" h="520" style="background: #fff">\n${body}\n</nt-diagram>`;
 
@@ -50,9 +45,10 @@ const root = (body) => `<nt-diagram id="resize" h="520" style="background: #fff"
 const CASES = {
   group: {
     ids: ["g", "ga", "gb"],
+    drawn: "ga",
     html: root(
       `  <nt-group id="g" x="200" y="120" w="200" h="120">
-    <nt-rect id="ga" x="0" y="0" w="80" h="60" style="background: #ef4444"></nt-rect>
+    <nt-rect id="ga" x="0" y="0" w="80" h="60" style="background: #ef4444; border: 2px solid #111; font-size: 13px"></nt-rect>
     <nt-rect id="gb" x="120" y="60" w="80" h="60" style="background: #3b82f6"></nt-rect>
   </nt-group>`,
     ),
@@ -67,7 +63,6 @@ const CASES = {
     ),
   },
   union: {
-    stretchedPreview: STRETCHED,
     ids: ["un", "ua", "ub"],
     html: root(
       `  <nt-group id="un" x="200" y="120" w="200" h="120" op="union" style="background: #6366f1">
@@ -77,7 +72,6 @@ const CASES = {
     ),
   },
   subtract: {
-    stretchedPreview: STRETCHED,
     ids: ["sb", "sa", "sc"],
     html: root(
       `  <nt-group id="sb" x="200" y="120" w="200" h="120" op="subtract" style="background: #6366f1">
@@ -110,6 +104,19 @@ const CASES = {
       <nt-rect id="nb" x="70" y="40" w="50" h="40" style="background: #22c55e"></nt-rect>
     </nt-group>
     <nt-rect id="nc" x="150" y="70" w="50" h="50" style="background: #3b82f6"></nt-rect>
+  </nt-group>`,
+    ),
+  },
+  "drawn-inside": {
+    ids: ["dg", "dp", "du", "dv"],
+    html: root(
+      `  <nt-group id="dg" x="200" y="120" w="200" h="120">
+    <nt-polygon id="dp" x="0" y="0" w="70" h="60" sides="5" style="background: #ef4444; border-radius: 8px"></nt-polygon>
+    <nt-group id="du" x="80" y="0" w="120" h="70" op="union" style="background: #6366f1">
+      <nt-rect id="dua" x="0" y="0" w="80" h="50" style="border-radius: 12px"></nt-rect>
+      <nt-ellipse id="dub" x="50" y="20" w="70" h="50"></nt-ellipse>
+    </nt-group>
+    <nt-path id="dv" x="0" y="80" w="200" h="40" d="M 0 40 C 60 0 140 0 200 40" style="fill: none; stroke: #111; stroke-width: 2"></nt-path>
   </nt-group>`,
     ),
   },
@@ -234,6 +241,21 @@ async function paints(page, ids) {
   }, ids);
 }
 
+/** A node's committed `style`, found anywhere in the scene. */
+async function styleOf(page, id) {
+  return page.evaluate((id) => {
+    const find = (nodes) => {
+      for (const node of nodes) {
+        if (node.id === id) return node;
+        const inner = node.children && find(node.children);
+        if (inner) return inner;
+      }
+      return null;
+    };
+    return find(window.canvasHarness.api().store.getScene().nodes)?.style ?? null;
+  }, id);
+}
+
 async function runDrag(page, name, spec, dragName, drag) {
   await page.evaluate((html) => window.canvasHarness.mount({ html }), spec.html);
   const id = spec.ids[0];
@@ -290,6 +312,7 @@ async function runDrag(page, name, spec, dragName, drag) {
   await page.evaluate(() => window.canvasHarness.nextFrame());
   await page.evaluate(() => window.canvasHarness.nextFrame());
   const laid = await boxes(page, spec.ids, "laidRect");
+  const drawn = spec.drawn ? await styleOf(page, spec.drawn) : null;
   const dom = await boxes(page, spec.ids, "domRect");
   const paint = await paints(page, spec.ids);
   const pushes = await page.evaluate(() => window.canvasHarness.counters().historyPushes);
@@ -302,7 +325,7 @@ async function runDrag(page, name, spec, dragName, drag) {
   await page.evaluate(() => window.canvasHarness.api().setTool("move"));
   await page.mouse.move(OFF_CANVAS.x, OFF_CANVAS.y);
 
-  return { hit, start, halfway, live, livePaint, paint, laid, dom, pushes, undoExact: undone === before, domUndone, laidUndone };
+  return { drawn, hit, start, halfway, live, livePaint, paint, laid, dom, pushes, undoExact: undone === before, domUndone, laidUndone };
 }
 
 async function runCases(page, expected, recorded) {
@@ -327,7 +350,7 @@ async function runCases(page, expected, recorded) {
           const [x, y, w, h] = want[n];
           return !near(r.laid[n], { x, y, w, h });
         });
-        c.check(`resize.${key}.lands-as-before`, off.map((n) => [n, laid[n]]), []);
+        c.check(`resize.${key}.lands-as-pinned`, off.map((n) => [n, laid[n]]), []);
       } else {
         c.check(`resize.${key}.has-reference`, false, true);
       }
@@ -343,9 +366,14 @@ async function runCases(page, expected, recorded) {
       const jumped = drawn.filter((n) => !near(r.live[n], r.dom[n], 1));
       c.check(`resize.${key}.no-jump-on-release`, jumped.map((n) => [n, round(r.live[n]), round(r.dom[n])]), []);
       const repainted = drawn.filter((n) => !near(r.livePaint[n], r.paint[n], 1));
-      const painted = [`resize.${key}.drawing-lands-as-previewed`, repainted, []];
-      if (spec.stretchedPreview && drag.tool !== "scale") c.xfail(spec.stretchedPreview, ...painted);
-      else c.check(...painted);
+      c.check(`resize.${key}.drawing-lands-as-previewed`, repainted, []);
+      // A handle stretches the geometry and leaves what is drawn on it; the
+      // Scale tool takes the stroke and the type along.
+      if (spec.drawn) {
+        const k = drag.tool === "scale" ? r.laid[spec.drawn].w / 80 : 1;
+        const want = { border: `${Math.round(2 * k * 1000) / 1000}px solid #111`, "font-size": `${Math.round(13 * k * 1000) / 1000}px` };
+        c.check(`resize.${key}.stroke-and-type`, { border: r.drawn.border, "font-size": r.drawn["font-size"] }, want);
+      }
       const flipped = drawn.filter((n) => r.halfway[n].w <= 0 || r.halfway[n].h <= 0);
       c.check(`resize.${key}.no-flip-midway`, flipped, []);
       c.check(`resize.${key}.undo-exact`, r.undoExact, true);
@@ -388,18 +416,21 @@ function safeCommit() {
 }
 
 /**
- * Landing boxes as `[x, y, w, h]` (scene px) per `case.drag`. Recorded on the
- * branch and checked against 41f3d35, the commit before diagrams became bands:
- * every box is the same there, except where that commit still snapped to the
- * diagram's own surface (`*.alt`'s y and h, `auto-layout.corner`'s h), which a
- * band no longer offers as a target.
+ * Landing boxes as `[x, y, w, h]` (scene px, a rotated node's by its bounds)
+ * per `case.drag`, recorded with `CANVAS_RESIZE_RECORD=1`. The containers
+ * land as they did at 41f3d35, the commit before diagrams became bands, except
+ * where that commit still snapped to the diagram's own surface (`*.alt`'s y
+ * and h), which a band no longer offers as a target; what is inside them
+ * follows the stretch described at the top. `group.corner` reads it plainly:
+ * 263 × 157 from 200 × 120 is 1.315 × 1.308, so `ga`'s 80 × 60 lands at
+ * 105.2 × 78.5 and `gb`, 120 in, at 157.8.
  */
 const EXPECTED = {
-  "group.corner": { g: [200, 120, 263, 157], ga: [200, 120, 80, 60], gb: [320, 180, 80, 60] },
-  "group.corner-nw": { g: [159, 97, 241, 143], ga: [159, 97, 80, 60], gb: [279, 157, 80, 60] },
-  "group.edge": { g: [200, 120, 253, 120], ga: [200, 120, 80, 60], gb: [320, 180, 80, 60] },
-  "group.shift": { g: [200, 120, 263, 157.8], ga: [200, 120, 80, 60], gb: [320, 180, 80, 60] },
-  "group.alt": { g: [169, 103, 262, 154], ga: [169, 103, 80, 60], gb: [289, 163, 80, 60] },
+  "group.corner": { g: [200, 120, 263, 157], ga: [200, 120, 105.2, 78.5], gb: [357.8, 198.5, 105.2, 78.5] },
+  "group.corner-nw": { g: [159, 97, 241, 143], ga: [159, 97, 96.4, 71.5], gb: [303.6, 168.5, 96.4, 71.5] },
+  "group.edge": { g: [200, 120, 253, 120], ga: [200, 120, 101.2, 60], gb: [351.8, 180, 101.2, 60] },
+  "group.shift": { g: [200, 120, 263, 157.8], ga: [200, 120, 105.2, 78.9], gb: [357.8, 198.9, 105.2, 78.9] },
+  "group.alt": { g: [169, 103, 262, 154], ga: [169, 103, 104.8, 77], gb: [326.2, 180, 104.8, 77] },
   "group.scale": { g: [200, 120, 262.6, 157.6], ga: [200, 120, 105.1, 78.8], gb: [357.6, 198.8, 105.1, 78.8] },
   "auto-layout.corner": { fl: [200, 120, 273, 137], fa: [210, 130, 90, 80], fb: [310, 130, 90, 80] },
   "auto-layout.corner-nw": { fl: [159, 97, 251, 123], fa: [169, 107, 90, 80], fb: [269, 107, 90, 80] },
@@ -407,17 +438,17 @@ const EXPECTED = {
   "auto-layout.shift": { fl: [200, 120, 273, 130], fa: [210, 130, 90, 80], fb: [310, 130, 90, 80] },
   "auto-layout.alt": { fl: [169, 103, 272, 134], fa: [179, 113, 90, 80], fb: [279, 113, 90, 80] },
   "auto-layout.scale": { fl: [200, 120, 275.7, 131.3], fa: [213.1, 133.1, 118.2, 105], fb: [344.4, 133.1, 118.2, 105] },
-  "union.corner": { un: [200, 120, 263, 157], ua: [200, 120, 130, 90], ub: [270, 150, 130, 90] },
-  "union.corner-nw": { un: [159, 97, 241, 143], ua: [159, 97, 130, 90], ub: [229, 127, 130, 90] },
-  "union.edge": { un: [200, 120, 253, 120], ua: [200, 120, 130, 90], ub: [270, 150, 130, 90] },
-  "union.shift": { un: [200, 120, 263, 157.8], ua: [200, 120, 130, 90], ub: [270, 150, 130, 90] },
-  "union.alt": { un: [169, 103, 262, 154], ua: [169, 103, 130, 90], ub: [239, 133, 130, 90] },
+  "union.corner": { un: [200, 120, 263, 157], ua: [200, 120, 171, 117.8], ub: [292, 159.3, 171, 117.8] },
+  "union.corner-nw": { un: [159, 97, 241, 143], ua: [159, 97, 156.7, 107.3], ub: [243.4, 132.8, 156.7, 107.3] },
+  "union.edge": { un: [200, 120, 253, 120], ua: [200, 120, 164.5, 90], ub: [288.5, 150, 164.5, 90] },
+  "union.shift": { un: [200, 120, 263, 157.8], ua: [200, 120, 171, 118.4], ub: [292, 159.5, 171, 118.4] },
+  "union.alt": { un: [169, 103, 262, 154], ua: [169, 103, 170.3, 115.5], ub: [260.7, 141.5, 170.3, 115.5] },
   "union.scale": { un: [200, 120, 262.6, 157.6], ua: [200, 120, 170.7, 118.2], ub: [291.9, 159.4, 170.7, 118.2] },
-  "subtract.corner": { sb: [200, 120, 263, 157], sa: [200, 120, 200, 120], sc: [260, 140, 80, 80] },
-  "subtract.corner-nw": { sb: [159, 97, 241, 143], sa: [159, 97, 200, 120], sc: [219, 117, 80, 80] },
-  "subtract.edge": { sb: [200, 120, 253, 120], sa: [200, 120, 200, 120], sc: [260, 140, 80, 80] },
-  "subtract.shift": { sb: [200, 120, 263, 157.8], sa: [200, 120, 200, 120], sc: [260, 140, 80, 80] },
-  "subtract.alt": { sb: [169, 103, 262, 154], sa: [169, 103, 200, 120], sc: [229, 123, 80, 80] },
+  "subtract.corner": { sb: [200, 120, 263, 157], sa: [200, 120, 263, 157], sc: [278.9, 146.2, 105.2, 104.7] },
+  "subtract.corner-nw": { sb: [159, 97, 241, 143], sa: [159, 97, 241, 143], sc: [231.3, 120.8, 96.4, 95.3] },
+  "subtract.edge": { sb: [200, 120, 253, 120], sa: [200, 120, 253, 120], sc: [275.9, 140, 101.2, 80] },
+  "subtract.shift": { sb: [200, 120, 263, 157.8], sa: [200, 120, 263, 157.8], sc: [278.9, 146.3, 105.2, 105.2] },
+  "subtract.alt": { sb: [169, 103, 262, 154], sa: [169, 103, 262, 154], sc: [247.6, 128.7, 104.8, 102.7] },
   "subtract.scale": { sb: [200, 120, 262.6, 157.6], sa: [200, 120, 262.6, 157.6], sc: [278.8, 146.3, 105.1, 105.1] },
   "flattened.corner": { pf: [200, 120, 263, 157] },
   "flattened.corner-nw": { pf: [159, 97, 241, 143] },
@@ -425,29 +456,35 @@ const EXPECTED = {
   "flattened.shift": { pf: [200, 120, 263, 157.8] },
   "flattened.alt": { pf: [169, 103, 262, 154] },
   "flattened.scale": { pf: [200, 120, 262.6, 157.6] },
-  "rotated-child.corner": { gr: [200, 120, 263, 157], rc: [211.7, 129, 116.6, 102], rd: [350, 190, 50, 50] },
-  "rotated-child.corner-nw": { gr: [159, 97, 241, 143], rc: [170.7, 106, 116.6, 102], rd: [309, 167, 50, 50] },
-  "rotated-child.edge": { gr: [200, 120, 253, 120], rc: [211.7, 129, 116.6, 102], rd: [350, 190, 50, 50] },
-  "rotated-child.shift": { gr: [200, 120, 263, 157.8], rc: [211.7, 129, 116.6, 102], rd: [350, 190, 50, 50] },
-  "rotated-child.alt": { gr: [169, 103, 262, 154], rc: [180.7, 112, 116.6, 102], rd: [319, 173, 50, 50] },
+  "rotated-child.corner": { gr: [200, 120, 263, 157], rc: [215.5, 131.6, 153, 133.7], rd: [397.3, 211.6, 65.8, 65.4] },
+  "rotated-child.corner-nw": { gr: [159, 97, 241, 143], rc: [173.4, 107.4, 139.9, 122.2], rd: [339.8, 180.4, 60.3, 59.6] },
+  "rotated-child.edge": { gr: [200, 120, 253, 120], rc: [220.3, 122, 136.5, 115.9], rd: [389.8, 190, 63.2, 50] },
+  "rotated-child.shift": { gr: [200, 120, 263, 157.8], rc: [215.4, 131.9, 153.3, 134.1], rd: [397.3, 212.1, 65.8, 65.8] },
+  "rotated-child.alt": { gr: [169, 103, 262, 154], rc: [184.9, 113.9, 151.6, 132.2], rd: [365.5, 192.8, 65.5, 64.2] },
   "rotated-child.scale": { gr: [200, 120, 262.6, 157.6], rc: [215.4, 131.8, 153.1, 133.9], rd: [397, 211.9, 65.7, 65.7] },
-  "nested.corner": { no: [200, 120, 263, 157], ni: [200, 120, 120, 80], na: [200, 120, 50, 40], nb: [270, 160, 50, 40], nc: [350, 190, 50, 50] },
-  "nested.corner-nw": { no: [159, 97, 241, 143], ni: [159, 97, 120, 80], na: [159, 97, 50, 40], nb: [229, 137, 50, 40], nc: [309, 167, 50, 50] },
-  "nested.edge": { no: [200, 120, 253, 120], ni: [200, 120, 120, 80], na: [200, 120, 50, 40], nb: [270, 160, 50, 40], nc: [350, 190, 50, 50] },
-  "nested.shift": { no: [200, 120, 263, 157.8], ni: [200, 120, 120, 80], na: [200, 120, 50, 40], nb: [270, 160, 50, 40], nc: [350, 190, 50, 50] },
-  "nested.alt": { no: [169, 103, 262, 154], ni: [169, 103, 120, 80], na: [169, 103, 50, 40], nb: [239, 143, 50, 40], nc: [319, 173, 50, 50] },
+  "nested.corner": { no: [200, 120, 263, 157], ni: [200, 120, 157.8, 104.7], na: [200, 120, 65.8, 52.3], nb: [292.1, 172.3, 65.8, 52.3], nc: [397.3, 211.6, 65.8, 65.4] },
+  "nested.corner-nw": { no: [159, 97, 241, 143], ni: [159, 97, 144.6, 95.3], na: [159, 97, 60.3, 47.7], nb: [243.4, 144.7, 60.3, 47.7], nc: [339.8, 180.4, 60.3, 59.6] },
+  "nested.edge": { no: [200, 120, 253, 120], ni: [200, 120, 151.8, 80], na: [200, 120, 63.2, 40], nb: [288.6, 160, 63.2, 40], nc: [389.8, 190, 63.2, 50] },
+  "nested.shift": { no: [200, 120, 263, 157.8], ni: [200, 120, 157.8, 105.2], na: [200, 120, 65.8, 52.6], nb: [292.1, 172.6, 65.8, 52.6], nc: [397.3, 212.1, 65.8, 65.8] },
+  "nested.alt": { no: [169, 103, 262, 154], ni: [169, 103, 157.2, 102.7], na: [169, 103, 65.5, 51.3], nb: [260.7, 154.3, 65.5, 51.3], nc: [365.5, 192.8, 65.5, 64.2] },
   "nested.scale": { no: [200, 120, 262.6, 157.6], ni: [200, 120, 157.6, 105.1], na: [200, 120, 65.7, 52.5], nb: [291.9, 172.5, 65.7, 52.5], nc: [397, 211.9, 65.7, 65.7] },
-  "rotated-group.corner": { rg: [181, 89.4, 301, 218.2], ra: [206, 89.4, 95.7, 83.7], rb: [298.3, 186.8, 95.7, 83.7] },
-  "rotated-group.corner-nw": { rg: [141.9, 66.4, 275.2, 204.2], ra: [165, 66.4, 95.7, 83.7], rb: [257.3, 163.8, 95.7, 83.7] },
-  "rotated-group.edge": { rg: [185.5, 89.4, 275.8, 198.2], ra: [206, 89.4, 95.7, 83.7], rb: [298.3, 186.8, 95.7, 83.7] },
-  "rotated-group.shift": { rg: [172.4, 89.4, 301.9, 238.8], ra: [206, 89.4, 95.7, 83.7], rb: [298.3, 186.8, 95.7, 83.7] },
-  "rotated-group.alt": { rg: [150.8, 72.4, 298.3, 215.2], ra: [175, 72.4, 95.7, 83.7], rb: [267.3, 169.8, 95.7, 83.7] },
+  "drawn-inside.corner": { dg: [200, 120, 263, 157], dp: [200, 120, 92.1, 78.5], du: [305.2, 120, 157.8, 91.6], dv: [200, 224.7, 263, 52.3] },
+  "drawn-inside.corner-nw": { dg: [159, 97, 241, 143], dp: [159, 97, 84.4, 71.5], du: [255.4, 97, 144.6, 83.4], dv: [159, 192.3, 241, 47.7] },
+  "drawn-inside.edge": { dg: [200, 120, 253, 120], dp: [200, 120, 88.6, 60], du: [301.2, 120, 151.8, 70], dv: [200, 200, 253, 40] },
+  "drawn-inside.shift": { dg: [200, 120, 263, 157.8], dp: [200, 120, 92.1, 78.9], du: [305.2, 120, 157.8, 92.1], dv: [200, 225.2, 263, 52.6] },
+  "drawn-inside.alt": { dg: [169, 103, 262, 154], dp: [169, 103, 91.7, 77], du: [273.8, 103, 157.2, 89.8], dv: [169, 205.7, 262, 51.3] },
+  "drawn-inside.scale": { dg: [200, 120, 262.6, 157.6], dp: [200, 120, 91.9, 78.8], du: [305.1, 120, 157.6, 91.9], dv: [200, 225.1, 262.6, 52.5] },
+  "rotated-group.corner": { rg: [181, 89.4, 301, 218.2], ra: [203.8, 89.4, 125, 99.8], rb: [334.3, 207.8, 125, 99.8] },
+  "rotated-group.corner-nw": { rg: [141.9, 66.4, 275.2, 204.2], ra: [163.7, 66.4, 114.4, 93.7], rb: [280.8, 176.9, 114.4, 93.7] },
+  "rotated-group.edge": { rg: [185.5, 89.4, 275.8, 198.2], ra: [206, 89.4, 114.4, 90.6], rb: [326.4, 197.1, 114.4, 90.6] },
+  "rotated-group.shift": { rg: [172.4, 89.4, 301.9, 238.8], ra: [199.5, 89.4, 126.2, 110.4], rb: [321.1, 217.8, 126.2, 110.4] },
+  "rotated-group.alt": { rg: [150.8, 72.4, 298.3, 215.2], ra: [173.2, 72.4, 123.8, 98.4], rb: [303, 189.2, 123.8, 98.4] },
   "rotated-group.scale": { rg: [181, 79.8, 300.7, 237.9], ra: [207.9, 79.8, 125.7, 110], rb: [329.1, 207.8, 125.7, 110] },
-  "group-and-rect.corner": { mg: [200, 120, 157.8, 157], ma: [200, 120, 50, 50], mb: [270, 190, 50, 50], mr: [384.1, 198.5, 78.9, 78.5] },
-  "group-and-rect.corner-nw": { mg: [159, 97, 144.6, 143], ma: [159, 97, 50, 50], mb: [229, 167, 50, 50], mr: [327.7, 168.5, 72.3, 71.5] },
-  "group-and-rect.edge": { mg: [200, 120, 151.8, 120], ma: [200, 120, 50, 50], mb: [270, 190, 50, 50], mr: [377.1, 180, 75.9, 60] },
-  "group-and-rect.shift": { mg: [200, 120, 157.8, 157.8], ma: [200, 120, 50, 50], mb: [270, 190, 50, 50], mr: [384.1, 198.9, 78.9, 78.9] },
-  "group-and-rect.alt": { mg: [169, 103, 157.2, 154], ma: [169, 103, 50, 50], mb: [239, 173, 50, 50], mr: [352.4, 180, 78.6, 77] },
+  "group-and-rect.corner": { mg: [200, 120, 157.8, 157], ma: [200, 120, 65.8, 65.4], mb: [292.1, 211.6, 65.8, 65.4], mr: [384.1, 198.5, 78.9, 78.5] },
+  "group-and-rect.corner-nw": { mg: [159, 97, 144.6, 143], ma: [159, 97, 60.3, 59.6], mb: [243.4, 180.4, 60.3, 59.6], mr: [327.7, 168.5, 72.3, 71.5] },
+  "group-and-rect.edge": { mg: [200, 120, 151.8, 120], ma: [200, 120, 63.2, 50], mb: [288.6, 190, 63.2, 50], mr: [377.1, 180, 75.9, 60] },
+  "group-and-rect.shift": { mg: [200, 120, 157.8, 157.8], ma: [200, 120, 65.8, 65.8], mb: [292.1, 212.1, 65.8, 65.8], mr: [384.1, 198.9, 78.9, 78.9] },
+  "group-and-rect.alt": { mg: [169, 103, 157.2, 154], ma: [169, 103, 65.5, 64.2], mb: [260.7, 192.8, 65.5, 64.2], mr: [352.4, 180, 78.6, 77] },
   "group-and-rect.scale": { mg: [200, 120, 157.6, 157.6], ma: [200, 120, 65.7, 65.7], mb: [291.9, 211.9, 65.7, 65.7], mr: [383.9, 198.8, 78.8, 78.8] },
   "single.corner": { lone: [200, 120, 263, 157] },
   "single.corner-nw": { lone: [159, 97, 241, 143] },

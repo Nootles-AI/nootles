@@ -25,7 +25,8 @@ const PAGE_DOC = "page-doc-1";
 const OWNER = { userId: "user_owner", name: "Olive Owner", imageUrl: null };
 
 const DIAGRAM =
-  '<nt-diagram h="220"><nt-rect id="r1" x="60" y="40" w="120" h="70" style="background: #f4c7c3"></nt-rect></nt-diagram>';
+  '<nt-diagram h="220"><nt-rect id="r1" x="60" y="40" w="120" h="70" style="background: #f4c7c3"></nt-rect>' +
+  '<nt-rect id="r2" x="260" y="40" w="100" h="70" style="background: #c3d7f4"></nt-rect></nt-diagram>';
 
 function pageBirth(): Uint8Array {
   const editor = BlockNoteEditor.create({ schema });
@@ -168,7 +169,19 @@ const rails = {
   },
   ready: () => !!band()?.querySelector('.nt-canvas-scene [data-id="r1"]'),
   band: () => rect(band()),
-  shape: () => rect(band()?.querySelector('.nt-canvas-scene [data-id="r1"]') ?? null),
+  shape: (id = "r1") => rect(band()?.querySelector(`.nt-canvas-scene [data-id="${id}"]`) ?? null),
+  /** The diagram's top-level shapes, as drawn: each one's id and kind. */
+  tops: () =>
+    [...(band()?.querySelectorAll<HTMLElement>(".nt-canvas-scene [data-id]") ?? [])]
+      .filter((el) => !el.parentElement?.closest(".nt-canvas-scene [data-id]"))
+      .map((el) => ({ id: el.dataset.id, kind: [...el.classList].find((c) => c.startsWith("nt-node-")) })),
+  /** The workspace palette's rows: each one's name and the key beside it. */
+  palette: () =>
+    [...document.querySelectorAll<HTMLElement>(".nt-wpal .nt-pal-row")].map((row) => ({
+      name: row.querySelector(".nt-pal-name")?.textContent ?? "",
+      key: row.querySelector("kbd")?.textContent ?? null,
+    })),
+  apple: () => /mac|iphone|ipad|ipod/i.test(navigator.platform || navigator.userAgent),
   /** The document column: its width is what a rail coming out would take. */
   column: () => rect(document.querySelector(".nt-well")),
   /** The document's sheet inside the column: the card a float must not touch. */

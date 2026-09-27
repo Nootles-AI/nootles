@@ -27,12 +27,13 @@ import { createPageTools, type PageToolControl } from "./tools";
  * diagrams: the panels speak for them, the menus are portalled to the body but
  * belong to a control or a label being edited, and the rails' edges and resize
  * handles — or the floating panels standing in for a rail put away — are
- * adjusting the panels, not leaving. The split between two pages (`.is-gap`)
- * is the document's.
+ * adjusting the panels, not leaving. So is a press in the workspace palette,
+ * which runs the diagrams' commands on what they hold. The split between two
+ * pages (`.is-gap`) is the document's.
  */
 export const CANVAS_CHROME =
   ".nt-lyr, .nt-style-panel, .nt-toolbar, .nt-ctx, .nt-mention-anchor, .nt-menu, " +
-  ".nt-rail-slot, .nt-rail-float, .nt-resize:not(.is-gap)";
+  ".nt-rail-slot, .nt-rail-float, .nt-resize:not(.is-gap), .nt-wpal";
 
 /** One diagram on the page, as the pane knows it. */
 export type DiagramEntry = {

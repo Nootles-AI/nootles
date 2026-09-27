@@ -84,10 +84,13 @@ import {
   type Handle,
   type RotatedRect,
 } from "../scene/geometry";
+import { isAutoSize } from "../scene/boxModel";
 import { mintIds, reflowHugs } from "../scene/ops";
+import { resizedNode, stretchesChildren } from "../scene/stretch";
 import {
   findNode,
   findParent,
+  isBoolean,
   isContainer,
   nodePath,
   walk,
@@ -512,6 +515,20 @@ interface NodeStart {
   height: string;
   /** Set only for a shape whose geometry a stretch cannot draw; see
    *  {@link shapeWriter}. */
+  shape: ShapeWriter | null;
+  /** The laid-out node, which a resize previews {@link resizedNode} from. */
+  node: SceneNode;
+  /** Under a resize, every descendant a group's stretch moves; see {@link innerOf}. */
+  inner: InnerStart[];
+}
+
+/** A descendant's element as React left it, for a stretch to write over and put back. */
+interface InnerStart {
+  id: NodeId;
+  el: HTMLElement;
+  transform: string;
+  width: string;
+  height: string;
   shape: ShapeWriter | null;
 }
 
@@ -1063,6 +1080,8 @@ export function createGestureSession(
       width: el?.style.width ?? "",
       height: el?.style.height ?? "",
       shape: el && mode === "resize" ? shapeWriter(node, el) : null,
+      node,
+      inner: mode === "resize" ? innerOf(node, o.getElement) : [],
     });
   }
   if (!starts.length) return null;
@@ -2066,6 +2085,48 @@ function setFromScene(frame: Frame, start: NodeStart, box: Rect, srot: number) {
 // Writing pixels
 // ---------------------------------------------------------------------------
 
+/**
+ * The elements a group's resize moves besides its own: each child of a group
+ * that stretches, down through the plain groups. An auto-layout group's
+ * children are placed by its CSS and a boolean's are not drawn, so neither is
+ * entered — the group itself is written, and the browser or its cut does the
+ * rest.
+ */
+function innerOf(node: SceneNode, getElement: (id: NodeId) => HTMLElement | null): InnerStart[] {
+  if (!stretchesChildren(node) || isBoolean(node)) return [];
+  const out: InnerStart[] = [];
+  walk(node.children, (child) => {
+    const el = getElement(child.id);
+    if (el) {
+      out.push({
+        id: child.id,
+        el,
+        transform: el.style.transform,
+        width: el.style.width,
+        height: el.style.height,
+        shape: shapeWriter(child, el),
+      });
+    }
+    if (!stretchesChildren(child) || isBoolean(child)) return false;
+  });
+  return out;
+}
+
+/** A group's descendants where the `resize` op will put them, this frame. */
+function writeInner(start: NodeStart, frame: Frame) {
+  const next = resizedNode(start.node, frame);
+  const byId = new Map<NodeId, SceneNode>();
+  walk([next], (node) => void byId.set(node.id, node));
+  for (const inner of start.inner) {
+    const node = byId.get(inner.id);
+    if (!node) continue;
+    inner.el.style.transform = `translate3d(${node.x}px, ${node.y}px, 0) rotate(${node.rot}deg)`;
+    if (!isAutoSize(node.style.width)) inner.el.style.width = `${node.w}px`;
+    if (!isAutoSize(node.style.height)) inner.el.style.height = `${node.h}px`;
+    inner.shape?.write(node.w, node.h);
+  }
+}
+
 function writeFrames(session: Session, sized: boolean) {
   for (let i = 0; i < session.starts.length; i++) {
     const start = session.starts[i];
@@ -2081,6 +2142,7 @@ function writeFrames(session: Session, sized: boolean) {
       el.style.width = `${frame.w}px`;
       el.style.height = `${frame.h}px`;
       start.shape?.write(frame.w, frame.h);
+      if (start.inner.length) writeInner(start, frame);
     }
   }
 }
@@ -2137,6 +2199,12 @@ function restoreDom(session: Session) {
     start.el.style.scale = "";
     for (const spring of start.el.getAnimations?.() ?? []) if (spring.id === SNAP_ID) spring.cancel();
     start.shape?.restore();
+    for (const inner of start.inner) {
+      inner.el.style.transform = inner.transform;
+      inner.el.style.width = inner.width;
+      inner.el.style.height = inner.height;
+      inner.shape?.restore();
+    }
   }
   for (const other of session.reorder?.others ?? []) {
     if (other.el) other.el.style.transform = other.transform;

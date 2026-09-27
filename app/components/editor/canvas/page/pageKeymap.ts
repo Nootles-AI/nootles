@@ -1,5 +1,4 @@
 import { effectiveScale } from "@/app/lib/columnScale";
-import { deleteSelection } from "../ContextMenu";
 import {
   isCanvasHtml,
   landFragment,
@@ -9,7 +8,6 @@ import {
   type ClipboardPart,
 } from "../engine/clipboard";
 import {
-  createDiagramCommands,
   createNudgeRun,
   DUPLICATE_OFFSET,
   isApplePlatform,
@@ -21,10 +19,10 @@ import {
   type NudgeRun,
   type ShortcutId,
 } from "../engine/shortcuts";
-import { bandLeft, bandWidth } from "../scene/band";
 import { parseScene } from "../scene/parse";
 import { topSelection } from "../scene/types";
 import { registerPaneDiagrams } from "./diagramKeys";
+import { commandsFor, runAcross } from "./pageCommands";
 import type { DiagramEntry, DiagramTarget, PageCanvas } from "./PageCanvas";
 
 /**
@@ -37,7 +35,8 @@ import type { DiagramEntry, DiagramTarget, PageCanvas } from "./PageCanvas";
  * being edited, so it has to step aside for text entry itself.
  *
  * Its keys are the diagram keymap's, with the page's meaning: an edit acts on
- * every diagram holding part of the selection, as one undo step; Enter and
+ * every diagram holding part of the selection, as one undo step (see
+ * `./pageCommands`, which the workspace palette runs too); Enter and
  * Tab act on the diagram the page is focused on. Escape and ⌘A climb out of a
  * diagram and onto the page a step at a time (see {@link escapeStep} and
  * {@link climbSelectAll}).
@@ -125,14 +124,6 @@ export function climbSelectAll(ladder: SelectAllLadder): "diagram" | "blocks" {
   return "blocks";
 }
 
-/** The keys that speak to the one diagram the page is focused on, never to all. */
-const FOCUSED_ONLY: ReadonlySet<ShortcutId> = new Set([
-  "edit.vector",
-  "select.parent",
-  "select.next",
-  "select.previous",
-]);
-
 const DEEPEST = 64;
 
 /** Every unlocked, visible top-level shape, frontmost last. */
@@ -183,29 +174,6 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
     return run;
   };
 
-  /** ⌘⇧H and ⌘⇧L read over the whole page's selection, before any of it changes. */
-  const flagValue = (flag: "locked" | "hidden") =>
-    !writable().every((target) =>
-      topSelection(target.store.getScene(), target.selection.getSnapshot().ids).every((node) => node[flag]),
-    );
-
-  const commandsFor = (target: DiagramTarget, flag?: boolean) =>
-    createDiagramCommands({
-      store: target.store,
-      selection: target.selection,
-      get nudge() {
-        return runFor(target);
-      },
-      band: () => {
-        const scene = target.store.getScene();
-        const minX = bandLeft(scene);
-        return { minX, maxX: minX + bandWidth(scene) };
-      },
-      pathEdit: { set: target.entry.api.openPath },
-      labelEdit: { open: target.entry.api.openLabel },
-      flag: flag === undefined ? undefined : () => flag,
-    });
-
   const escape = (page: boolean, band: DiagramEntry | null, shapes: boolean): boolean => {
     const diagram = band ?? focusedEntry();
     const step = escapeStep({
@@ -255,32 +223,11 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
   };
 
   /** A diagram edit, once per diagram holding part of the selection. */
-  const acrossDiagrams = (id: ShortcutId, e: KeyboardEvent): boolean => {
-    const targets = writable();
-    if (FOCUSED_ONLY.has(id)) {
-      const focused = canvas.selection.getSnapshot().focused;
-      const target = targets.find((t) => t.blockId === focused) ?? targets[0];
-      return !!target && batch(() => commandsFor(target)[id](e));
-    }
-    // Ids read up front: a diagram emptied by the delete takes its block, and
-    // the caret that lands in the text must not let the next one's go first.
-    if (id === "edit.delete") {
-      const targets = writable().map((t) => ({ ...t, select: (ids: readonly string[]) => t.selection.select(ids) }));
-      return deleteSelection(targets, batch);
-    }
-    const flag =
-      id === "toggle.hidden" ? flagValue("hidden") : id === "toggle.locked" ? flagValue("locked") : undefined;
-    const focused = canvas.selection.getSnapshot().focused;
-    let handled = id === "toggle.hidden";
-    canvas.selection.keep(() =>
-      batch(() => {
-        for (const target of targets) if (commandsFor(target, flag)[id](e)) handled = true;
-      }),
-    );
-    // Each diagram's own change moved the page's focus onto it.
-    if (focused && canvas.selection.getSnapshot().parts.has(focused)) canvas.selection.focus(focused);
-    return handled;
-  };
+  const acrossDiagrams = (id: ShortcutId, e: KeyboardEvent): boolean =>
+    runAcross(canvas, id, e, {
+      batch,
+      commands: (target, flag) => commandsFor(target, { nudge: () => runFor(target), flag }),
+    });
 
   const decide = (id: ShortcutId, e: KeyboardEvent): boolean => {
     const active = document.activeElement;

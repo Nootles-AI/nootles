@@ -114,6 +114,31 @@ describe("planWriteNodes", () => {
     expect(g1.children.map((c) => c.id)).toEqual(["c1", "c2", plan.inserted[0]]);
   });
 
+  it("a new box on a plain group stretches the children left out, and lands the listed ones as written", () => {
+    const scene = parse(
+      '<nt-diagram h="400"><nt-group id="pg" x="40" y="40" w="200" h="100">' +
+        '<nt-rect id="pa" x="0" y="0" w="100" h="50"></nt-rect>' +
+        '<nt-rect id="pb" x="100" y="50" w="100" h="50"></nt-rect>' +
+        "</nt-group></nt-diagram>",
+    );
+    const bare = ok(planWriteNodes(scene, fragment('<nt-group id="pg" x="40" y="40" w="400" h="200"></nt-group>')));
+    expect(findNode(bare.next, "pa")).toMatchObject({ x: 0, y: 0, w: 200, h: 100 });
+    expect(findNode(bare.next, "pb")).toMatchObject({ x: 200, y: 100, w: 200, h: 100 });
+
+    const listed = ok(
+      planWriteNodes(
+        scene,
+        fragment(
+          '<nt-group id="pg" x="40" y="40" w="400" h="200">' +
+            '<nt-rect id="pa" x="0" y="0" w="100" h="50"></nt-rect></nt-group>',
+        ),
+      ),
+    );
+    expect(findNode(listed.next, "pa")).toMatchObject({ x: 0, y: 0, w: 100, h: 50 });
+    expect(findNode(listed.next, "pb")).toMatchObject({ x: 200, y: 100, w: 200, h: 100 });
+    expect(applyOps(scene, listed.ops)).toEqual(listed.next);
+  });
+
   it("a kept unknown id lets an edge name a new shape (W9)", () => {
     const scene = f1();
     const plan = ok(

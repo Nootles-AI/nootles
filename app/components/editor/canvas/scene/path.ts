@@ -600,6 +600,13 @@ export function scalePath(d: string, sx: number, sy: number): string {
   return mapPath(d, map, map);
 }
 
+/** Mirror a `d` across the middle of a box `extent` long on `axis`. */
+export function mirrorPath(d: string, axis: "x" | "y", extent: number): string {
+  if (!d) return d;
+  if (axis === "x") return mapPath(d, (p) => ({ x: extent - p.x, y: p.y }), (p) => ({ x: -p.x, y: p.y }));
+  return mapPath(d, (p) => ({ x: p.x, y: extent - p.y }), (p) => ({ x: p.x, y: -p.y }));
+}
+
 /**
  * Move a `d` within its own coordinate space.
  *

@@ -21,6 +21,11 @@ import { INVITE_WORDS, InvitePage } from "./workspaces/InvitePage";
 import { offersInvite } from "./workspaces/seats";
 import { useAutocomplete } from "./editor/ai/useAutocomplete";
 import { ReachSlider } from "./editor/ai/ReachSlider";
+import { SHORTCUTS_BY_ID, shortcutHint, type ShortcutId } from "./editor/canvas/engine/shortcuts";
+import { commandApplies, PALETTE_COMMANDS, runAcross } from "./editor/canvas/page/pageCommands";
+import type { PageCanvas } from "./editor/canvas/page/PageCanvas";
+import { Align, Boolean, Flip } from "./editor/canvas/panels/controls/glyphs";
+import { ALIGN, DISTRIBUTE } from "./editor/canvas/panels/sections/AlignRow";
 
 /** A keyboard, in the app's 24-grid stroke. */
 function Keyboard() {
@@ -40,15 +45,25 @@ function Spark() {
   );
 }
 
+/** The glyph the style panel shows for the same command. */
+function CommandGlyph({ id }: { id: ShortcutId }) {
+  const aligned = ALIGN.find((a) => a.id === id) ?? DISTRIBUTE.find((d) => d.id === id);
+  if (aligned) return <Align rule={"rule" in aligned ? aligned.rule : undefined} bars={aligned.bars} />;
+  if (id === "arrange.flipH" || id === "arrange.flipV") return <Flip axis={id === "arrange.flipH" ? "x" : "y"} />;
+  return <Boolean op={id.slice(5) as "union" | "subtract" | "intersect" | "exclude"} />;
+}
+
 const AUTOCOMPLETE_WORDS = ["ai", "suggest", "suggestions", "ghost", "tab", "complete"] as const;
 const REACH_WORDS = [...AUTOCOMPLETE_WORDS, "less", "more", "amount", "eager", "aggressive", "slider"] as const;
 
 /**
  * ⌘K inside a project: the projects screen's palette, pointed at pages.
  *
- * It mostly goes places — a page, a rail, the project list. The one thing it
- * changes is the account's autocomplete — its switch and its reach, the same
- * ones the page's bar holds. Making a page stays with the sidebar, which already records it.
+ * It mostly goes places — a page, a rail, the project list. What it changes
+ * is the account's autocomplete — its switch and its reach, the same ones the
+ * page's bar holds — and the shapes selected on the page, through the same
+ * commands their keys run; a command the selection cannot take is not listed.
+ * Making a page stays with the sidebar, which already records it.
  */
 
 type Row = {
@@ -61,6 +76,8 @@ type Row = {
   words?: readonly string[];
   /** Opens a page of the palette rather than leaving it. */
   drill?: boolean;
+  /** The key that does the same without the palette. */
+  hint?: string;
   run: () => void;
 };
 
@@ -70,6 +87,7 @@ export function WorkspacePalette({
   leftOpen,
   rightOpen,
   canChat,
+  canvas,
   onOpenPage,
   onToggleLeft,
   onToggleRight,
@@ -82,6 +100,8 @@ export function WorkspacePalette({
   rightOpen: boolean;
   /** Viewers have no assistant, so they are not offered its rail. */
   canChat: boolean;
+  /** The pane holding the page's selection, whose shapes the diagram commands act on. */
+  canvas: PageCanvas | null;
   onOpenPage: (id: Id<"pages">) => void;
   onToggleLeft: () => void;
   onToggleRight: () => void;
@@ -97,6 +117,7 @@ export function WorkspacePalette({
           leftOpen={leftOpen}
           rightOpen={rightOpen}
           canChat={canChat}
+          canvas={canvas}
           onOpenPage={onOpenPage}
           onToggleLeft={onToggleLeft}
           onToggleRight={onToggleRight}
@@ -114,6 +135,7 @@ function Body({
   leftOpen,
   rightOpen,
   canChat,
+  canvas,
   onOpenPage,
   onToggleLeft,
   onToggleRight,
@@ -143,6 +165,22 @@ function Body({
     setIndex(0);
   };
 
+  // Read once, as the palette opens: what it lists is what the selection
+  // could take then, and running one closes it.
+  const [commands] = useState<Row[]>(() =>
+    canvas
+      ? PALETTE_COMMANDS.filter(({ id }) => commandApplies(canvas, id)).map(({ id, words }) => ({
+          id,
+          group: "Diagram",
+          name: SHORTCUTS_BY_ID[id].label,
+          icon: <CommandGlyph id={id} />,
+          words,
+          hint: shortcutHint(id),
+          run: () => void runAcross(canvas, id),
+        }))
+      : [],
+  );
+
   const rows = useMemo(() => {
     const all: Row[] = [
       ...pages.map((p) => ({
@@ -153,6 +191,7 @@ function Body({
         icon: <FileDoc width={16} height={16} />,
         run: () => onOpenPage(p._id),
       })),
+      ...commands,
       // Viewers write nothing, so there is nothing to complete for them.
       ...(canChat && autocomplete.loaded
         ? [
@@ -233,7 +272,7 @@ function Body({
         : []),
     ];
     return all.filter((r) => paletteMatch(query, r.name, r.words));
-  }, [pages, currentPageId, leftOpen, rightOpen, canChat, autocomplete, query, onOpenPage, onToggleLeft, onToggleRight, onShowKeys, router, home, homeName, inviteTo]);
+  }, [pages, commands, currentPageId, leftOpen, rightOpen, canChat, autocomplete, query, onOpenPage, onToggleLeft, onToggleRight, onShowKeys, router, home, homeName, inviteTo]);
 
   const at = Math.min(index, Math.max(rows.length - 1, 0));
   const current = rows.at(at);
@@ -366,6 +405,7 @@ function Body({
                   <span className="nt-pal-name">{r.name}</span>
                   {r.line && <span className="nt-pal-line">{r.line}</span>}
                 </span>
+                {r.hint && <kbd className="nt-kbd">{r.hint}</kbd>}
                 {r.drill && <ChevronRight width={14} height={14} className="nt-pal-chev" />}
               </div>
             </div>
@@ -377,7 +417,7 @@ function Body({
       <div className="nt-pal-foot">
         <span>
           <kbd className="nt-kbd">↵</kbd>
-          {current?.drill ? "Continue" : "Open"}
+          {current?.drill ? "Continue" : current?.group === "Diagram" ? "Run" : "Open"}
         </span>
         <span>
           <kbd className="nt-kbd">↑</kbd>

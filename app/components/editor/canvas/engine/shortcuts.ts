@@ -63,6 +63,8 @@ import {
   nodePath,
   topSelection,
   type Alignment,
+  type DistributeAxis,
+  type FlipAxis,
   type NodeId,
   type Point,
   type Scene,
@@ -187,6 +189,8 @@ export type ShortcutId =
   | "arrange.backward"
   | "arrange.front"
   | "arrange.back"
+  | "arrange.flipH"
+  | "arrange.flipV"
   | "move.nudge"
   | "move.nudgeFar"
   | "view.zoomIn"
@@ -200,7 +204,9 @@ export type ShortcutId =
   | "align.right"
   | "align.top"
   | "align.vcenter"
-  | "align.bottom";
+  | "align.bottom"
+  | "align.distributeH"
+  | "align.distributeV";
 
 export interface Shortcut {
   id: ShortcutId;
@@ -372,6 +378,9 @@ export const SHORTCUTS: readonly Shortcut[] = [
     group: "Arrange",
     keys: ["Mod+Alt+["],
   },
+  // Figma's.
+  { id: "arrange.flipH", label: "Flip horizontally", group: "Arrange", keys: ["Shift+h"] },
+  { id: "arrange.flipV", label: "Flip vertically", group: "Arrange", keys: ["Shift+v"] },
 
   {
     id: "move.nudge",
@@ -433,6 +442,22 @@ export const SHORTCUTS: readonly Shortcut[] = [
     keys: ["Alt+v"],
   },
   { id: "align.bottom", label: "Align bottom", group: "Align", keys: ["Alt+s"] },
+  // Figma's ⌥⇧H and ⌥⇧V are the Hand and Move tools' chord here, so these
+  // take the modifiers of Figma's Tidy up (⌃⌥T, Ctrl+Alt+T) with its letters.
+  {
+    id: "align.distributeH",
+    label: "Distribute horizontally",
+    group: "Align",
+    keys: ["Ctrl+Alt+h"],
+    other: ["Mod+Alt+h"],
+  },
+  {
+    id: "align.distributeV",
+    label: "Distribute vertically",
+    group: "Align",
+    keys: ["Ctrl+Alt+v"],
+    other: ["Mod+Alt+v"],
+  },
 ];
 
 export const SHORTCUTS_BY_ID: Readonly<Record<ShortcutId, Shortcut>> =
@@ -809,7 +834,8 @@ function clampNudge(
 export interface DiagramCommandContext {
   store: SceneStore;
   selection: SelectionStore;
-  nudge: NudgeRun;
+  /** Omitted where nothing arrives by arrow key — a command run from the palette. */
+  nudge?: NudgeRun;
   /** Where a nudge may take the selection; `null` for a frame. */
   band(): NudgeRange | null;
   /** The tool, for the tool keys and Escape — a surface keeping its own. */
@@ -832,7 +858,7 @@ export interface DiagramCommandContext {
  */
 export function createDiagramCommands(
   ctx: DiagramCommandContext,
-): Record<ShortcutId, (e: KeyboardEvent) => boolean> {
+): Record<ShortcutId, (e?: KeyboardEvent) => boolean> {
   const { store, selection } = ctx;
   const scene = () => store.getScene();
   const dispatch = (ops: SceneOp | SceneOp[]) => store.dispatch(ops);
@@ -855,10 +881,10 @@ export function createDiagramCommands(
     return true;
   };
 
-  const nudge = (e: KeyboardEvent, step: number): boolean => {
-    const delta = nudgeDelta(e);
+  const nudge = (e: KeyboardEvent | undefined, step: number): boolean => {
+    const delta = e && nudgeDelta(e);
     const ids = targetIds();
-    if (!delta || ids.length === 0) return false;
+    if (!delta || ids.length === 0 || !ctx.nudge) return false;
     const { x, y } = clampNudge(scene(), ids, delta.x * step, delta.y * step, ctx.band());
     ctx.nudge.move(ids, x, y);
     return true;
@@ -890,6 +916,21 @@ export function createDiagramCommands(
         ? { type: "setLocked", ids, locked: value }
         : { type: "setHidden", ids, hidden: value },
     );
+    return true;
+  };
+
+  /** Two nodes already have their one gap, so it takes three. */
+  const distribute = (axis: DistributeAxis): boolean => {
+    const ids = targetIds();
+    if (ids.length < 3) return false;
+    dispatch({ type: "distribute", ids, axis });
+    return true;
+  };
+
+  const flip = (axis: FlipAxis): boolean => {
+    const ids = targetIds();
+    if (ids.length === 0) return false;
+    dispatch({ type: "flip", ids, axis });
     return true;
   };
 
@@ -1100,6 +1141,8 @@ export function createDiagramCommands(
     "arrange.backward": () => reorder("backward"),
     "arrange.front": () => reorder("front"),
     "arrange.back": () => reorder("back"),
+    "arrange.flipH": () => flip("x"),
+    "arrange.flipV": () => flip("y"),
 
     "move.nudge": (e) => nudge(e, 1),
     "move.nudgeFar": (e) => nudge(e, 10),
@@ -1119,6 +1162,8 @@ export function createDiagramCommands(
     "align.top": () => align("top"),
     "align.vcenter": () => align("vcenter"),
     "align.bottom": () => align("bottom"),
+    "align.distributeH": () => distribute("horizontal"),
+    "align.distributeV": () => distribute("vertical"),
   };
 }
 

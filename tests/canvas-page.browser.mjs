@@ -148,8 +148,8 @@ try {
     // ---- Resizing what holds other shapes, on the page ----------------------
     // A group, an auto-layout row and a union, and one rect beside them, each
     // taken by its corner: the container lands on the box the drag asked for,
-    // what is inside it is drawn where the scene says, and one undo puts it
-    // back. Each drag in `canvas-resize` runs on a bare surface; this is the
+    // what is inside it is drawn where the stretch (or the flow) puts it, and
+    // one undo puts it back. Each drag in `canvas-resize` runs on a bare surface; this is the
     // page's own path to the same gesture.
     const N = (kind, id, x, y, w, h, extra = {}) => ({ id, kind, x, y, w, h, rot: 0, style: {}, label: "", locked: false, hidden: false, attrs: {}, ...extra });
     const containers = {
@@ -157,13 +157,15 @@ try {
         N("group", "cg", 230, 30, 160, 100, {
           children: [N("rect", "cg1", 0, 0, 60, 40, { style: { background: "#e8b4b4" } }), N("rect", "cg2", 100, 60, 60, 40, { style: { background: "#b4c8e8" } })],
         }),
-        { cg1: [0, 0, 60, 40], cg2: [100, 60, 60, 40] },
+        // 174 × 118 from 160 × 100: the children stretch 1.0875 × 1.18 with it.
+        { cg1: [0, 0, 65.25, 47.2], cg2: [108.75, 70.8, 65.25, 47.2] },
       ],
       "auto layout": [
         N("group", "cf", 230, 30, 150, 80, {
           style: { display: "flex", gap: "10px", padding: "10px", background: "#eeeeec" },
           children: [N("rect", "cf1", 0, 0, 60, 60, { style: { background: "#e8b4b4" } }), N("rect", "cf2", 0, 0, 60, 60, { style: { background: "#b4c8e8" } })],
         }),
+        // Re-flowed at their own size, not stretched.
         { cf1: [10, 10, 60, 60], cf2: [80, 10, 60, 60] },
       ],
       union: [
@@ -205,6 +207,40 @@ try {
       await frame();
     }
     check("and the diagram is as it was", (await at("nodes", "top")).map((n) => n.id), ["a1", "a2"]);
+    await page.mouse.click(...Object.values(centre(await at("block", "between"))));
+    await frame();
+  }
+
+  {
+    // ---- Flip and distribute, by key -----------------------------------------
+    // ⇧H mirrors a selection about its own centre, one undo step; ⌃⌥H (Ctrl+Alt+H
+    // off a Mac) evens the spacing across diagrams, which share the column's x.
+    await page.mouse.click(...Object.values(centre(await at("shape", "top", "a1"))));
+    await page.keyboard.down("Shift");
+    await page.mouse.click(...Object.values(centre(await at("shape", "top", "a2"))));
+    await page.keyboard.up("Shift");
+    await frame();
+    await page.keyboard.press("Shift+KeyH");
+    await frame();
+    check("⇧H flips the selection left for right", [(await at("model", "top", "a1")).x, (await at("model", "top", "a2")).x], [420, 80]);
+    await page.keyboard.press("Shift+KeyV");
+    await frame();
+    check("⇧V flips it top for bottom, in place", [(await at("model", "top", "a1")).y, (await at("model", "top", "a2")).y], [40, 40]);
+    await at("undo");
+    await at("undo");
+    await frame();
+    check("two undos put both flips back", [(await at("model", "top", "a1")).x, (await at("model", "top", "a2")).x], [80, 420]);
+    await at("add", "bottom", ["b1"]);
+    await frame();
+    await page.keyboard.press("Control+Alt+KeyH");
+    await frame();
+    check("⌃⌥H spaces three shapes in two diagrams evenly", (await at("model", "bottom", "b1")).x, 250);
+    await page.keyboard.press("Control+Alt+KeyV");
+    await frame();
+    check("⌃⌥V does not reach across diagrams", (await at("model", "bottom", "b1")).y, 40);
+    await at("undo");
+    await frame();
+    check("one undo takes the spacing back", (await at("model", "bottom", "b1")).x, 300);
     await page.mouse.click(...Object.values(centre(await at("block", "between"))));
     await frame();
   }

@@ -13,7 +13,7 @@ import type { SectionProps } from "../StylePanel";
 import "../panel.css";
 
 /** The name and the key both come from the keymap table, so neither can drift. */
-const ALIGN: {
+export const ALIGN: {
   value: Alignment;
   id: ShortcutId;
   rule: string;
@@ -57,15 +57,15 @@ const ALIGN: {
   },
 ];
 
-const DISTRIBUTE: { value: DistributeAxis; label: string; bars: string }[] = [
+export const DISTRIBUTE: { value: DistributeAxis; id: ShortcutId; bars: string }[] = [
   {
     value: "horizontal",
-    label: "Distribute horizontally",
+    id: "align.distributeH",
     bars: "2,4,3,8 6.5,4,3,8 11,4,3,8",
   },
   {
     value: "vertical",
-    label: "Distribute vertically",
+    id: "align.distributeV",
     bars: "4,2,8,3 4,6.5,8,3 4,11,8,3",
   },
 ];
@@ -126,11 +126,11 @@ export function AlignRow({
       </div>
       <div className="nt-align-group">
         {DISTRIBUTE.map((d) => (
-          <Tooltip key={d.value} label={d.label}>
+          <Tooltip key={d.value} label={SHORTCUTS_BY_ID[d.id].label} hint={shortcutHint(d.id)}>
             <button
               className="nt-icon-btn is-sm"
               disabled={!canDistribute || (across && vertical(d.value))}
-              aria-label={d.label}
+              aria-label={SHORTCUTS_BY_ID[d.id].label}
               onClick={() => move(distributeByNode(selection, d.value))}
             >
               <Align bars={d.bars} />

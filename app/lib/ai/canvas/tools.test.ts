@@ -133,6 +133,15 @@ describe("TOOLS table invariants", () => {
     expect(refused).toContain("Edit 2 (delete) was refused");
   });
 
+  it("canvas_edit's schema takes a flip, by axis name", () => {
+    const schema = TOOLS.canvas_edit.inputSchema;
+    const flip = (axis: string) => ({ blockId: "b1", ops: [{ op: "flip", ids: ["s1"], axis }] });
+    expect(schema.safeParse(flip("horizontal")).success).toBe(true);
+    expect(schema.safeParse(flip("vertical")).success).toBe(true);
+    expect(schema.safeParse(flip("x")).success).toBe(false);
+    expect(TOOLS.canvas_edit.description).toContain("flip");
+  });
+
   it("read tools never call writeScene", async () => {
     const scene = f1();
     let wrote = false;

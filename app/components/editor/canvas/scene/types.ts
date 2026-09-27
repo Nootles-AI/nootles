@@ -628,7 +628,10 @@ export type SceneOp =
   | { type: "move"; ids: NodeId[]; dx: number; dy: number }
   /**
    * Absolute boxes, per node: a handle drag gives every selected node a
-   * different frame, and a left-edge drag changes `x` as well as `w`.
+   * different frame, and a left-edge drag changes `x` as well as `w`. A
+   * plain or boolean group stretches its children with its box and an
+   * auto-layout group re-flows them; strokes, radii and type stay as authored
+   * (`scene/stretch`), which is what separates this from `scale`.
    */
   | { type: "resize"; frames: NodeFrame[] }
   /**
@@ -714,6 +717,12 @@ export type SceneOp =
       spacing?: number;
     }
   /**
+   * Mirror in place about the centre of the selection's bounds: each node's
+   * place, its rotation and its own geometry mirror, and a group's children
+   * with it. Labels move with their boxes and stay readable (`./flip`).
+   */
+  | { type: "flip"; ids: NodeId[]; axis: FlipAxis }
+  /**
    * Add already-built connectors, ids minted by the caller. An edge naming a
    * node that is not in the scene is dropped by the applier rather than stored:
    * a dangling connector has nothing to draw between.
@@ -787,6 +796,9 @@ export type Alignment =
 export type AlignTarget = "selection" | "parent";
 
 export type DistributeAxis = "horizontal" | "vertical";
+
+/** `x` mirrors left for right (a horizontal flip), `y` top for bottom. */
+export type FlipAxis = "x" | "y";
 
 // ---------------------------------------------------------------------------
 // Helpers — pure, allocation-light, and the only sanctioned implementations

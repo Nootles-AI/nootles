@@ -15,7 +15,7 @@ import {
 import { isRefusal, refused, type Refusal } from "./host";
 
 /**
- * The eight thin verbs, sent together as `canvas_edit`'s `ops` (NT-92). Each
+ * The nine thin verbs, sent together as `canvas_edit`'s `ops` (NT-92). Each
  * compiles to a small, fixed number of {@link SceneOp}s and returns a report
  * the executor turns into one line of model-facing text; {@link planEdits}
  * folds a whole list into one scene, so a call is one reviewable change and
@@ -34,7 +34,8 @@ export type Verb =
       to: "front" | "back" | "forward" | "backward" | { parent: string | null; index: number };
     }
   | { op: "group"; ids: string[]; name?: string; boolean?: BooleanOp }
-  | { op: "ungroup"; ids: string[] };
+  | { op: "ungroup"; ids: string[] }
+  | { op: "flip"; ids: string[]; axis: "horizontal" | "vertical" };
 
 export type VerbPlan = {
   ops: SceneOp[];
@@ -116,6 +117,8 @@ export function planVerb(scene: Scene, verb: Verb): VerbPlan | Refusal {
       return planGroup(scene, verb);
     case "ungroup":
       return planUngroup(scene, verb);
+    case "flip":
+      return planFlip(scene, verb);
   }
 }
 
@@ -332,5 +335,21 @@ function planUngroup(scene: Scene, verb: Extract<Verb, { op: "ungroup" }>): Verb
     {},
     `Done: ungrouped ${verb.ids.length} group${verb.ids.length === 1 ? "" : "s"}.`,
     notes,
+  );
+}
+
+function planFlip(scene: Scene, verb: Extract<Verb, { op: "flip" }>): VerbPlan | Refusal {
+  for (const id of verb.ids) {
+    if (edgeOf(scene, id)) {
+      return refused(`"${id}" is a connector; it follows the shapes it joins, so flip those.`);
+    }
+    if (!nodeExists(scene, id)) return unknownId(id);
+  }
+  const n = verb.ids.length;
+  return landed(
+    scene,
+    [{ type: "flip", ids: verb.ids, axis: verb.axis === "horizontal" ? "x" : "y" }],
+    {},
+    `Done: flipped ${n} shape${n === 1 ? "" : "s"} ${verb.axis === "horizontal" ? "horizontally" : "vertically"}.`,
   );
 }

@@ -180,6 +180,22 @@ describe("planVerb", () => {
     for (const op of plan.ops) expect(op.type).toBe("insert");
   });
 
+  it("flip mirrors shapes together, as the keyboard's ⇧H does", () => {
+    const plan = ok(planVerb(f1(), { op: "flip", ids: ["s1", "s2"], axis: "horizontal" }));
+    expect(plan.ops).toEqual([{ type: "flip", ids: ["s1", "s2"], axis: "x" }]);
+    expect(findNode(plan.next, "s1")).toMatchObject({ x: 300, label: "Order" });
+    expect(findNode(plan.next, "s2")).toMatchObject({ x: 40, label: "Ship" });
+    expect(plan.summary).toBe("Done: flipped 2 shapes horizontally.");
+    const down = ok(planVerb(f1(), { op: "flip", ids: ["s1"], axis: "vertical" }));
+    expect(down.ops).toEqual([{ type: "flip", ids: ["s1"], axis: "y" }]);
+  });
+
+  it("flip refuses a connector and an unknown id", () => {
+    const edge = planVerb(f1(), { op: "flip", ids: ["e1"], axis: "vertical" });
+    expect(isRefusal(edge) && edge.refused).toContain("connector");
+    expect(isRefusal(planVerb(f1(), { op: "flip", ids: ["zz"], axis: "vertical" }))).toBe(true);
+  });
+
   it("an unknown id is refused", () => {
     const result = planVerb(f1(), { op: "rename", id: "zz", name: "x" });
     expect(isRefusal(result)).toBe(true);
