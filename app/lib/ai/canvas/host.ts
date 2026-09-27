@@ -3,7 +3,7 @@ import type { Scene } from "@/app/components/editor/canvas/scene/types";
 import type { StageResult } from "../review/session";
 
 /**
- * The seam between the 13 node-level diagram tools and the surface that
+ * The seam between the six node-level diagram tools and the surface that
  * actually holds a diagram — a live BlockNote editor with a `ReviewSession`,
  * in the browser, today; an MCP host reading a server-held Y.Doc, later.
  *
@@ -36,7 +36,7 @@ export type CanvasRead = {
  */
 export type WriteReceipt = StageResult;
 
-/** A model-facing sentence, never thrown — every one of the 13 tools reads
+/** A model-facing sentence, never thrown — every one of the six tools reads
  *  its own refusals the way `edit_page` already does. */
 export type Refusal = { refused: string };
 
@@ -50,13 +50,13 @@ export interface CanvasHost {
    * Resolves a diagram by block id on `pageId` (the open page when omitted).
    *
    * `null` when no such canvas block exists anywhere the host can see —
-   * every one of the 13 tools reads this the same way `edit_page` reads an
+   * every one of the six tools reads this the same way `edit_page` reads an
    * unknown block id (W24 in TOOLS.md).
    *
    * A {@link Refusal} when the id resolves but the tool cannot act on it as
    * read — today only the storyboard-shot case (`blockId` is
    * `"<storyboard-id>:<n>"` and `<storyboard-id>` names a block of type
-   * `"storyboard"`): every one of the 13 tools gets the same specific
+   * `"storyboard"`): every one of the six tools gets the same specific
    * sentence instead of falling through to the generic "no such diagram"
    * message.
    */

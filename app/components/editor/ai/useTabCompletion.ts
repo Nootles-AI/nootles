@@ -10,6 +10,7 @@ import { noteDismissal } from "@/app/components/feedback/sampler";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { AI } from "@/app/lib/ai/aiConfig";
+import { diagramElement } from "@/app/lib/ai/diagramElement";
 import { suggestionLimits } from "@/app/lib/ai/reach";
 import { project, type AnyBlock } from "@/app/lib/ai/projection";
 import { resolveBatch, warnRejected } from "@/app/lib/ai/validate";
@@ -112,11 +113,6 @@ function diagramBrief(
     at: open.index,
     closed: !!close,
   };
-}
-
-/** The `<nt-diagram>` element out of a finished reply, or "". Models fence. */
-function diagramElement(text: string): string {
-  return /<nt-diagram[\s\S]*<\/nt-diagram>/i.exec(text)?.[0] ?? "";
 }
 
 /**
@@ -927,7 +923,7 @@ export function useTabCompletion(
      * So the title is read once per turn, into the turn's own projection.
      */
     const lens = {
-      window: AI.projection.window,
+      ...AI.projection,
       collapseDrawn: true,
       // Diagrams appear as the <nt-build-diagram> macro, never as shapes: shown
       // a finished <nt-diagram>, the FIM model imitated it — connectors as
@@ -985,6 +981,14 @@ export function useTabCompletion(
         cursorBlockId,
         blocks,
         visible,
+        // The page's words as the model was shown them, both sides of the
+        // caret, as the wire cuts them: what a grounded completion may reuse.
+        // A series continuation borrows from the items above AND the ones
+        // after an insertion point (NT-101).
+        seen: `${split.prefix.slice(-AI.fim.maxBefore)} ${split.suffix.slice(0, AI.fim.maxAfter)}`.replace(
+          /<[^>]*>/g,
+          " ",
+        ),
         midWord: /\w$/.test(bare),
         cell,
         projection,
@@ -1023,15 +1027,18 @@ export function useTabCompletion(
       let live: string | null = null;
 
       // Whole shapes only: the tail of the stream is usually a tag cut
-      // mid-attribute, and the scene parser drops it. Re-serialized so what is
-      // placed is closed and canonical — spliced in unclosed, the rest of the
-      // document would parse as being inside the diagram. Adopted and fitted
-      // for the same reason `canvasData` does both: a path arrives with the
-      // box the model guessed and shapes past the band arrive unscaled, and
-      // the preview has to be drawn as the document will end up, or accepting
-      // the diagram would move it.
+      // mid-attribute or mid-label. `diagramElement` keeps the reply up to its
+      // last complete element and looks past a fence or a preface — the same
+      // reading the chat's `draw` tool gives a reply the cap cut off, which is
+      // all a stream still arriving is. Re-serialized so what is placed is
+      // closed and canonical — spliced in unclosed, the rest of the document
+      // would parse as being inside the diagram. Adopted and fitted for the
+      // same reason `canvasData` does both: a path arrives with the box the
+      // model guessed and shapes past the band arrive unscaled, and the
+      // preview has to be drawn as the document will end up, or accepting the
+      // diagram would move it.
       const soFar = (): string => {
-        const scene = fitToBand(adoptScene(parseFragment(out).scene));
+        const scene = fitToBand(adoptScene(parseFragment(diagramElement(out)).scene));
         return scene.nodes.length ? serializeScene(scene) : "";
       };
 
@@ -1098,13 +1105,22 @@ export function useTabCompletion(
             });
           }
         }
-      } catch {
-        // A placed diagram that was cut off keeps whatever it had drawn: it is
-        // in the document, and half a diagram the user can finish by hand beats
-        // one that empties itself.
-        return null;
+      } catch (error) {
+        // A keystroke superseded the suggestion, or the editor is going away;
+        // whoever aborted has already cleared what was on screen.
+        if (controller.signal.aborted) return null;
+        // Dropped mid-stream — a network drop, the route killed at its
+        // `maxDuration`. Read as a stream that ended here, like one the token
+        // cap cut off: the shapes that arrived whole are still an offer, a
+        // placed diagram keeps what it drew, and returning null instead left
+        // the chip on "Drawing…" for good.
+        Sentry.captureException(error, { tags: { feature: "tab-completion-diagram" } });
+        if (process.env.NODE_ENV !== "production") {
+          console.warn("[Nootles] completion: diagram stream failed\n  ", error);
+        }
       }
-      if (!live) return diagramElement(out);
+      // Cut off or whole, what is offered is what the preview showed.
+      if (!live) return soFar();
       const finished = soFar();
       if (finished) {
         writeDiagram(live, finished);
@@ -1476,7 +1492,7 @@ export function useTabCompletion(
         const shown = displayText(acc);
         if (!shown.trim()) return clear();
         const finishesAWord = !/\s/.test(shown.trim());
-        if (!finishesAWord && grounding(ctx.visible, shown) < limits.minGrounding) {
+        if (!finishesAWord && grounding(ctx.seen, shown) < limits.minGrounding) {
           return clear();
         }
       }

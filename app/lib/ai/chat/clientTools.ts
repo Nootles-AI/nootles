@@ -15,7 +15,7 @@ import { AI } from "../aiConfig";
 import { albumIndex } from "../albumRead";
 import { compileDocHtml } from "../html/compile";
 import type { DocNode } from "../html/grammar";
-import { parseDocHtml } from "../html/parse";
+import { parseDocHtml, type Dropped } from "../html/parse";
 import { redeemDrawnStubs, toDocHtml, toDocHtmlWithin } from "../html/serialize";
 import { project, type AnyBlock, type DocIndex } from "../projection";
 import type { ReviewSession } from "../review/session";
@@ -38,6 +38,7 @@ import { pictureFor } from "./lookAtPicture";
 import { CANVAS_TOOLS, noSuchPage, TOOLS, type CanvasToolName, type ClientToolName } from "./tools";
 import { lastContentBlock } from "@/app/lib/documentTail";
 import { retryableMutationResult } from "./mutationResult";
+import { notWritten } from "./notWritten";
 import { SECTION_REF, splitSection } from "./writer";
 
 /** The surface the agent acts on: the page on screen, and its live editor. */
@@ -147,7 +148,7 @@ type Executor = (input: unknown, ctx: ToolContext, call: ToolCallInfo) => Promis
  * (`app/lib/ai/canvas/tools.test.ts`) is a type error, not a runtime one, the
  * moment a name is added to `CLIENT_TOOLS` without an executor here.
  *
- * The 13 canvas tools share one shape: parse nothing themselves (their own
+ * The six canvas tools share one shape: parse nothing themselves (their own
  * zod schema is `TOOLS[name].inputSchema`, and `runCanvasTool` parses it),
  * build a {@link CanvasHost} from this same `ctx`, and hand both to the one
  * executor behind all of them (`app/lib/ai/canvas/execute.ts`).
@@ -515,8 +516,10 @@ async function editPage(
   }
   const source = drawn.html;
 
-  const next = parseDocHtml(source);
+  const dropped: Dropped[] = [];
+  const next = parseDocHtml(source, undefined, { dropped, wrapLoose: true });
   const current = parseDocHtml(toDocHtml(document));
+  const leftOut = notWritten(dropped, page.title);
   // An id the page does not have has to be caught here, because the compiler
   // cannot: it is handed a FRAGMENT, so "not in the current document" reads to
   // it as "new block", and a mistyped id would quietly duplicate the block the
@@ -545,7 +548,17 @@ async function editPage(
     anchorBlockId: lastContentBlock(document)?.id,
     ...(replacing?.length ? { replacing } : {}),
   });
-  if (!batch.ops.length) return "Nothing to do — the page already reads that way.";
+  if (!batch.ops.length) {
+    // "Already reads that way" only when it does: an edit whose every part was
+    // left out compiles to nothing too, and answering it as a match is how the
+    // model came to tell the user about a change nobody could see (NT-95).
+    if (!leftOut) return "Nothing to do — the page already reads that way.";
+    return retryableMutationResult(
+      "Nothing on the page changed: the page cannot hold what this edit wrote.",
+      leftOut,
+      "Write those parts as blocks and call edit_page again.",
+    );
+  }
 
   const index = project(document).index;
   const resolved = resolveBatch(batch, index);
@@ -599,6 +612,13 @@ async function editPage(
 
   return [
     `Done: ${counts.join(", ") || "no visible change"}. The user reviews this and may discard any of it.`,
+    ...(leftOut
+      ? [
+          "Not everything was written — the page cannot hold these, so they were left out:",
+          leftOut,
+          "The rest is on the page. Send only those parts again, written as blocks.",
+        ]
+      : []),
     "",
     pageHtml(editor.document as unknown as AnyBlock[], page.title),
   ].join("\n");

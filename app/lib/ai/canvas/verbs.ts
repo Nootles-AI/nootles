@@ -12,27 +12,29 @@ import {
   type SceneOp,
   type ZTarget,
 } from "@/app/components/editor/canvas/scene/types";
-import { refused, type Refusal } from "./host";
+import { isRefusal, refused, type Refusal } from "./host";
 
 /**
- * The eight thin verbs — "one call, one thing" (TOOLS.md §5.6). Each compiles
- * to a small, fixed number of {@link SceneOp}s and returns a report the
- * executor turns into one line of model-facing text.
+ * The eight thin verbs, sent together as `canvas_edit`'s `ops` (NT-92). Each
+ * compiles to a small, fixed number of {@link SceneOp}s and returns a report
+ * the executor turns into one line of model-facing text; {@link planEdits}
+ * folds a whole list into one scene, so a call is one reviewable change and
+ * one round trip however many shapes it touches.
  */
 
 export type Verb =
-  | { verb: "set_text"; id: string; text: string; markup?: boolean }
-  | { verb: "rename"; id: string; name: string | null }
-  | { verb: "duplicate"; ids: string[]; offset?: number }
-  | { verb: "move"; ids: string[]; dx?: number; dy?: number; x?: number; y?: number }
-  | { verb: "delete"; ids: string[] }
+  | { op: "set_text"; id: string; text: string; markup?: boolean }
+  | { op: "rename"; id: string; name: string | null }
+  | { op: "duplicate"; ids: string[]; offset?: number }
+  | { op: "move"; ids: string[]; dx?: number; dy?: number; x?: number; y?: number }
+  | { op: "delete"; ids: string[] }
   | {
-      verb: "reorder";
+      op: "reorder";
       ids: string[];
       to: "front" | "back" | "forward" | "backward" | { parent: string | null; index: number };
     }
-  | { verb: "group"; ids: string[]; name?: string; op?: BooleanOp }
-  | { verb: "ungroup"; ids: string[] };
+  | { op: "group"; ids: string[]; name?: string; boolean?: BooleanOp }
+  | { op: "ungroup"; ids: string[] };
 
 export type VerbPlan = {
   ops: SceneOp[];
@@ -44,10 +46,14 @@ export type VerbPlan = {
   notes?: string[];
 };
 
+/** The ids a verb mints are in its summary line, so the list's plan carries
+ *  no separate result. */
+export type EditsPlan = Omit<VerbPlan, "result">;
+
 const NOT_APPLIED = "That change was not applied, and nothing on the diagram changed.";
 
 function unknownId(id: string): Refusal {
-  return refused(`${NOT_APPLIED} This diagram has no shape or connector with id "${id}".`);
+  return refused(`This diagram has no shape or connector with id "${id}".`);
 }
 
 function nodeExists(scene: Scene, id: string): boolean {
@@ -58,8 +64,42 @@ function edgeOf(scene: Scene, id: string) {
   return scene.edges.find((e) => e.id === id) ?? null;
 }
 
+/** One plan for a list of verbs, each planned against the scene the ones
+ *  before it left. All or nothing: a refused verb refuses the whole list,
+ *  named by its place in it, and nothing lands. */
+export function planEdits(scene: Scene, verbs: Verb[]): EditsPlan | Refusal {
+  const ops: SceneOp[] = [];
+  const summaries: string[] = [];
+  const notes: string[] = [];
+  let next = scene;
+  for (const [i, verb] of verbs.entries()) {
+    const plan = planVerb(next, verb);
+    if (isRefusal(plan)) {
+      if (verbs.length === 1) return refused(`${NOT_APPLIED} ${plan.refused}`);
+      return refused(
+        `None of these ${verbs.length} edits was applied, and nothing on the diagram changed. ` +
+          `Edit ${i + 1} (${verb.op}) was refused: ${plan.refused}`,
+      );
+    }
+    ops.push(...plan.ops);
+    summaries.push(plan.summary);
+    notes.push(...(plan.notes ?? []));
+    next = plan.next;
+  }
+  if (verbs.length === 1) return { ops, next, summary: summaries[0], ...(notes.length ? { notes } : {}) };
+  return {
+    ops,
+    next,
+    summary: [
+      `Done: ${verbs.length} edits, as one change.`,
+      ...summaries.map((line, i) => `${i + 1}. ${line.replace(/^Done: /, "")}`),
+    ].join("\n"),
+    ...(notes.length ? { notes } : {}),
+  };
+}
+
 export function planVerb(scene: Scene, verb: Verb): VerbPlan | Refusal {
-  switch (verb.verb) {
+  switch (verb.op) {
     case "set_text":
       return planSetText(scene, verb);
     case "rename":
@@ -84,13 +124,13 @@ function landed(scene: Scene, ops: SceneOp[], result: Record<string, unknown>, s
   return { ops, next, result, summary, ...(notes?.length ? { notes } : {}) };
 }
 
-function planSetText(scene: Scene, verb: Extract<Verb, { verb: "set_text" }>): VerbPlan | Refusal {
+function planSetText(scene: Scene, verb: Extract<Verb, { op: "set_text" }>): VerbPlan | Refusal {
   const node = findNode(scene, verb.id);
   if (node) {
     if (node.kind === "group" || node.kind === "image" || node.kind === "path") {
       const noun = node.kind === "image" ? "a picture" : `a ${node.kind}`;
       return refused(
-        `${NOT_APPLIED} "${verb.id}" is ${noun} and holds no words. Put an <nt-text> beside it with write_nodes, or label the shape it sits on.`,
+        `"${verb.id}" is ${noun} and holds no words. Put an <nt-text> beside it with write_nodes, or label the shape it sits on.`,
       );
     }
     const label = verb.markup ? blocksToLabel(labelBlocks(verb.text)) : textToLabel(verb.text);
@@ -111,7 +151,7 @@ function planSetText(scene: Scene, verb: Extract<Verb, { verb: "set_text" }>): V
   );
 }
 
-function planRename(scene: Scene, verb: Extract<Verb, { verb: "rename" }>): VerbPlan | Refusal {
+function planRename(scene: Scene, verb: Extract<Verb, { op: "rename" }>): VerbPlan | Refusal {
   if (!nodeExists(scene, verb.id)) return unknownId(verb.id);
   return landed(
     scene,
@@ -123,7 +163,7 @@ function planRename(scene: Scene, verb: Extract<Verb, { verb: "rename" }>): Verb
   );
 }
 
-function planDuplicate(scene: Scene, verb: Extract<Verb, { verb: "duplicate" }>): VerbPlan | Refusal {
+function planDuplicate(scene: Scene, verb: Extract<Verb, { op: "duplicate" }>): VerbPlan | Refusal {
   for (const id of verb.ids) if (!nodeExists(scene, id)) return unknownId(id);
   const { scene: next, ids: copies } = duplicateNodes(scene, verb.ids, verb.offset);
   if (!copies.length) {
@@ -149,18 +189,18 @@ function planDuplicate(scene: Scene, verb: Extract<Verb, { verb: "duplicate" }>)
   };
 }
 
-function planMove(scene: Scene, verb: Extract<Verb, { verb: "move" }>): VerbPlan | Refusal {
+function planMove(scene: Scene, verb: Extract<Verb, { op: "move" }>): VerbPlan | Refusal {
   for (const id of verb.ids) if (!nodeExists(scene, id)) return unknownId(id);
   const hasDelta = verb.dx !== undefined || verb.dy !== undefined;
   const hasAbsolute = verb.x !== undefined || verb.y !== undefined;
   if (hasDelta && hasAbsolute) {
-    return refused(`${NOT_APPLIED} Move by a distance (dx/dy) or to a position (x/y), not both.`);
+    return refused(`Move by a distance (dx/dy) or to a position (x/y), not both.`);
   }
   for (const id of verb.ids) {
     const parent = findParent(scene, id);
     if (parent && isAutoLayout(parent)) {
       return refused(
-        `${NOT_APPLIED} "${id}" is placed by "${parent.id}"'s layout — a flex or grid group's own children cannot be moved directly; reorder it instead.`,
+        `"${id}" is placed by "${parent.id}"'s layout — a flex or grid group's own children cannot be moved directly; reorder it instead.`,
       );
     }
   }
@@ -187,7 +227,7 @@ function planMove(scene: Scene, verb: Extract<Verb, { verb: "move" }>): VerbPlan
   );
 }
 
-function planDelete(scene: Scene, verb: Extract<Verb, { verb: "delete" }>): VerbPlan | Refusal {
+function planDelete(scene: Scene, verb: Extract<Verb, { op: "delete" }>): VerbPlan | Refusal {
   const nodeIds: NodeId[] = [];
   const edgeIds: string[] = [];
   for (const id of verb.ids) {
@@ -206,10 +246,10 @@ function planDelete(scene: Scene, verb: Extract<Verb, { verb: "delete" }>): Verb
   return landed(scene, ops, {}, `Done: removed ${parts.join(", ")}.`);
 }
 
-function planReorder(scene: Scene, verb: Extract<Verb, { verb: "reorder" }>): VerbPlan | Refusal {
+function planReorder(scene: Scene, verb: Extract<Verb, { op: "reorder" }>): VerbPlan | Refusal {
   for (const id of verb.ids) {
     if (edgeOf(scene, id)) {
-      return refused(`${NOT_APPLIED} "${id}" is a connector; reorder only takes shapes.`);
+      return refused(`"${id}" is a connector; reorder only takes shapes.`);
     }
     if (!nodeExists(scene, id)) return unknownId(id);
   }
@@ -223,11 +263,11 @@ function planReorder(scene: Scene, verb: Extract<Verb, { verb: "reorder" }>): Ve
     if (verb.to.parent !== null) {
       const parent = findNode(scene, verb.to.parent);
       if (!parent || !isGroup(parent)) {
-        return refused(`${NOT_APPLIED} "${verb.to.parent}" is not a group on this diagram.`);
+        return refused(`"${verb.to.parent}" is not a group on this diagram.`);
       }
       for (const id of verb.ids) {
         if (verb.to.parent === id) {
-          return refused(`${NOT_APPLIED} A group cannot be placed inside itself.`);
+          return refused(`A group cannot be placed inside itself.`);
         }
       }
     }
@@ -250,18 +290,18 @@ function planReorder(scene: Scene, verb: Extract<Verb, { verb: "reorder" }>): Ve
   );
 }
 
-function planGroup(scene: Scene, verb: Extract<Verb, { verb: "group" }>): VerbPlan | Refusal {
+function planGroup(scene: Scene, verb: Extract<Verb, { op: "group" }>): VerbPlan | Refusal {
   for (const id of verb.ids) {
     if (edgeOf(scene, id)) {
-      return refused(`${NOT_APPLIED} "${id}" is a connector; group only takes shapes.`);
+      return refused(`"${id}" is a connector; group only takes shapes.`);
     }
     if (!nodeExists(scene, id)) return unknownId(id);
   }
-  if (verb.op && verb.ids.length < 2) {
-    return refused(`${NOT_APPLIED} A boolean needs two shapes.`);
+  if (verb.boolean && verb.ids.length < 2) {
+    return refused(`A boolean needs two shapes.`);
   }
   const groupId = mintId(scene);
-  const op: SceneOp = { type: "group", ids: verb.ids, groupId, name: verb.name, op: verb.op };
+  const op: SceneOp = { type: "group", ids: verb.ids, groupId, name: verb.name, op: verb.boolean };
   const next = applyOps(scene, [op]);
   const absorbed = verb.ids.find((id) => findNode(next, id) === null);
   const notes = absorbed ? [`${absorbed} became the group's own box and paint.`] : undefined;
@@ -274,13 +314,13 @@ function planGroup(scene: Scene, verb: Extract<Verb, { verb: "group" }>): VerbPl
   };
 }
 
-function planUngroup(scene: Scene, verb: Extract<Verb, { verb: "ungroup" }>): VerbPlan | Refusal {
+function planUngroup(scene: Scene, verb: Extract<Verb, { op: "ungroup" }>): VerbPlan | Refusal {
   const notes: string[] = [];
   for (const id of verb.ids) {
     const node = findNode(scene, id);
     if (!node) return unknownId(id);
     if (!isGroup(node)) {
-      return refused(`${NOT_APPLIED} "${id}" is not a group.`);
+      return refused(`"${id}" is not a group.`);
     }
     if (isAutoLayout(node)) {
       notes.push(`children of ${id}, a flex or grid group, land at the group's origin.`);

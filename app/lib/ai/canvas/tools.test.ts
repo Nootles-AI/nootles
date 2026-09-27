@@ -89,11 +89,48 @@ describe("TOOLS table invariants", () => {
       prepareParse: async () => {},
     };
     const result = await runCanvasTool(
-      "move",
-      { pageId: "p1", blockId: "b1", ids: ["s1"], dx: 1, dy: 0 },
+      "canvas_edit",
+      { pageId: "p1", blockId: "b1", ops: [{ op: "move", ids: ["s1"], dx: 1, dy: 0 }] },
       zeroHost,
     );
     expect(result).toBe("Nothing to do — the diagram already reads that way.");
+  });
+
+  it("a canvas_edit of many ops is one write, and a refused one is none", async () => {
+    const scene = f1();
+    const writes: CanvasRead["scene"][] = [];
+    const host: CanvasHost = {
+      readScene: async () => ({ pageId: "p1", blockId: "b1", scene }) satisfies CanvasRead,
+      writeScene: async (_read, next): Promise<WriteReceipt> => {
+        writes.push(next);
+        return { added: 0, removed: 0, changed: 3, hunks: 1 };
+      },
+      prepareParse: async () => {},
+    };
+    const done = await runCanvasTool(
+      "canvas_edit",
+      {
+        blockId: "b1",
+        ops: [
+          { op: "set_text", id: "s1", text: "Paid" },
+          { op: "set_text", id: "s2", text: "Packed" },
+          { op: "set_text", id: "e1", text: "and then" },
+          { op: "move", ids: ["p1"], dx: -20 },
+        ],
+      },
+      host,
+    );
+    expect(writes).toHaveLength(1);
+    expect(done).toMatch(/^Done: 4 edits, as one change\.\n/);
+    expect(done).toMatch(/The user reviews this and may discard it\.$/);
+
+    const refused = await runCanvasTool(
+      "canvas_edit",
+      { blockId: "b1", ops: [{ op: "set_text", id: "s1", text: "x" }, { op: "delete", ids: ["zz"] }] },
+      host,
+    );
+    expect(writes).toHaveLength(1);
+    expect(refused).toContain("Edit 2 (delete) was refused");
   });
 
   it("read tools never call writeScene", async () => {
@@ -112,7 +149,7 @@ describe("TOOLS table invariants", () => {
   });
 });
 
-describe("a verb lands inside the band", () => {
+describe("a canvas_edit lands inside the band", () => {
   /** F1 as the diagram, and every scene the executor writes. */
   function recording() {
     const scene = f1();
@@ -127,14 +164,14 @@ describe("a verb lands inside the band", () => {
     };
     return { host, written };
   }
-  const move = (ids: string[], dx: number) => ({ pageId: "p1", blockId: "b1", ids, dx });
+  const move = (ids: string[], dx: number) => ({ pageId: "p1", blockId: "b1", ops: [{ op: "move", ids, dx }] });
 
   it("a move past the column shifts the whole drawing back in, and says so", async () => {
     const { host, written } = recording();
     // p1 is 40 wide at x=520: moved to 700, the drawing ends at 740.
-    const reply = await runCanvasTool("move", move(["p1"], 180), host);
+    const reply = await runCanvasTool("canvas_edit", move(["p1"], 180), host);
     expect(reply).toBe(
-      "Done: moved 1 shape by (180, 0).\nThe whole drawing then moved by (-20, 0) to stay inside the diagram.",
+      "Done: moved 1 shape by (180, 0).\nThe whole drawing then moved by (-20, 0) to stay inside the diagram.\nThe user reviews this and may discard it.",
     );
     expect(findNode(written[0], "p1")).toMatchObject({ x: 680, y: 40 });
     expect(findNode(written[0], "s1")).toMatchObject({ x: 20, y: 40 });
@@ -143,12 +180,13 @@ describe("a verb lands inside the band", () => {
   it("a move that leaves the drawing wider than the column scales it, and says both", async () => {
     const { host, written } = recording();
     // s1 at 1000 stretches the drawing to 40…1200: 1160 across, into 720.
-    const reply = await runCanvasTool("move", move(["s1"], 960), host);
+    const reply = await runCanvasTool("canvas_edit", move(["s1"], 960), host);
     expect(reply).toBe(
       [
         "Done: moved 1 shape by (960, 0).",
         "The diagram was scaled to 0.621× to fit its 720px width.",
         "The whole drawing then moved by (-40, 0) to stay inside the diagram.",
+        "The user reviews this and may discard it.",
       ].join("\n"),
     );
     expect(fitOps(written[0])).toEqual([]);
@@ -156,7 +194,9 @@ describe("a verb lands inside the band", () => {
 
   it("a move that stays inside says nothing more", async () => {
     const { host } = recording();
-    expect(await runCanvasTool("move", move(["s1"], 10), host)).toBe("Done: moved 1 shape by (10, 0).");
+    expect(await runCanvasTool("canvas_edit", move(["s1"], 10), host)).toBe(
+      "Done: moved 1 shape by (10, 0).\nThe user reviews this and may discard it.",
+    );
   });
 });
 
@@ -173,21 +213,7 @@ function minimalInput(name: CanvasToolName): Record<string, unknown> {
       return { ...base, html: "<nt-rect></nt-rect>" };
     case "update_styles":
       return { ...base, patches: [{ ids: ["s1"], style: { background: "#000" } }] };
-    case "set_text":
-      return { ...base, id: "s1", text: "x" };
-    case "rename":
-      return { ...base, id: "s1", name: "x" };
-    case "duplicate":
-      return { ...base, ids: ["s1"] };
-    case "move":
-      return { ...base, ids: ["s1"], dx: 1 };
-    case "delete":
-      return { ...base, ids: ["s1"] };
-    case "reorder":
-      return { ...base, ids: ["s1"], to: "front" };
-    case "group":
-      return { ...base, ids: ["s1", "s2"] };
-    case "ungroup":
-      return { ...base, ids: ["g1"] };
+    case "canvas_edit":
+      return { ...base, ops: [{ op: "move", ids: ["s1"], dx: 1 }] };
   }
 }

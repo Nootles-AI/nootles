@@ -72,6 +72,8 @@ const CANVAS = new Set([
   "get_html",
   "write_nodes",
   "update_styles",
+  "canvas_edit",
+  // Threads saved before NT-92 folded these into canvas_edit still hold them.
   "set_text",
   "rename",
   "duplicate",
@@ -112,6 +114,7 @@ const STEPS: Record<string, { doing: string; failed: string; done?: string }> = 
   get_html: { doing: "Exporting…", failed: "Couldn't export the diagram", done: "Exported the diagram" },
   write_nodes: { doing: "Drawing shapes…", failed: "Couldn't change those shapes", done: "Changed shapes" },
   update_styles: { doing: "Restyling…", failed: "Couldn't restyle those shapes", done: "Restyled shapes" },
+  canvas_edit: { doing: "Editing the diagram…", failed: "Couldn't edit the diagram" },
   set_text: { doing: "Relabelling…", failed: "Couldn't relabel that", done: "Relabelled a shape" },
   rename: { doing: "Renaming…", failed: "Couldn't rename that", done: "Renamed a shape" },
   duplicate: { doing: "Duplicating…", failed: "Couldn't duplicate that", done: "Duplicated a shape" },
@@ -253,9 +256,36 @@ export function stepLine(part: ToolPart): string {
     }
     case "delete_page":
       return `Deleted ${named(part.output)}`;
+    case "canvas_edit":
+      return canvasEditLine(part);
     default:
       return step?.done ?? "Done";
   }
+}
+
+const EDITED: Record<string, string> = {
+  set_text: "relabelled",
+  rename: "renamed",
+  duplicate: "duplicated",
+  move: "moved",
+  delete: "deleted",
+  reorder: "reordered",
+  group: "grouped",
+  ungroup: "ungrouped",
+};
+
+/** What a batch of diagram edits did, by kind: "Relabelled and moved shapes". */
+function canvasEditLine(part: ToolPart): string {
+  // A refusal applies none of the ops, and says so in words that do not open with "Done:".
+  if (typeof part.output !== "string" || !part.output.startsWith("Done:")) {
+    return "Left the diagram as it was";
+  }
+  const ops = (part.input as { ops?: { op?: string }[] } | undefined)?.ops ?? [];
+  const kinds = [...new Set(ops.map((o) => EDITED[o.op ?? ""]).filter(Boolean))];
+  if (!kinds.length) return "Edited the diagram";
+  const said =
+    kinds.length === 1 ? kinds[0] : `${kinds.slice(0, -1).join(", ")} and ${kinds.at(-1)}`;
+  return `${said[0].toUpperCase()}${said.slice(1)} shapes`;
 }
 
 /** A draw salvo as one line: a count while it runs, a tally when it settles. */

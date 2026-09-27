@@ -16,10 +16,16 @@ const one = (name) => {
   return found[0].input;
 };
 const edit = one("edit_page");
-const setText = one("set_text");
-const move = one("move");
+const canvasEdit = one("canvas_edit");
+const op = (name) => {
+  const found = canvasEdit.ops.filter((o) => o.op === name);
+  assert.equal(found.length, 1, `canvas_edit must hold one ${name} op`);
+  return found[0];
+};
+const setText = op("set_text");
+const move = op("move");
 assert.match(edit.html, /PARITY_TEXT_NEW/);
-assert.equal(setText.blockId, "c-main");
+assert.equal(canvasEdit.blockId, "c-main");
 assert.equal(setText.id, "s-box");
 assert.deepEqual(move.ids, ["s-box"]);
 

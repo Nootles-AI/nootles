@@ -112,8 +112,12 @@ function isChecked(el: Element): boolean {
 
 /** Inline children → typed runs, accumulating marks down the tree. */
 function runsOf(node: Node, marks: Mark[] = [], inLink = false): Run[] {
+  return runsOfNodes(Array.from(node.childNodes), marks, inLink);
+}
+
+function runsOfNodes(nodes: Node[], marks: Mark[] = [], inLink = false): Run[] {
   const out: Run[] = [];
-  node.childNodes.forEach((child) => {
+  nodes.forEach((child) => {
     if (child.nodeType === 3) {
       const text = child.textContent ?? "";
       // Marks the editor can hold together, and no others: read as written,
@@ -207,7 +211,7 @@ function normalizeRuns(runs: Run[]): Run[] {
   return out.filter((r) => r.type !== "text" || r.text.length > 0);
 }
 
-function elementToNode(el: Element, raw: string[]): DocNode | null {
+function elementToNode(el: Element, raw: string[], opts: ParseOptions): DocNode | null {
   const tag = canonicalTag(el.tagName);
   const id = idOf(el);
 
@@ -230,13 +234,14 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
 
   if (tag === "details") {
     const summary = el.querySelector(":scope > summary");
-    const children = Array.from(el.children)
-      .filter((c) => c.tagName.toLowerCase() !== "summary")
-      .flatMap((c) =>
-        TRANSPARENT.has(c.tagName.toLowerCase())
-          ? elementsToNodes(c, raw)
-          : ([elementToNode(c, raw)].filter(Boolean) as DocNode[]),
-      );
+    const children = walk(
+      Array.from(el.childNodes).filter(
+        (c) => !(c.nodeType === 1 && (c as Element).tagName.toLowerCase() === "summary"),
+      ),
+      raw,
+      opts,
+      el,
+    );
     return {
       type: "toggleListItem",
       id,
@@ -275,7 +280,7 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
     // Nested <ul>/<ol> inside this item are its children.
     const children = Array.from(el.children)
       .filter((c) => ["ul", "ol"].includes(c.tagName.toLowerCase()))
-      .flatMap((list) => elementsToNodes(list, raw));
+      .flatMap((list) => elementsToNodes(list, raw, opts));
     const nested = children.length ? { children } : {};
 
     const checkbox = el.querySelector(':scope > input[type="checkbox"]');
@@ -369,27 +374,141 @@ function elementToNode(el: Element, raw: string[]): DocNode | null {
 /** Container elements we walk through rather than treat as blocks. */
 const TRANSPARENT = new Set(["ul", "ol", "div", "section", "article", "body"]);
 
-/** Children of `parent` as document nodes, descending through containers. */
-function elementsToNodes(parent: Element, raw: string[]): DocNode[] {
+/**
+ * Elements that hold words rather than blocks. Between blocks, a run of these
+ * (and the text around them) is a paragraph the model forgot to open.
+ */
+const INLINE = new Set([
+  ...Object.keys(TAG_TO_MARK),
+  "a", "span", "br", "input", "nt-math", "nt-ref", "nt-check",
+  "mark", "small", "sub", "sup", "label", "abbr", "cite", "q", "kbd", "var",
+  "samp", "time", "font", "bdi", "bdo", "data", "dfn", "wbr",
+]);
+
+/**
+ * Something the model wrote that no block could be made of (NT-95).
+ *
+ * The parser used to skip these without a word, so an edit made wholly of them
+ * compiled to nothing and was answered "the page already reads that way" — the
+ * model then told the user it had made a change nobody could see. Collected
+ * here so the write path can say what it left out.
+ */
+export type Dropped = {
+  /** Canonical tag name, or `#text` for words standing between blocks. */
+  tag: string;
+  id?: string;
+  /** The first words it held, for the model to recognise it by. */
+  text: string;
+  /** Words written straight inside a container that carries a block's id. */
+  loose?: true;
+};
+
+export type ParseOptions = {
+  /** Filled with everything the parse could not make a block of. */
+  dropped?: Dropped[];
+  /**
+   * Words between blocks — bare text, `<span>`, `<strong>` — become a paragraph
+   * rather than nothing. For HTML a model wrote; a page's own projection never
+   * has any, and the completion lanes parse partial streams where a stray run
+   * is a block still being written.
+   */
+  wrapLoose?: boolean;
+};
+
+const DROPPED_TEXT = 40;
+
+function glimpse(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > DROPPED_TEXT ? `${flat.slice(0, DROPPED_TEXT).trimEnd()}…` : flat;
+}
+
+function runsText(runs: Run[]): string {
+  return runs
+    .map((r) =>
+      r.type === "text" ? r.text
+      : r.type === "link" ? r.content.map((c) => c.text).join("")
+      : r.type === "pageRef" ? r.title
+      : r.type === "math" ? r.latex
+      : "☐",
+    )
+    .join("");
+}
+
+/**
+ * Child nodes of `holder` as document nodes, descending through containers.
+ * Text nodes are walked too: words standing between blocks are either wrapped
+ * into a paragraph or reported, never lost without a trace.
+ */
+function walk(nodes: Node[], raw: string[], opts: ParseOptions, holder: Element): DocNode[] {
   const out: DocNode[] = [];
-  Array.from(parent.children).forEach((el) => {
-    if (TRANSPARENT.has(el.tagName.toLowerCase())) {
-      out.push(...elementsToNodes(el, raw));
+  let loose: Node[] = [];
+  // Words straight inside `<div id="B3">` are that block rewritten, not a new
+  // paragraph beside it; wrapping them would duplicate B3's words instead.
+  const holderTag = holder.tagName.toLowerCase();
+  const holderId = holderTag !== "body" && TRANSPARENT.has(holderTag) ? idOf(holder) : undefined;
+
+  const flush = () => {
+    const run = loose;
+    loose = [];
+    if (!run.length) return;
+    const content = normalizeRuns(runsOfNodes(run));
+    if (!content.length) return;
+    if (opts.wrapLoose && !holderId) {
+      out.push({ type: "paragraph", content });
       return;
     }
-    const node = elementToNode(el, raw);
-    if (node) out.push(node);
-  });
+    opts.dropped?.push(
+      holderId
+        ? { tag: holderTag, id: holderId, text: glimpse(runsText(content)), loose: true }
+        : { tag: "#text", text: glimpse(runsText(content)) },
+    );
+  };
+
+  for (const node of nodes) {
+    if (node.nodeType === 3) {
+      loose.push(node);
+      continue;
+    }
+    if (node.nodeType !== 1) continue;
+    const el = node as Element;
+    const tag = canonicalTag(el.tagName);
+    if (INLINE.has(tag)) {
+      // A line break between loose words ends the paragraph they make.
+      if (tag === "br") flush();
+      // An id on a word-holding element names a block it cannot be; kept as
+      // loose words it would add a copy of that block's text beside it.
+      else if (idOf(el)) {
+        flush();
+        opts.dropped?.push({ tag, id: idOf(el), text: glimpse(textOf(el)) });
+      } else loose.push(el);
+      continue;
+    }
+    flush();
+    if (TRANSPARENT.has(tag)) {
+      out.push(...elementsToNodes(el, raw, opts));
+      continue;
+    }
+    const block = elementToNode(el, raw, opts);
+    if (block) out.push(block);
+    else opts.dropped?.push({ tag, ...(idOf(el) ? { id: idOf(el) } : {}), text: glimpse(textOf(el)) });
+  }
+  flush();
   return out;
+}
+
+/** Children of `parent` as document nodes, descending through containers. */
+function elementsToNodes(parent: Element, raw: string[], opts: ParseOptions): DocNode[] {
+  return walk(Array.from(parent.childNodes), raw, opts, parent);
 }
 
 export function parseDocHtml(
   html: string,
   parseHtml: ParseHtml = defaultParseHtml,
+  opts: ParseOptions = {},
 ): DocNode[] {
   const { html: safe, raw } = extractRawText(html);
   // Wrap explicitly: given a bare fragment, DOM implementations disagree about
   // whether content lands in <body> or at the document root.
   const doc = parseHtml(`<!DOCTYPE html><html><body>${safe}</body></html>`);
-  return elementsToNodes(doc.body, raw);
+  return elementsToNodes(doc.body, raw, opts);
 }

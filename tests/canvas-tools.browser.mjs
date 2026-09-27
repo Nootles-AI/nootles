@@ -287,17 +287,55 @@ try {
   await accept();
   check("one push for the whole restyle — one shared spine entry once kept", (await spine()).undo, true);
 
-  lastLabel = "set_text lands as one entry and renders";
-  console.log("set_text lands as one entry and renders");
+  lastLabel = "canvas_edit: three ops are one call, one hunk, one ⌘Z";
+  console.log("canvas_edit: three ops are one call, one hunk, one ⌘Z");
   await fresh();
   const id3 = await blockId();
   await watchHistory();
-  await run("set_text", { pageId: "page", blockId: id3, id: "s1", text: "Confirmed" });
-  check("a pending set_text pushes no canvas-local history entry", await pushCount(), 0);
-  const label = await h(() => document.querySelector('[data-id="s1"]')?.textContent ?? "");
-  checkTrue("the shape renders the new text", label.includes("Confirmed"));
+  const textOf = (shape) => h(({ shape }) => document.querySelector(`[data-id="${shape}"]`)?.textContent ?? "", { shape });
+  const p1Before = await domRect("p1");
+  const edited = await run("canvas_edit", {
+    pageId: "page",
+    blockId: id3,
+    ops: [
+      { op: "set_text", id: "s1", text: "Confirmed" },
+      { op: "set_text", id: "s2", text: "Shipped" },
+      { op: "move", ids: ["p1"], dx: -20 },
+    ],
+  });
+  checkTrue("the answer counts three edits as one change", edited.startsWith("Done: 3 edits, as one change."));
+  const snap3 = await snapshot();
+  check("one review turn, one hunk for all three", [snap3.length, snap3.at(-1).pages[0].hunks.length], [1, 1]);
+  check("a pending canvas_edit pushes no canvas-local history entry", await pushCount(), 0);
+  checkTrue("s1 renders its new words", (await textOf("s1")).includes("Confirmed"));
+  checkTrue("s2 renders its new words", (await textOf("s2")).includes("Shipped"));
+  check("p1 is drawn 20px to the left", Math.round(p1Before.x - (await domRect("p1")).x), 20);
   await accept();
-  check("one push for set_text — one shared spine entry once kept", (await spine()).undo, true);
+  check("one shared spine entry once kept", (await spine()).undo, true);
+  await undo();
+  check(
+    "one ⌘Z takes back all three",
+    [await textOf("s1"), await textOf("s2"), Math.round((await domRect("p1")).x - p1Before.x)],
+    ["Order", "Ship", 0],
+  );
+  await redo();
+  checkTrue("⌘⇧Z brings all three back", (await textOf("s2")).includes("Shipped"));
+
+  lastLabel = "a canvas_edit with one refused op changes nothing";
+  console.log("a canvas_edit with one refused op changes nothing");
+  await fresh();
+  const id3b = await blockId();
+  const refusedEdit = await run("canvas_edit", {
+    pageId: "page",
+    blockId: id3b,
+    ops: [
+      { op: "set_text", id: "s1", text: "Confirmed" },
+      { op: "move", ids: ["c1"], dx: 10 },
+    ],
+  });
+  checkTrue("the refusal names the op", refusedEdit.includes("Edit 2 (move) was refused"));
+  check("nothing was staged", (await snapshot()).length, 0);
+  check("s1 still reads as it did", await textOf("s1"), "Order");
 
   lastLabel = "camera is untouched by an on-screen write";
   console.log("camera is untouched by an on-screen write");
