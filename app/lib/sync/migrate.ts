@@ -6,6 +6,7 @@ import { prosemirrorToYDoc } from "y-prosemirror";
 import * as Y from "yjs";
 import { api } from "@/convex/_generated/api";
 import { nodeFromSnapshot } from "@/app/lib/ai/snapshot";
+import { normalizeDiagramsInDoc } from "./diagramBand";
 
 /**
  * Moving one document from the legacy pipeline to Yjs, lazily, on first open
@@ -27,10 +28,12 @@ function encode(doc: Y.Doc): ArrayBuffer {
  * Exported because content is also built on the client where there is nothing
  * to migrate — first run assembles its seeded pages before any document
  * exists — and a doc born through a different conversion is a doc that reads
- * differently.
+ * differently. Its diagrams are born as bands, as the server's one-time pass
+ * would have left them (`diagramBand.ts`).
  */
 export function yUpdateFrom(node: Node): ArrayBuffer {
   const doc = prosemirrorToYDoc(node, "prosemirror");
+  normalizeDiagramsInDoc(doc, (html) => new DOMParser().parseFromString(html, "text/html"));
   const update = encode(doc);
   doc.destroy();
   return update;

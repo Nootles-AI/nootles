@@ -553,8 +553,10 @@ export const TOOLS = {
     mutates: false,
     surfaces: ["chat", "mcp"],
     description:
-      "Where everything on a diagram is: every shape's box in canvas pixels " +
-      "after layout — x, y, w, h from the top-left, rot in degrees — with its " +
+      "Where everything on a diagram is: every shape's box in page pixels " +
+      "after layout — x, y, w, h from the diagram's origin: x=0 is the text's " +
+      "left edge (so x is negative on a wide diagram) and y=0 the diagram's " +
+      "top; rot in degrees — with its " +
       "kind, name, parent and depth, and the points each connector runs " +
       "through, one line each under a header naming the columns. This is the one place to learn positions: the x/y in the HTML " +
       "are relative to the parent, and inside a flex or grid group they are " +
@@ -619,7 +621,9 @@ export const TOOLS = {
       "Change a few shapes on a diagram without rewriting it. Send <nt-…> " +
       "elements in the canvas grammar. An element WITH an id the diagram has " +
       "rewrites that shape in place — its box, rotation, style, label, and " +
-      "for a group the children you list (children you leave out stay). An " +
+      "for a group the children you list. Children you leave out stay in " +
+      "it; a new box on a plain or boolean group stretches them with it, as " +
+      "a hand resize does, and a flex or grid group re-flows them. An " +
       "element WITHOUT an id is a new shape, placed after the previous " +
       "element you sent, or where `at` says. An id the diagram does not have " +
       "is a new shape under that id, which is how an <nt-edge> can name one " +
@@ -687,8 +691,8 @@ export const TOOLS = {
     mutates: true,
     surfaces: ["chat", "mcp"],
     description:
-      "Relabel, rename, duplicate, move, delete, reorder, group or ungroup " +
-      "shapes on a diagram, by id. Send every such change to one diagram as " +
+      "Relabel, rename, duplicate, move, delete, reorder, group, ungroup or " +
+      "flip shapes on a diagram, by id. Send every such change to one diagram as " +
       "ONE call: the ops apply in the order you write them, each to the " +
       "diagram the ones before it left, and land as one change the user keeps " +
       "or discards. If any op is refused, none is applied. A shape's box or " +
@@ -783,6 +787,18 @@ export const TOOLS = {
             z
               .object({ op: z.literal("ungroup"), ids: z.array(z.string()).min(1) })
               .describe("Dissolve groups, their children kept where they are on screen."),
+            z
+              .object({
+                op: z.literal("flip"),
+                ids: z.array(z.string()).min(1),
+                axis: z.enum(["horizontal", "vertical"]),
+              })
+              .describe(
+                "Mirror shapes in place, as Figma's Flip horizontal / vertical: " +
+                  "together about the centre of their bounds, each one's rotation " +
+                  "and drawing (a path, an arc, a group's children) mirrored with " +
+                  "it. Words stay readable; connectors follow their shapes.",
+              ),
           ]),
         )
         .min(1),

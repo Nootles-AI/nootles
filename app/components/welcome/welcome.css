@@ -58,13 +58,13 @@
 
 /* The sheet comes forward as the rest goes back. A shade, not a leap: it is
    settling into place, not being presented. */
-.nt-wc.is-committing .nt-sheet {
+.nt-wc.is-committing .nt-miniature {
   transform: scale(1.012);
   transition: transform 540ms var(--ease);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .nt-wc.is-committing .nt-sheet {
+  .nt-wc.is-committing .nt-miniature {
     transform: none;
   }
 }
@@ -409,7 +409,7 @@
 }
 
 /* ---- The desk ----------------------------------------------------------
-   The sheet itself is `.nt-sheet` in `globals.css` — the door shows the same
+   The sheet itself is `.nt-miniature` in `globals.css` — the door shows the same
    picture, and a person signing in sees the two back to back.
 
    Everything on this side is drawn from two numbers: the width the document is

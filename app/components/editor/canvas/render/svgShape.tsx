@@ -26,7 +26,9 @@ import { unitPolygon } from "../scene/geometry";
 import { DRAWN_INK, DRAWN_STROKE_WIDTH, paintOf } from "../scene/paint";
 import { clipsToShape, pathPaintDecls, shadowFilterOf, shapeGeometry } from "../scene/shapePaint";
 import { roundedPolygon, scaled, straight, vertexRadius } from "../scene/outline";
-import type { SceneNode, StyleMap } from "../scene/types";
+import { clipperReady, derivedPath } from "../scene/boolean";
+import { resizedNode } from "../scene/stretch";
+import { isBoolean, type GroupNode, type SceneNode, type StyleMap } from "../scene/types";
 
 /**
  * The shape sits *behind* the node's label. The box's `transform` makes it a
@@ -170,12 +172,15 @@ export interface ShapeWriter {
  * vertex sits on the origin.
  *
  * So a polygon is re-emitted per frame either way. It is the same work the
- * commit does, and it is one attribute write.
+ * commit does, and it is one attribute write. A boolean is re-cut from its
+ * stretched operands for the same reason: a rounded or turned operand does not
+ * stretch as its drawing would.
  */
 export function shapeWriter(
   node: SceneNode,
-  el: HTMLElement,
+  el: HTMLElement | SVGElement,
 ): ShapeWriter | null {
+  if (isBoolean(node)) return booleanWriter(node, el);
   if (node.kind !== "polygon") return null;
   const authored = node.style["border-radius"];
   const svg = el.querySelector(":scope > svg");
@@ -204,6 +209,25 @@ export function shapeWriter(
       svg.setAttribute("viewBox", was.viewBox);
       path.setAttribute("d", was.d);
       if (was.clip) el.style.clipPath = was.clip;
+    },
+  };
+}
+
+/** A boolean's cut, as the `resize` op will leave it: from its operands stretched with the box. */
+function booleanWriter(node: GroupNode, el: HTMLElement | SVGElement): ShapeWriter | null {
+  const path = el.querySelector("path");
+  if (!path || !clipperReady()) return null;
+  const was = { viewBox: el.getAttribute("viewBox") ?? "", d: path.getAttribute("d") ?? "" };
+  return {
+    write(w, h) {
+      const d = derivedPath(resizedNode(node, { x: node.x, y: node.y, w, h }) as GroupNode);
+      if (d === null) return;
+      el.setAttribute("viewBox", `0 0 ${w || 1} ${h || 1}`);
+      path.setAttribute("d", d);
+    },
+    restore() {
+      el.setAttribute("viewBox", was.viewBox);
+      path.setAttribute("d", was.d);
     },
   };
 }

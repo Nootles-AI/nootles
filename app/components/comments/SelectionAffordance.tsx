@@ -3,6 +3,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import type { EditorView } from "prosemirror-view";
+import { ZOOM_EVENT } from "@/app/lib/docZoom";
 import { Comment } from "../Icons";
 import type { CommentableSelection, SelectedWords } from "./useCommentableSelection";
 
@@ -44,9 +45,11 @@ export function SelectionAffordance({
     place();
     window.addEventListener("scroll", place, true);
     window.addEventListener("resize", place);
+    window.addEventListener(ZOOM_EVENT, place);
     return () => {
       window.removeEventListener("scroll", place, true);
       window.removeEventListener("resize", place);
+      window.removeEventListener(ZOOM_EVENT, place);
     };
   }, [view, selection]);
 

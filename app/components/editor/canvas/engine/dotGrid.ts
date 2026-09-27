@@ -11,10 +11,10 @@ const KEY = "nt:canvasGrid";
 
 function stored(): boolean {
   try {
-    return localStorage.getItem(KEY) !== "off";
+    return localStorage.getItem(KEY) === "on";
   } catch {
-    // Storage refused, or no window at all: the default, which is on.
-    return true;
+    // Storage refused, or no window at all: the default, which is off.
+    return false;
   }
 }
 

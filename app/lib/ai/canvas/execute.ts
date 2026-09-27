@@ -1,12 +1,14 @@
 import type { z } from "zod";
+import { fitOps } from "@/app/components/editor/canvas/scene/band";
+import { applyOps } from "@/app/components/editor/canvas/scene/ops";
 import { parseFragment } from "@/app/components/editor/canvas/scene/parse";
-import type { NodeId, Scene } from "@/app/components/editor/canvas/scene/types";
+import type { NodeId, Scene, SceneOp } from "@/app/components/editor/canvas/scene/types";
 import { geometryReport, geometryText, shapeRows } from "./geometry";
 import { isRefusal, type CanvasHost, type CanvasRead, type WriteReceipt } from "./host";
 import { stylesReport } from "./styles";
 import { planUpdateStyles, type StylePatchInput } from "./updateStyles";
 import { planEdits, type Verb } from "./verbs";
-import { planWriteNodes, summarize, type Anchor } from "./writeNodes";
+import { fitNotes, planWriteNodes, summarize, type Anchor } from "./writeNodes";
 import { compileToHtml } from "../html/toHtml";
 import { AI } from "../aiConfig";
 import { TOOLS, type CanvasToolName } from "../chat/tools";
@@ -105,12 +107,12 @@ export async function runCanvasTool(
     case "update_styles": {
       const plan = planUpdateStyles(read.scene, parsed.patches as StylePatchInput[]);
       if (isRefusal(plan)) return plan.refused;
-      return landWrite(
-        host,
-        read,
-        plan.next,
-        () =>
+      const { next, notes } = fitted(read, plan.next);
+      return landWrite(host, read, next, () =>
+        [
           `Done: ${plan.touched.length} shape${plan.touched.length === 1 ? "" : "s"} restyled (${plan.touched.join(", ")}). The user reviews this and may discard it.`,
+          ...notes,
+        ].join("\n"),
       );
     }
 
@@ -118,11 +120,39 @@ export async function runCanvasTool(
       const { ops } = parsed as z.infer<(typeof TOOLS)["canvas_edit"]["inputSchema"]>;
       const plan = planEdits(read.scene, ops satisfies Verb[]);
       if (isRefusal(plan)) return plan.refused;
-      return landWrite(host, read, plan.next, () =>
-        [plan.summary, ...(plan.notes ?? []), "The user reviews this and may discard it."].join("\n"),
+      const { next, notes } = fitted(read, plan.next);
+      return landWrite(host, read, next, () =>
+        [plan.summary, ...(plan.notes ?? []), ...notes, "The user reviews this and may discard it."].join("\n"),
       );
     }
   }
+}
+
+/**
+ * A `canvas_edit` or a restyle can push shapes past the band as surely as
+ * `write_nodes` can, so it lands fitted the same way. A plan that changed
+ * nothing stays the scene as read, so the no-op check below still sees it.
+ */
+function fitted(read: CanvasRead, next: Scene): { next: Scene; notes: string[] } {
+  if (next === read.scene) return { next, notes: [] };
+  const fit = fitOps(next);
+  const landed = applyOps(next, fit);
+  return { next: landed, notes: [...fitNotes(fit, landed), ...shiftNotes(fit)] };
+}
+
+/**
+ * A nudge back inside the band, said. `write_nodes` answers with the fitted
+ * geometry and needs none of this; `canvas_edit` answers with where it put things,
+ * and left unsaid the model goes on believing coordinates the page no longer
+ * has.
+ */
+function shiftNotes(fit: readonly SceneOp[]): string[] {
+  const px = (n: number) => Number(n.toFixed(2));
+  return fit.flatMap((op) =>
+    op.type === "move"
+      ? [`The whole drawing then moved by (${px(op.dx)}, ${px(op.dy)}) to stay inside the diagram.`]
+      : [],
+  );
 }
 
 /** The columns of a write's tail, as `get_geometry` names them. */

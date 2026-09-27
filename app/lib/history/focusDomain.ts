@@ -6,8 +6,9 @@ import type { DomainStep, UndoDomain, WorkspaceHistory } from "./spine";
  * Entries hold whole before/after descriptors rather than deltas — focus is
  * small and absolute, and applying a descriptor must work from any state the
  * surface has drifted to since. Consecutive focus changes collapse into one
- * entry while the newest is still the spine's global top, so clicking through
- * five cards on the way somewhere costs one step back, not five.
+ * entry while the newest is still the spine's global top, alone, so clicking
+ * through five cards on the way somewhere costs one step back, not five — a
+ * batch that records nothing else folds the same way when it closes.
  *
  * The descriptor owns its own geography: `apply` navigates to whatever page
  * the state lives on, so the domain registers with no page of its own.
@@ -26,14 +27,20 @@ export class FocusDomain<T> implements UndoDomain {
 
   record(before: T, after: T): void {
     if (this.applying) return;
-    const top = this.spine.top();
     const newest = this.past[this.past.length - 1];
-    if (newest && top?.domain === this.id && top.kind === "focus") {
+    if (newest && this.spine.foldsInto(this.id)) {
       newest.after = after;
       return;
     }
     this.past.push({ before, after });
     this.spine.record(this.id, "focus");
+  }
+
+  fold(): boolean {
+    if (this.past.length < 2) return false;
+    const newer = this.past.pop()!;
+    this.past[this.past.length - 1].after = newer.after;
+    return true;
   }
 
   undo(): DomainStep {

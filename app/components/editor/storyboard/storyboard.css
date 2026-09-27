@@ -22,9 +22,9 @@
   align-items: start;
 }
 
-/* The width grip — the canvas block's, on the board's own right edge. Widening
-   is how the column count changes: the shots scale until the width crosses a
-   boundary, then snap to the new count. */
+/* The width grip, on the board's own right edge. Widening is how the column
+   count changes: the shots scale until the width crosses a boundary, then snap
+   to the new count. */
 .nt-sb-grip {
   position: absolute;
   top: 0;
@@ -118,6 +118,12 @@
 .nt-sb-shot.is-active > .nt-canvas-shot {
   border-color: var(--border-strong);
 }
+/* Held, a shot shows its dots — the tile the bar speaks for, or the full-size
+   view while it is open for drawing. */
+.nt-sb-shot.is-active > .nt-canvas-shot .nt-canvas-grid,
+.nt-sb-full[data-editable] .nt-canvas-shot .nt-canvas-grid {
+  opacity: 1;
+}
 
 .nt-sb-num {
   padding-top: 6px;
@@ -180,13 +186,13 @@
  *
  * Full size means the document's room, not the window's. A shot opened this way
  * is still being edited — the layers and design rails are turned over to it —
- * so it stops at the column's edges (`--nt-stage-*`, which it follows — `app/lib/columnEdges.ts`) and
+ * so it stops at the column's edges (`--nt-col-*`, which it follows — `app/lib/columnEdges.ts`) and
  * leaves the rails beside it standing. Without them, it is a lightbox for a
  * drawing you cannot change.
  */
 .nt-sb-full {
   position: fixed;
-  inset: 0 var(--nt-stage-r, 0px) 0 var(--nt-stage-l, 0px);
+  inset: 0 var(--nt-col-r, 0px) 0 var(--nt-col-l, 0px);
   z-index: var(--z-modal);
   display: flex;
   flex-direction: column;

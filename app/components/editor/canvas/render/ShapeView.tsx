@@ -61,6 +61,8 @@ export interface ShapeViewProps {
    * Absent on a read-only surface, where a solo chip just navigates.
    */
   onEditOpen?: (id: NodeId) => void;
+  /** Enter or Escape closed the label: the keyboard goes back to the diagram. */
+  onEditKeyEnd?: () => void;
   /**
    * The box the browser gave a text sized by its own words (`width:
    * max-content`, `height: auto`), reported so the model can hold it.
@@ -87,6 +89,7 @@ export const ShapeView = memo(function ShapeView({
   onEditEnd,
   onEditLive,
   onEditOpen,
+  onEditKeyEnd,
   onMeasure,
   flow: slot,
 }: ShapeViewProps) {
@@ -164,6 +167,7 @@ export const ShapeView = memo(function ShapeView({
           label={node.label}
           onEnd={(label) => onEditEnd?.(node.id, label)}
           onLive={onEditLive && ((label) => onEditLive(node.id, label))}
+          onKeyEnd={onEditKeyEnd}
         />
       ) : hasText(node) ? (
         <LabelContent
@@ -185,6 +189,7 @@ export const ShapeView = memo(function ShapeView({
               onEditEnd={onEditEnd}
               onEditLive={onEditLive}
               onEditOpen={onEditOpen}
+              onEditKeyEnd={onEditKeyEnd}
               onMeasure={onMeasure}
             />
           ))

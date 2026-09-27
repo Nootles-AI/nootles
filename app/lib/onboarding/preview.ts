@@ -112,17 +112,3 @@ export function examplePage(template: Template): AnyBlock[] {
     },
   ];
 }
-
-/**
- * The height the diagram declares for itself, so its box is the size of the
- * drawing rather than a number chosen for a thumbnail.
- *
- * `ScenePreview` fits its content to whatever box it is given: too short and
- * the drawing shrinks away from its own labels, too late and it resizes after
- * the page has settled. Handing it the authored height makes the fit an
- * identity and both problems stop existing.
- */
-export function declaredHeight(html: string): number | undefined {
-  const found = /<nt-diagram[^>]*\bh="(\d+(?:\.\d+)?)"/i.exec(html);
-  return found ? Number(found[1]) : undefined;
-}

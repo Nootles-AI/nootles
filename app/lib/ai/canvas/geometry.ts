@@ -1,4 +1,5 @@
 import { laidOutScene, layoutModeOf } from "@/app/components/editor/canvas/scene/autoLayout";
+import { bandHeight, bandLeft, bandWidth } from "@/app/components/editor/canvas/scene/band";
 import { edgePoints, polylineMidpoint } from "@/app/components/editor/canvas/scene/edgePath";
 import { absoluteBounds, absoluteRect, absoluteRotation } from "@/app/components/editor/canvas/scene/geometry";
 import {
@@ -53,7 +54,9 @@ export type EdgeGeometry = {
 };
 
 export type GeometryReport = {
-  diagram: { w: number; h: number };
+  /** The band the shapes sit in: its left edge (negative when wide), width
+   *  and drawn height, all in the same px as the boxes. */
+  diagram: { x: number; w: number; h: number };
   nodes: NodeGeometry[];
   edges: EdgeGeometry[];
   omitted?: number;
@@ -133,7 +136,7 @@ export function geometryReport(
   }
 
   return {
-    diagram: { w: laid.w, h: laid.h },
+    diagram: { x: bandLeft(scene), w: bandWidth(scene), h: bandHeight(scene) },
     nodes,
     edges,
     ...(omitted ? { omitted } : {}),
@@ -151,7 +154,7 @@ export function geometryReport(
 export function geometryText(report: GeometryReport): string {
   const { diagram, nodes, edges, omitted } = report;
   const lines = [
-    `diagram ${diagram.w}×${diagram.h}. Canvas pixels from its top-left; rot in degrees; parent - is the top level.`,
+    `diagram ${diagram.w}×${diagram.h}${diagram.x ? ` from x=${diagram.x}` : ""}. Canvas pixels, x=0 at the text's left edge and y=0 the diagram's top; rot in degrees; parent - is the top level.`,
     ...(nodes.length ? [SHAPE_COLUMNS, ...shapeRows(nodes)] : ["no shapes"]),
   ];
   if (edges.length) {

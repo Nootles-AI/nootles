@@ -6,9 +6,10 @@ import {
 } from "prosemirror-state";
 import { Decoration, DecorationSet, type EditorView } from "prosemirror-view";
 import type { Batch } from "@/convex/ai/operations";
-import { sceneSummary } from "./ScenePreview";
+import { diagramPhase, phaseWord, type DiagramPhase } from "./diagramGhost";
 import {
-  diagramSkeleton,
+  diagramGhostElement,
+  updateDiagramGhost,
   keyChip,
   disposePreview,
   ghostBlocksElement,
@@ -162,7 +163,13 @@ function metaDispatch(view: EditorView, value: Suggestion) {
  * belongs at the end of those instead. `tab` = once settled, the Tab key shows
  * beside the cursor; false when something else (a preview head) already says it.
  */
-function ghostWidget(source: string, live = false, head = true, tab = head) {
+function ghostWidget(
+  source: string,
+  live = false,
+  head = true,
+  tab = head,
+  phase?: DiagramPhase,
+) {
   return () => {
     const span = document.createElement("span");
     span.className = "nt-ghost";
@@ -179,8 +186,61 @@ function ghostWidget(source: string, live = false, head = true, tab = head) {
       if (live) text.classList.add("is-live");
       else if (tab) span.appendChild(keyChip("Tab"));
     }
+    const status = phase && statusEl(phase);
+    if (status) span.appendChild(status);
     return span;
   };
+}
+
+/**
+ * What a diagram suggestion is doing, said at the caret — where the prose
+ * ghost says it — rather than in a head line over the drawing: the band below
+ * is left to be nothing but the diagram. A word while the model works; once it
+ * is done, the two keys that answer it. Tab alone wears the accent, since only
+ * Tab takes what the model is offering. While it plans the caret says nothing
+ * past its pulse; the empty band below carries the words.
+ */
+function statusEl(phase: DiagramPhase): HTMLElement | null {
+  if (phase === "thinking") return null;
+  const el = document.createElement("span");
+  el.className = "nt-ghost-status";
+  const word = phaseWord(phase);
+  if (word) {
+    el.appendChild(document.createTextNode(word));
+    return el;
+  }
+  el.appendChild(keyChip("Tab"));
+  el.appendChild(document.createTextNode(" to insert "));
+  const esc = keyChip("Esc");
+  esc.classList.add("is-quiet");
+  el.appendChild(esc);
+  el.appendChild(document.createTextNode(" to dismiss"));
+  return el;
+}
+
+/** The status on its own, for a diagram with no prose before it: the caret it would follow, and the words. */
+function statusWidget(phase: DiagramPhase) {
+  return () => {
+    const span = document.createElement("span");
+    span.className = "nt-ghost";
+    if (phase !== "waiting") {
+      const head = document.createElement("span");
+      head.className = "nt-stream-head is-live";
+      span.appendChild(head);
+    }
+    const status = statusEl(phase);
+    if (status) span.appendChild(status);
+    return span;
+  };
+}
+
+/** Keeps a showing diagram ghost in step with its suggestion; its widget is kept, not rebuilt. */
+function syncDiagramGhost(view: EditorView) {
+  const s = ghostTextKey.getState(view.state) ?? null;
+  const phase = diagramPhase(s);
+  if (!phase || s?.kind !== "action") return;
+  const el = view.dom.querySelector(".nt-diagram-ghost");
+  if (el) updateDiagramGhost(el, phase, s.preview?.kind === "diagram" ? s.preview.source : null);
 }
 
 /** What the preview is, said in the head line the widget wears. */
@@ -190,8 +250,9 @@ function headOf(p: Preview): string {
       return p.language;
     case "math":
       return "math";
+    // Drawn as a ghost band, which says its state on the caret line instead.
     case "diagram":
-      return sceneSummary(p.source);
+      return "diagram";
     case "table": {
       const cols = p.rows[0]?.length ?? 0;
       return `${p.rows.length - (p.header ? 1 : 0)}×${cols} table`;
@@ -228,6 +289,7 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
         return prev;
       },
     },
+    view: () => ({ update: syncDiagramGhost }),
     props: {
       decorations(state): DecorationSet | null {
         const s = ghostTextKey.getState(state);
@@ -246,6 +308,40 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
 
         const decos: Decoration[] = [];
 
+        let after = s.pos;
+        try {
+          after = state.doc.resolve(s.pos).after();
+        } catch {
+          after = s.pos;
+        }
+
+        const phase = diagramPhase(s);
+        if (phase) {
+          const tail = s.tail?.trim() ? s.tail : "";
+          decos.push(
+            Decoration.widget(
+              s.pos,
+              tail ? ghostWidget(tail, phase !== "waiting", true, false, phase) : statusWidget(phase),
+              {
+                side: 1,
+                ignoreSelection: true,
+                key: `nt-diagram-status-${s.pos}-${phase}-${tail}`,
+              },
+            ),
+          );
+          const source = s.preview?.kind === "diagram" ? s.preview.source : null;
+          decos.push(
+            // Keyed on the place alone, so every chunk and every phase reuses
+            // this one element; `syncDiagramGhost` carries the changes into it.
+            Decoration.widget(after, () => diagramGhostElement(phase, source), {
+              side: 1,
+              key: `nt-diagram-ghost-${after}`,
+              destroy: disposePreview,
+            }),
+          );
+          return DecorationSet.create(state.doc, decos);
+        }
+
         // The prose half of the completion, shown at the caret exactly like a
         // plain ghost — the block preview below is the other half of the same
         // suggestion, and Tab accepts them together.
@@ -263,15 +359,6 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
               key: `nt-tail-${s.pos}-${s.tail}-${s.batch ? "r" : "s"}-${head ? "h" : ""}-${s.preview ? "p" : ""}`,
             }),
           );
-        }
-
-        // Everything below the caret's line lands just after the current block,
-        // which is exactly where accepting will put it.
-        let after = s.pos;
-        try {
-          after = state.doc.resolve(s.pos).after();
-        } catch {
-          after = s.pos;
         }
 
         // With a preview, render a faded version of the real thing just below
@@ -294,18 +381,6 @@ export function ghostTextPlugin(): Plugin<Suggestion> {
               // A diagram preview mounts the canvas renderer; this is the only
               // notice we get that the widget has gone.
               destroy: disposePreview,
-            }),
-          );
-        } else if (s.loading) {
-          // The box it will land in, in the place it will land, before there is
-          // anything to put in it — so the wait happens where the answer will
-          // appear rather than beside a chip that is about to be replaced.
-          decos.push(
-            Decoration.widget(after, () => diagramSkeleton("Drawing diagram…"), {
-              side: 1,
-              // Stable, so the pulse is not restarted by every keystroke's
-              // worth of suggestion state.
-              key: `nt-preview-loading-${after}`,
             }),
           );
         } else if (s.blocks?.length) {
@@ -386,7 +461,7 @@ export function setAction(
   // The user already hit Tab while this was loading — honour it now rather than
   // making them press it again. Either way of accepting will do: a finished
   // batch, or the first thing a still-generating suggestion can place. Without
-  // the second, a Tab pressed at the skeleton stayed queued for the whole of a
+  // the second, a Tab pressed while it was thinking stayed queued for the whole of a
   // diagram it was meant to cut short.
   if (armedAccept && (action.batch || action.onAccept)) {
     armedAccept = false;

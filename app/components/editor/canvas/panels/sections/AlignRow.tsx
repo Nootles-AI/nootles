@@ -1,19 +1,19 @@
 "use client";
 
 import { Tooltip } from "@/app/components/Tooltip";
-import { alignNodes, distributeNodes } from "../../scene/align";
+import { alignByNode, distributeByNode } from "../../scene/align";
 import {
   SHORTCUTS_BY_ID,
   shortcutHint,
   type ShortcutId,
 } from "../../engine/shortcuts";
 import { Align } from "../controls/glyphs";
-import type { Alignment, DistributeAxis, NodeId, Point } from "../../scene/types";
+import type { Alignment, DistributeAxis, Point, SceneNode } from "../../scene/types";
 import type { SectionProps } from "../StylePanel";
 import "../panel.css";
 
 /** The name and the key both come from the keymap table, so neither can drift. */
-const ALIGN: {
+export const ALIGN: {
   value: Alignment;
   id: ShortcutId;
   rule: string;
@@ -57,15 +57,15 @@ const ALIGN: {
   },
 ];
 
-const DISTRIBUTE: { value: DistributeAxis; label: string; bars: string }[] = [
+export const DISTRIBUTE: { value: DistributeAxis; id: ShortcutId; bars: string }[] = [
   {
     value: "horizontal",
-    label: "Distribute horizontally",
+    id: "align.distributeH",
     bars: "2,4,3,8 6.5,4,3,8 11,4,3,8",
   },
   {
     value: "vertical",
-    label: "Distribute vertically",
+    id: "align.distributeV",
     bars: "4,2,8,3 4,6.5,8,3 4,11,8,3",
   },
 ];
@@ -80,15 +80,29 @@ const DISTRIBUTE: { value: DistributeAxis; label: string; bars: string }[] = [
  * have exactly one gap. Below those counts the buttons are disabled rather
  * than appearing to promise something they cannot do.
  */
-export function AlignRow({ selection, patch }: SectionProps) {
-  const move = (moves: Map<NodeId, Point>) =>
+export function AlignRow({
+  selection,
+  patch,
+  across = false,
+}: SectionProps & {
+  /**
+   * The selection spans diagrams. They share the column's x, so a left edge
+   * means the same thing in each; each has its own top, and a vertical
+   * alignment would mean nothing across a paragraph — and could push a shape
+   * above its own band.
+   */
+  across?: boolean;
+}) {
+  const move = (moves: Map<SceneNode, Point>) =>
     patch((node) => {
-      const to = moves.get(node.id);
+      const to = moves.get(node);
       return to ? { x: to.x, y: to.y } : {};
     });
 
   const canAlign = selection.length > 1;
   const canDistribute = selection.length > 2;
+  const vertical = (value: Alignment | DistributeAxis) =>
+    value === "top" || value === "vcenter" || value === "bottom" || value === "vertical";
 
   return (
     <div className="nt-align-strip" role="group" aria-label="Align and distribute">
@@ -101,9 +115,9 @@ export function AlignRow({ selection, patch }: SectionProps) {
           >
             <button
               className="nt-icon-btn is-sm"
-              disabled={!canAlign}
+              disabled={!canAlign || (across && vertical(a.value))}
               aria-label={SHORTCUTS_BY_ID[a.id].label}
-              onClick={() => move(alignNodes(selection, a.value))}
+              onClick={() => move(alignByNode(selection, a.value))}
             >
               <Align rule={a.rule} bars={a.bars} />
             </button>
@@ -112,12 +126,12 @@ export function AlignRow({ selection, patch }: SectionProps) {
       </div>
       <div className="nt-align-group">
         {DISTRIBUTE.map((d) => (
-          <Tooltip key={d.value} label={d.label}>
+          <Tooltip key={d.value} label={SHORTCUTS_BY_ID[d.id].label} hint={shortcutHint(d.id)}>
             <button
               className="nt-icon-btn is-sm"
-              disabled={!canDistribute}
-              aria-label={d.label}
-              onClick={() => move(distributeNodes(selection, d.value))}
+              disabled={!canDistribute || (across && vertical(d.value))}
+              aria-label={SHORTCUTS_BY_ID[d.id].label}
+              onClick={() => move(distributeByNode(selection, d.value))}
             >
               <Align bars={d.bars} />
             </button>

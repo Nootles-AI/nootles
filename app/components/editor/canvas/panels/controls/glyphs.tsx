@@ -547,3 +547,18 @@ export function Flatten(props: Props) {
     </Line>
   );
 }
+
+/* ---- Flip ---------------------------------------------------------------- */
+
+/** A shape and its mirror image across the rule, drawn left to right; `y` turns it a quarter. */
+export function Flip({ axis, ...props }: Props & { axis: "x" | "y" }) {
+  return (
+    <Solid {...props}>
+      <g transform={axis === "y" ? "rotate(90 8 8)" : undefined}>
+        <path d="M8 1.5v13" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeDasharray="1.5 2" />
+        <path d="M6 3.5v9L1.5 12.5Z" />
+        <path d="M10 3.5v9l4.5 0Z" fillOpacity="0.5" />
+      </g>
+    </Solid>
+  );
+}

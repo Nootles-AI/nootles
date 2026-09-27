@@ -281,7 +281,7 @@ export const append = mutation({
       await judgeCommentsUpdate(ctx, args.docId, chunks, access.role);
     }
     const seq = await appendYUpdate(ctx, args.docId, chunks);
-    // Here rather than in `appendYUpdate`, which the NML migrator shares: this
+    // Here rather than in `appendYUpdate`, which the migrators share: this
     // is the one place a flush is known to be a person's. A comments append is
     // no edit of the page; its events are the notices' (`commentNotices`).
     if (access.channel === "document") await recordDocumentEdit(ctx, access);
@@ -355,11 +355,15 @@ async function judgeCommentsUpdate(
  * the canonical NML root through the exact same wire path an ordinary flush
  * uses — the NML root then rides the same snapshot/compaction/provider
  * machinery with no second sync channel. Callers own authorization first.
+ *
+ * A `quiet` append is nobody's edit — a server rewriting stored form — so it
+ * leaves the page's and the project's edited stamps where they were.
  */
 export async function appendYUpdate(
   ctx: MutationCtx,
   docId: string,
   chunks: ArrayBuffer[],
+  opts: { quiet?: boolean } = {},
 ): Promise<number> {
   const row = await ydocRow(ctx, docId);
   if (!row) throw new Error("Not a Yjs document");
@@ -383,7 +387,7 @@ export async function appendYUpdate(
   // channel), so a thread written is not the page edited.
   const page = await pageForDoc(ctx, docId);
   if (page) {
-    const touched = now - (page.updatedAt ?? 0) > TOUCH_EVERY_MS;
+    const touched = !opts.quiet && now - (page.updatedAt ?? 0) > TOUCH_EVERY_MS;
     if (touched || !page.yjs) {
       await ctx.db.patch(page._id, {
         ...(touched ? { updatedAt: now } : {}),
@@ -518,46 +522,62 @@ export const purge = internalMutation({
 });
 
 /**
- * A document's whole stored state, rebuilt — for the rare server read that
- * must know what a document says rather than relay its bytes. Null when there
- * is no such document, or when snapshot and log together outweigh one read.
+ * A document's whole update history as raw bytes — the snapshot's joined
+ * chunks, then every log update after it, in order — without building a
+ * Y.Doc, and the `seq` it was read at. Rebuilding and decoding a document near
+ * the size limits costs well over a hundred megabytes of heap, which an
+ * isolate cannot hold, so that is left to the Node actions this feeds
+ * (`nmlVerify.ts`, `diagramBand.ts`); reading bytes is cheap. `{ tooLarge }`
+ * when the history outweighs one read, `null` when there is no such document
+ * or its snapshot is torn.
  */
-export async function readYDoc(ctx: QueryCtx, docId: string): Promise<Y.Doc | null> {
+export async function readStoredUpdates(
+  ctx: QueryCtx,
+  docId: string,
+): Promise<{ seq: number; updates: ArrayBuffer[] } | { tooLarge: true } | null> {
   const row = await ydocRow(ctx, docId);
   if (!row) return null;
+  // Said by the row, so a snapshot too heavy to use is never read to find out.
+  if ((row.snapshotBytes ?? 0) > READ_BUDGET) return { tooLarge: true };
+  const updates: ArrayBuffer[] = [];
   let bytes = 0;
-  const chunks: Doc<"ySnapshots">[] = [];
   if (row.snapshotParts > 0) {
+    const chunks: ArrayBuffer[] = [];
     for await (const chunk of ctx.db
       .query("ySnapshots")
       .withIndex("by_doc_and_gen_and_part", (q) => q.eq("docId", docId).eq("gen", row.snapshotSeq))) {
       bytes += chunk.data.byteLength;
-      if (bytes > READ_BUDGET) return null;
-      chunks.push(chunk);
+      if (bytes > READ_BUDGET) return { tooLarge: true };
+      chunks.push(chunk.data);
     }
     // A short count means the row and its chunks disagree; half a snapshot is not a document.
     if (chunks.length !== row.snapshotParts) return null;
+    updates.push(joinBytes(chunks).buffer as ArrayBuffer);
   }
   const log: Doc<"yUpdates">[] = [];
   for await (const update of ctx.db
     .query("yUpdates")
     .withIndex("by_doc_and_seq", (q) => q.eq("docId", docId).gt("seq", row.snapshotSeq))) {
     bytes += update.update.byteLength;
-    if (bytes > READ_BUDGET) return null;
+    if (bytes > READ_BUDGET) return { tooLarge: true };
     log.push(update);
   }
-  const doc = new Y.Doc();
-  if (chunks.length) {
-    // Index order is part order; the chunks are slices of one update.
-    const whole = new Uint8Array(chunks.reduce((n, c) => n + c.data.byteLength, 0));
-    let at = 0;
-    for (const chunk of chunks) {
-      whole.set(new Uint8Array(chunk.data), at);
-      at += chunk.data.byteLength;
-    }
-    Y.applyUpdate(doc, whole);
+  for (const { update } of joinUpdateRows(log)) {
+    updates.push(update.buffer.slice(update.byteOffset, update.byteOffset + update.byteLength) as ArrayBuffer);
   }
-  for (const u of joinUpdateRows(log)) Y.applyUpdate(doc, u.update);
+  return { seq: row.seq, updates };
+}
+
+/**
+ * A document's whole stored state, rebuilt — for the rare server read that
+ * must know what a document says rather than relay its bytes. Null when there
+ * is no such document, or when snapshot and log together outweigh one read.
+ */
+export async function readYDoc(ctx: QueryCtx, docId: string): Promise<Y.Doc | null> {
+  const stored = await readStoredUpdates(ctx, docId);
+  if (!stored || "tooLarge" in stored) return null;
+  const doc = new Y.Doc();
+  for (const update of stored.updates) Y.applyUpdate(doc, new Uint8Array(update));
   return doc;
 }
 

@@ -443,3 +443,32 @@ export function polylineMidpoint(points: readonly Point[]): Point {
   }
   return points[points.length - 1];
 }
+
+/** One connector as it is drawn: its path data, and where its label sits. */
+export interface DrawnEdge {
+  edge: SceneEdge;
+  d: string;
+  at: Point;
+}
+
+const DRAWN = new WeakMap<Scene, readonly DrawnEdge[]>();
+
+/**
+ * Every connector of `scene` as the canvas draws it — the one derivation of a
+ * connector's pixels. The renderer draws it; a gesture's end writes it back
+ * over whatever the gesture drew live, so the two can never disagree. A
+ * connector naming a node that is not there is kept in the file — the author
+ * can still fix it — but there is nothing to draw between.
+ */
+export function drawnEdges(scene: Scene): readonly DrawnEdge[] {
+  const cached = DRAWN.get(scene);
+  if (cached) return cached;
+  // One pass over the nodes for every connector, not one per connector.
+  const obstacles = scene.edges.length ? sceneObstacles(scene) : [];
+  const drawn = scene.edges.flatMap((edge) => {
+    const points = edgePoints(scene, edge, obstaclesFor(obstacles, edge));
+    return points ? [{ edge, d: pointsToPath(points), at: polylineMidpoint(points) }] : [];
+  });
+  DRAWN.set(scene, drawn);
+  return drawn;
+}

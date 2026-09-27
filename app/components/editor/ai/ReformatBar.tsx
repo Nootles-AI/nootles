@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import type { BlockNoteEditor } from "@blocknote/core";
 import { ChevronLeft, ChevronRight, Sparkle } from "@/app/components/Icons";
 import { hasSuggestion } from "./ghostText";
@@ -113,7 +114,9 @@ export function ReformatBar({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [editor, onAccept, onDismiss, onCycle, many]);
 
-  return (
+  // Fixed at client coordinates, so it lives on the body: inside a zoomed page
+  // the zoom would multiply them.
+  return createPortal(
     <>
       <div
         ref={ref}
@@ -156,6 +159,7 @@ export function ReformatBar({
           </button>
         </div>
       )}
-    </>
+    </>,
+    document.body,
   );
 }

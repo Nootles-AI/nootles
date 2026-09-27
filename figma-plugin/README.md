@@ -1,13 +1,14 @@
 # Copy for Nootles — Figma plugin
 
-Select layers in Figma or FigJam, press **Copy**, paste onto a Nootles canvas.
+Select layers in Figma or FigJam, press **Copy**, paste into a Nootles page.
 
 The plugin converts the selection into the canvas's own `<nt-diagram>` markup and
-puts that text on the clipboard. The canvas's paste handler already accepts it, so
-nothing on the Nootles side changes for a paste to work. The converter is a pure
-function over Figma's node shapes (`src/convert.ts`), and the markup is written by
-the same serializer the app uses, so what lands is byte for byte what a hand would
-have drawn.
+puts that text on the clipboard. Pasted between blocks it becomes a diagram of its
+own; pasted into a diagram, its shapes join that one. A diagram on the page is the
+text column's width, so a frame wider than the column makes it wide, and one wider
+than a wide diagram is scaled down to fit. The converter is a pure function over
+Figma's node shapes (`src/convert.ts`), and the markup is written by the same
+serializer the app uses, so what lands is what a hand would have drawn.
 
 ## Running it
 
@@ -60,6 +61,6 @@ in `app/components/Brand.tsx`:
 Suggested listing copy:
 
 > **Copy for Nootles.** Select layers in Figma or FigJam, press Copy, and paste an
-> editable diagram onto a Nootles canvas. Frames and auto layout, text with its
+> editable diagram into a Nootles page. Frames and auto layout, text with its
 > styling, vectors, booleans, images and connectors all come across as native canvas
 > shapes, not a picture. No network access; nothing leaves your file but the clipboard.

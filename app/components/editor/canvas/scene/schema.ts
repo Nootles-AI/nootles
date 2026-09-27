@@ -54,6 +54,7 @@ export const sceneSchema: z.ZodType<Scene> = z
   .object({
     w: finite.nonnegative(),
     h: finite.nonnegative(),
+    wide: z.union([z.literal(true), z.literal("pinned")]).optional(),
     style: stringMap,
     nodes: z.array(sceneNodeSchema),
     edges: z.array(

@@ -9,6 +9,8 @@ import { documentId } from "./files/context";
 import { raiseTo, TICKET } from "./counters";
 import { forgetPagesIn, pagesInBlob } from "./pages";
 import { PLAN_OVERRIDE } from "./plans";
+import { pageForDoc } from "./prosemirror";
+import { appendYUpdate, readStoredUpdates } from "./ydoc";
 
 /**
  * One-off backfills, run by hand with `npx convex run`. Internal: none of this
@@ -542,5 +544,76 @@ export const armLinkLapses = internalMutation({
       });
     }
     return { armed, done: batch.isDone };
+  },
+});
+
+/**
+ * The isolate's halves of the one-time diagram migration: every stored
+ * diagram rewritten as a band. The rewrite itself needs a DOM and a Y.Doc's
+ * heap, so it runs in Node (`diagramBand.migrate`), which pages through these.
+ */
+
+/** The page documents worth opening: born, and a page's rather than its comments'. */
+export const diagramBandPages = internalQuery({
+  args: { cursor: v.union(v.string(), v.null()), numItems: v.number() },
+  returns: v.object({
+    docIds: v.array(v.string()),
+    done: v.boolean(),
+    cursor: v.union(v.string(), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const batch = await ctx.db
+      .query("ydocs")
+      .paginate({ numItems: args.numItems, cursor: args.cursor });
+    const docIds: string[] = [];
+    for (const row of batch.page) {
+      if (row.seq === 0) continue;
+      if (!(await pageForDoc(ctx, row.docId))) continue;
+      docIds.push(row.docId);
+    }
+    return {
+      docIds,
+      done: batch.isDone,
+      cursor: batch.isDone ? null : batch.continueCursor,
+    };
+  },
+});
+
+/** A document's stored bytes, and the seq they were read at — the write's guard. */
+export const diagramBandMaterial = internalQuery({
+  args: { docId: v.string() },
+  returns: v.union(
+    v.object({ status: v.literal("ok"), seq: v.number(), updates: v.array(v.bytes()) }),
+    v.object({ status: v.literal("too-large") }),
+    v.object({ status: v.literal("no-doc") }),
+  ),
+  handler: async (ctx, args) => {
+    const stored = await readStoredUpdates(ctx, args.docId);
+    if (stored === null) return { status: "no-doc" as const };
+    if ("tooLarge" in stored) return { status: "too-large" as const };
+    return { status: "ok" as const, seq: stored.seq, updates: stored.updates };
+  },
+});
+
+/**
+ * Lands a rewrite only on the state it was computed from. Anything appended
+ * since — a drag, a keystroke — and the rewrite is refused rather than landed
+ * over it: its map writes are last-writer-wins, and a translation computed
+ * before a drag would undo the drag. Quiet, because nobody edited the page.
+ */
+export const diagramBandWrite = internalMutation({
+  args: { docId: v.string(), baseSeq: v.number(), chunks: v.array(v.bytes()) },
+  returns: v.union(
+    v.object({ status: v.literal("written"), seq: v.number() }),
+    v.object({ status: v.literal("moved") }),
+  ),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("ydocs")
+      .withIndex("by_doc", (q) => q.eq("docId", args.docId))
+      .unique();
+    if (!row || row.seq !== args.baseSeq) return { status: "moved" as const };
+    const seq = await appendYUpdate(ctx, args.docId, args.chunks, { quiet: true });
+    return { status: "written" as const, seq };
   },
 });

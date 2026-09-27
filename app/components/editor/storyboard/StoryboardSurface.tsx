@@ -11,8 +11,9 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { X } from "@/app/components/Icons";
+import { effectiveScale } from "@/app/lib/columnScale";
 import { CanvasSurface, type CanvasApi } from "../canvas/render/CanvasSurface";
-import { useCanvasShell } from "../canvas/shell";
+import { useFrameClaim } from "../canvas/page/frameClaim";
 import { useDebouncedPersist } from "../useDebouncedPersist";
 import { FullscreenShot } from "./FullscreenShot";
 import { parseStoryboard } from "./parse";
@@ -132,8 +133,8 @@ const Shot = memo(function Shot({
   return (
     <div
       className={`nt-sb-shot${active ? " is-active" : ""}`}
-      // Only the canvas claims the shell. A press on the note or the chrome is
-      // a press outside it: the workspace clears the claim, and the bar and the
+      // Only the canvas claims the shot. A press on the note or the chrome is
+      // a press outside it: the workspace lets the shot go, and the bar and the
       // panels leave together — clicking a note is clicking prose.
       onPointerDownCapture={
         readOnly
@@ -189,7 +190,7 @@ export interface StoryboardSurfaceProps {
   /** Writes the board into the document. `false` means the document refused it. */
   onChange: (source: string) => void | boolean;
   readOnly?: boolean;
-  /** Identifies this block to the canvas shell, which mounts the toolbar. */
+  /** Identifies this block's shots to the workspace, which mounts their toolbar. */
   blockId: string;
   /**
    * How many times the host has re-asserted `source` over this board. A write
@@ -208,7 +209,7 @@ export function StoryboardSurface({
   blockId,
   reasserted = 0,
 }: StoryboardSurfaceProps) {
-  const shell = useCanvasShell();
+  const { frame, claim: claimFrame } = useFrameClaim();
   const wrap = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
 
@@ -340,10 +341,9 @@ export function StoryboardSurface({
   /**
    * The shot the toolbar speaks for: whichever was touched last.
    *
-   * A board is many canvases and there is one toolbar, so the shell needs a
+   * A board is many canvases and there is one toolbar, so the claim needs a
    * single answer. Keyed by index as well as block id, so moving between shots
-   * re-claims it — the shell compares block ids to decide whether a claim is
-   * still ours.
+   * re-claims it — the claim's key says whether it is still ours.
    */
   const [active, setActive] = useState(0);
   /** The shot open at full size, if any — see {@link FullscreenShot}. */
@@ -354,12 +354,12 @@ export function StoryboardSurface({
     wantFull !== null && wantFull < board.shots.length ? wantFull : null;
 
   /**
-   * Whether the shell's active canvas is one of this board's — a shot, or the
+   * Whether the claimed frame is one of this board's — a shot, or the
    * fullscreen view, both claimed as `${blockId}:…`. The bar and the active
    * highlight live and die with this, exactly as the side panels do: a press
-   * outside the canvas chrome clears the shell, and all of it leaves together.
+   * outside the canvas chrome lets the claim go, and all of it leaves together.
    */
-  const claimed = !readOnly && !!shell.active?.blockId.startsWith(`${blockId}:`);
+  const claimed = !readOnly && !!frame?.key.startsWith(`${blockId}:`);
   const apis = useRef(new Map<number, CanvasApi>());
   const activeRef = useRef(active);
   useEffect(() => {
@@ -398,31 +398,31 @@ export function StoryboardSurface({
   );
 
   /**
-   * The shell, behind a ref.
+   * The claim, behind a ref.
    *
-   * Deliberately not a dependency of `publish`: claiming the shell changes the
-   * workspace's active canvas, which rebuilds the shell object, which would
-   * rebuild `publish` and re-run the effect below — a loop that publishes for
-   * ever. Read through a ref, the claim is an event with no way back to itself.
+   * Deliberately not a dependency of `publish`: claiming changes the
+   * workspace's claimed frame, which rebuilds the claim, which would rebuild
+   * `publish` and re-run the effect below — a loop that publishes for ever.
+   * Read through a ref, the claim is an event with no way back to itself.
    */
-  const shellRef = useRef(shell);
+  const claimRef = useRef({ frame, claim: claimFrame });
   useEffect(() => {
-    shellRef.current = shell;
+    claimRef.current = { frame, claim: claimFrame };
   });
 
   const publish = useCallback(
     (index: number) => {
       const api = apis.current.get(index);
       if (!api) return;
-      shellRef.current.set({
-        blockId: `${blockId}:${index}`,
+      claimRef.current.claim({
+        key: `${blockId}:${index}`,
         api: { ...api, board: boardApi },
       });
     },
     [blockId, boardApi],
   );
 
-  // Republished while this board holds the shell, so the toolbar's ratio
+  // Republished while this board holds the claim, so the toolbar's ratio
   // readout is never a turn behind what it points at — and when the fullscreen
   // view closes, which is what hands the claim back to the tile. While that
   // view is open it holds the claim itself; publishing here would take it back
@@ -450,10 +450,10 @@ export function StoryboardSurface({
       if (api) apis.current.set(index, api);
       else apis.current.delete(index);
       if (index !== activeRef.current || readOnly) return;
-      // A fresh api reaches the shell only while this board holds it — a
+      // A fresh api reaches the claim only while this board holds it — a
       // mounting shot must not take the claim from whatever is actually being
       // edited.
-      if (api && shellRef.current.active?.blockId.startsWith(`${blockId}:`)) {
+      if (api && claimRef.current.frame?.key.startsWith(`${blockId}:`)) {
         publish(index);
       }
     },
@@ -465,8 +465,8 @@ export function StoryboardSurface({
   /** The fullscreen view's claim — its own id, so the panels turn over to it. */
   const claimFull = useCallback(
     (api: CanvasApi) => {
-      shellRef.current.set({
-        blockId: `${blockId}:fs${full}`,
+      claimRef.current.claim({
+        key: `${blockId}:fs${full}`,
         api: { ...api, board: boardApi },
       });
     },
@@ -509,6 +509,10 @@ export function StoryboardSurface({
     event.preventDefault();
     const startX = event.clientX;
     const startW = el.offsetWidth;
+    // The pointer moves in client px and the width is the board's own, which
+    // the page's zoom magnifies. The room is the pane's at 100%: the widest a
+    // board may be is the document's to say, not the zoom it is seen at.
+    const scale = effectiveScale(el);
     const room = el.closest("main")?.clientWidth ?? window.innerWidth;
     const limit = Math.max(MIN_BOARD_W, room - 32);
     let next = startW;
@@ -516,7 +520,7 @@ export function StoryboardSurface({
     const move = (e: PointerEvent) => {
       if (!moved) setFitting(true);
       moved = true;
-      next = Math.round(Math.min(limit, Math.max(MIN_BOARD_W, startW + e.clientX - startX)));
+      next = Math.round(Math.min(limit, Math.max(MIN_BOARD_W, startW + (e.clientX - startX) / scale)));
       el.style.width = `${next}px`;
     };
     const up = () => {

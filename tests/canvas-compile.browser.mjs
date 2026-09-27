@@ -159,7 +159,7 @@ async function main() {
   }
 
   await jsxAllParse();
-  await cameraZoomIndependence();
+  await zoomIndependence();
 
   const artifact = { verdict: c.summary().failed === 0 ? "pass" : "fail" };
   const artifactPath = await writeArtifact("canvas-compile", artifact);
@@ -216,13 +216,13 @@ async function jsxAllParse() {
   }
 }
 
-/** `compileSelection` never observes the live camera — it reads only
+/** `compileSelection` never observes the page's scale — it reads only
  *  `laidOutScene(scene)`. Proven two ways: statically (`toHtml.test.ts`'s own
  *  "never imports engine/useViewport" case), and here, empirically: a real,
- *  gesture-driven `CanvasSurface` (the shared harness) is zoomed to 20% and
- *  to 800%, and the scene it reports at each is byte-identical — the one
- *  thing a viewport-dependent compile could possibly disturb. */
-async function cameraZoomIndependence() {
+ *  gesture-driven `CanvasSurface` (the shared harness) is shown at 50% and at
+ *  200%, and the scene it reports at each is byte-identical — the one thing a
+ *  scale-dependent compile could possibly disturb. */
+async function zoomIndependence() {
   const sharedBuilt = await buildSharedHarness();
   const { browser } = await launch();
   try {
@@ -232,14 +232,14 @@ async function cameraZoomIndependence() {
     });
     await page.goto(sharedBuilt.origin, { waitUntil: "networkidle" });
     const html = COMPILE_FIXTURES["edge-two-rects"];
-    await page.evaluate((h) => window.canvasHarness.mount({ html: h }, { width: 1200, height: 800 }), html);
-    await page.evaluate(() => window.canvasHarness.api().viewport.set({ x: 0, y: 0, zoom: 0.2 }));
+    await page.evaluate((h) => window.canvasHarness.mount({ html: h }), html);
+    await page.evaluate(() => window.canvasHarness.look({ x: 0, y: 0 }, 0.5));
     await sleep(50);
-    const at20 = await page.evaluate(() => JSON.stringify(window.canvasHarness.api().store.getScene()));
-    await page.evaluate(() => window.canvasHarness.api().viewport.set({ x: 0, y: 0, zoom: 8 }));
+    const atHalf = await page.evaluate(() => JSON.stringify(window.canvasHarness.api().store.getScene()));
+    await page.evaluate(() => window.canvasHarness.look({ x: 0, y: 0 }, 2));
     await sleep(50);
-    const at800 = await page.evaluate(() => JSON.stringify(window.canvasHarness.api().store.getScene()));
-    c.check("compile output is camera-zoom-independent (scene identical at 20% and 800%)", at800 === at20, true);
+    const atDouble = await page.evaluate(() => JSON.stringify(window.canvasHarness.api().store.getScene()));
+    c.check("compile output is zoom-independent (scene identical at 50% and 200%)", atDouble === atHalf, true);
     await page.close();
   } finally {
     await browser.close();

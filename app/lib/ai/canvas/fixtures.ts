@@ -8,7 +8,8 @@ import type { Scene } from "@/app/components/editor/canvas/scene/types";
  * does, plus the two named fixtures TOOLS.md §7 builds its whole behaviour
  * table against. Not itself a test file (vitest's `include` glob only picks
  * up `*.test.ts`), so this is where the F1/F2 markup lives ONCE instead of
- * six times over.
+ * six times over. Both are band roots — a height, never a width — because a
+ * tool only ever reads a diagram through the block reader, which makes one.
  */
 export const parseHtml: ParseHtml = (h) => parseHTML(h).document as unknown as Document;
 
@@ -20,7 +21,7 @@ export const fragment = (html: string) => parseFragment(html, parseHtml);
  * children, a path, and a connector. Used throughout the write/verb/report
  * behaviour tables.
  */
-export const F1 = `<nt-diagram w="600" h="400" style="--brand: #6366f1">
+export const F1 = `<nt-diagram h="400" style="--brand: #6366f1">
   <nt-rect id="s1" x="40" y="40" w="200" h="56" style="background: var(--brand); border-radius: 10px">Order</nt-rect>
   <nt-rect id="s2" x="300" y="40" w="200" h="56" style="background: #f2f2f0">Ship</nt-rect>
   <nt-group id="g1" x="40" y="160" w="460" h="80" style="display: flex; gap: 16px; padding: 12px">
@@ -36,7 +37,7 @@ export const F1 = `<nt-diagram w="600" h="400" style="--brand: #6366f1">
  * the one shape `frameOf` (the `group` verb's frame-absorption case) can fire
  * on, which F1 can never exercise since `s1`/`s2` are both labelled.
  */
-export const F2 = `<nt-diagram w="300" h="200">
+export const F2 = `<nt-diagram h="200">
   <nt-rect id="frame1" x="0" y="0" w="300" h="200" style="background: #f5f5f5"></nt-rect>
   <nt-rect id="a1" x="20" y="20" w="100" h="60">A</nt-rect>
   <nt-rect id="a2" x="180" y="20" w="100" h="60">B</nt-rect>

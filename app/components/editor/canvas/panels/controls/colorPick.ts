@@ -14,14 +14,13 @@
  * out the colour under the pointer (or the screen pixel), and hand it to
  * `apply` exactly once per successful pick.
  *
- * The canvas source is a `SurfaceMode` (`engine/surfaceMode.ts`, shared with
- * SELECT/STAGE) rather than a parallel branch in `CanvasSurface`'s own
- * handlers — while this mode is active, the surface's default click/hover/
- * marquee/draw behaviour does not run; this module sees every pointer event
- * for the viewport instead.
+ * The canvas source is a `SurfaceMode` (`engine/surfaceMode.ts`) rather than a
+ * parallel branch in `CanvasSurface`'s own handlers — while this mode is
+ * active, the surface's default click/hover/marquee/draw behaviour does not
+ * run; this module sees every pointer event for the viewport instead.
  */
 
-import { useSyncExternalStore } from "react";
+import { createContext, useContext, useSyncExternalStore } from "react";
 import type { SurfaceMode, SurfaceModeContext, SurfaceModes } from "../../engine/surfaceMode";
 import type { SceneStore } from "../../engine/useScene";
 import type { SelectionStore } from "../../engine/useSelection";
@@ -67,6 +66,17 @@ export interface PickHost {
   store: SceneStore;
   selection: SelectionStore;
   viewport: ViewportController;
+}
+
+/**
+ * The diagram a field's eyedropper samples: the one whose panel the field is
+ * in. Provided with that panel; a field anywhere else has no canvas to pick
+ * from, and offers the screen alone.
+ */
+export const PickHostContext = createContext<PickHost | null>(null);
+
+export function usePickHost(): PickHost | null {
+  return useContext(PickHostContext);
 }
 
 export type ColorPickState =
@@ -178,7 +188,7 @@ function buildCanvasMode(dest: PickDestination, host: PickHost, callbacks: Canva
     opts: { text?: boolean; wholePaint?: boolean },
   ): PaintSample | null => {
     const point = ctx.scenePoint({ clientX, clientY });
-    const tolerance = slopFor(host.viewport.get().zoom);
+    const tolerance = slopFor(host.viewport.screenScale());
     return paintAt(ctx.laid(), point, { tolerance, ...opts });
   };
 
@@ -277,7 +287,7 @@ function buildCanvasMode(dest: PickDestination, host: PickHost, callbacks: Canva
           const chip = sample && sample.kind !== "none" ? (sample.paint ?? sample.css) : null;
           paintPill(pill, container, move.clientX, move.clientY, text, chip);
         }
-        const tolerance = slopFor(host.viewport.get().zoom);
+        const tolerance = slopFor(host.viewport.screenScale());
         host.selection.hover(ctx.scenePoint(move), { deep: true, tolerance });
         dest.preview?.(sample && sample.kind !== "none" ? sample.css : null);
       });

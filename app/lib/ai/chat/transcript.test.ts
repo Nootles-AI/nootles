@@ -200,7 +200,7 @@ describe("shortenStaleReads on canvas reports", () => {
     }
     // Geometry is rows (NT-98), cut at a row: whole rows only.
     const geometry = (stale[0].output as { value: string }).value;
-    expect(geometry.startsWith("diagram 4000×3000.")).toBe(true);
+    expect(geometry.startsWith("diagram 720×3000.")).toBe(true);
     expect(geometry).toMatch(/top level\.\n… \(The rest/);
     // The other two are still JSON, cut at a field boundary.
     expect((stale[1].output as { value: string }).value).toMatch(/[\w\]}"]… \(The rest/);

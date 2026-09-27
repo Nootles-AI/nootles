@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import { Tooltip } from "@/app/components/Tooltip";
-import { isGroup, type Scene, type SceneNode, type SceneOp } from "../../scene/types";
+import type { SceneStore } from "../../engine/useScene";
+import { isGroup, type Scene, type SceneNode } from "../../scene/types";
 import { ColorField } from "../controls/ColorField";
 import { PanelSection } from "../controls/PanelSection";
 import { collectSelectionColors, recolorOps } from "../selectionColors";
+import type { PerStore } from "../StylePanel";
 
 /**
  * "Every colour in this selection, in one list" — the row a designer reaches
@@ -18,23 +20,25 @@ import { collectSelectionColors, recolorOps } from "../selectionColors";
  * `run(recolorOps(...))` rather than `props.patch`: `patch` only ever
  * rewrites the *selected* nodes themselves, and recolouring a group's
  * children needs ops reaching into nested ids, still as one `run()` call so
- * a whole-palette swap is one undo entry.
+ * a whole-palette swap is one undo entry — across every diagram the
+ * selection reaches into.
  */
 export function SelectionColorsSection({
   selection,
-  scene,
+  parts,
   run,
 }: {
+  /** Every part's nodes, together — the list is one list whatever diagram a colour is in. */
   selection: readonly SceneNode[];
-  scene: Scene;
-  run: (ops: readonly SceneOp[]) => void;
+  parts: readonly { store: SceneStore; scene: Scene; nodes: readonly SceneNode[] }[];
+  run: (each: PerStore) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
 
   // Two-or-more shapes, or a single group (whose own colours live on its
   // children) — a lone leaf shape already has Fill/Stroke/Typography for this.
   const eligible = selection.length >= 2 || selection.some(isGroup);
-  const colors = eligible ? collectSelectionColors(scene, selection) : [];
+  const colors = eligible ? collectSelectionColors(parts[0].scene, selection) : [];
   if (colors.length === 0) return null;
 
   const VISIBLE = 8;
@@ -52,7 +56,9 @@ export function SelectionColorsSection({
         <div className="nt-ctl-row" key={color.id}>
           <ColorField
             value={color.authored}
-            onChange={(value) => run(recolorOps(scene, selection, color.key, value))}
+            onChange={(value) =>
+              run(parts.map((part) => [part.store, recolorOps(part.scene, part.nodes, color.key, value)]))
+            }
           />
           <Tooltip label={`${color.uses} use${color.uses === 1 ? "" : "s"}`} className="nt-ctl-anchor">
             <span className="nt-ctl-note">{color.uses}</span>

@@ -29,6 +29,11 @@
     animation: nt-fade-in var(--dur-fast) var(--ease);
   }
 }
+/* Floating in a put-away rail's place, the float is the entrance; stated here
+   for the same reason as the fallback above. */
+.nt-rail-float > .nt-style-panel {
+  animation: none;
+}
 
 /* The layers rail announces itself and this one did not, which left the two
    halves of the same shell looking like different applications. Wears

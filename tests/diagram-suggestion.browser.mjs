@@ -157,13 +157,17 @@ try {
     return page;
   };
 
-  /** What the suggestion looks like on screen right now. */
+  /** What the suggestion looks like on screen right now: the diagram ghost,
+   *  loading while it plans or draws, settled once it waits on Tab. */
   const offer = (page) =>
     page.evaluate(() => {
-      const el = document.querySelector(".nt-diagram-preview");
-      return el
-        ? { shown: true, loading: el.classList.contains("is-loading"), text: el.textContent ?? "" }
-        : { shown: false, loading: false, text: "" };
+      const el = document.querySelector(".nt-diagram-ghost");
+      if (!el) return { shown: false, loading: false, text: "" };
+      // The state is said on the caret line; the ghost itself holds only the
+      // shapes' own words (the planning label is not a shape).
+      const status = document.querySelector(".nt-ghost-status")?.textContent ?? "";
+      const words = el.querySelector(".nt-canvas-scene")?.textContent ?? "";
+      return { shown: true, loading: el.getAttribute("data-phase") !== "waiting", text: `${status} ${words}`.trim() };
     });
   const canvases = (page) => page.evaluate(() => window.completionWindow.canvases());
   const doc = (page) => page.evaluate(() => window.completionWindow.doc());

@@ -206,14 +206,36 @@ try {
 
   console.log("Unchanged: a tool picked and left by hand");
   await fresh();
+  check("the bar has no hand: the page scrolls", labels.includes("Hand"), false);
   check("a press on empty canvas focuses it", await focusCanvas(), true);
-  await pickTool("Hand");
-  check("picking Hand presses it", await tools(), { toolbar: ["Hand"], surface: "hand" });
+  await key("h");
+  check("H still takes the hand", await surfaceTool(), "hand");
   await key("Escape");
   check("Escape returns both to Move", await tools(), { toolbar: ["Move"], surface: "move" });
   await pickTool("Rectangle");
   await pickTool("Move");
   check("Move from the toolbar disarms a picked tool", await tools(), { toolbar: ["Move"], surface: "move" });
+
+  console.log("A double-click keeps a tool in hand");
+  await fresh();
+  const rectangle = await h(() => window.toolbarHarness.button("Rectangle"));
+  await page.mouse.click(rectangle.x, rectangle.y, { clickCount: 2 });
+  await sleep(150);
+  check("double-clicking Rectangle locks it, with a dot", [await tools(), await h(() => window.toolbarHarness.locked())], [{ toolbar: ["Rectangle"], surface: "rect" }, ["Rectangle"]]);
+  before = await shapes();
+  await drag(await canvasPoint(0.55, 0.3), await canvasPoint(0.7, 0.45));
+  await drag(await canvasPoint(0.55, 0.6), await canvasPoint(0.7, 0.75));
+  check("two drags draw two rectangles, still on the rectangle", [added(before, await shapes()).length, await tools()], [2, { toolbar: ["Rectangle"], surface: "rect" }]);
+  await key("Escape");
+  check("Escape lets the lock go, on Move", [await tools(), await h(() => window.toolbarHarness.locked())], [{ toolbar: ["Move"], surface: "move" }, []]);
+  const move = await h(() => window.toolbarHarness.button("Move"));
+  await page.mouse.click(move.x, move.y, { clickCount: 2 });
+  await sleep(150);
+  check("Move never locks", await h(() => window.toolbarHarness.locked()), []);
+  await page.mouse.click(rectangle.x, rectangle.y, { clickCount: 2 });
+  await sleep(150);
+  await pickTool("Rectangle");
+  check("a single pick lets a lock go", await h(() => window.toolbarHarness.locked()), []);
 } finally {
   await browser?.close();
   server.close();

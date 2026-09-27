@@ -59,6 +59,8 @@ export function createNmlCanvasHost(options: NmlCanvasHostOptions): CanvasHost {
       }
       const block = findBlock(document.blocks, blockId);
       if (!block || block.type !== "canvas") return null;
+      // As stored, not as a band: it is the base `writeScene` diffs from, and
+      // a diagram from before bands is fitted by the write itself.
       return { pageId: resolved.pageId, blockId, scene: structuredClone(block.scene) };
     },
 

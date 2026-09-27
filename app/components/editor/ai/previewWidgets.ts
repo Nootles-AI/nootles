@@ -1,13 +1,15 @@
-import { createElement } from "react";
+import { createElement, useLayoutEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import {
-  CANVAS_MIN_H,
-  sceneBlockHeight,
-} from "@/app/components/editor/canvas/types";
+import { bandHeightIn } from "@/app/components/editor/canvas/scene/band";
+import type { Scene } from "@/app/components/editor/canvas/scene/types";
+import { COLUMN_WIDTH } from "@/app/lib/column";
+import { followFit } from "@/app/lib/columnScale";
 import { loadKatex } from "@/app/components/editor/math/katex";
 import { runsToHtml } from "@/app/lib/ai/html/serialize";
 import type { AnyBlock } from "@/app/lib/ai/projection";
 import { ScenePreview, sceneFrom } from "./ScenePreview";
+import { GhostBand } from "./GhostBand";
+import type { DiagramPhase } from "./diagramGhost";
 
 /**
  * Faded facsimiles of the blocks the document does not (yet, or any longer)
@@ -297,33 +299,46 @@ export function disposePreview(node: Node): void {
 }
 
 /**
- * The box a diagram is about to land in, before there is one to draw.
+ * A diagram suggestion, as ghost content on the page: the band it would become,
+ * where it would land, and nothing around it — no box, no head line. What it
+ * is doing is said on the caret line (see `ghostText`), in the words the prose
+ * ghost already uses.
  *
- * The same chrome the finished preview wears, so the two are one box that fills
- * in rather than a chip that is replaced by something a different size — the
- * head line is the only part that changes. Deliberately not a rendering of
- * anything: the shapes here stand for a diagram, they do not claim to be the
- * one arriving, which is why they are three plain bars and not four.
+ * One element for the whole run, thinking to waiting: ProseMirror keeps it
+ * while the widget's key holds, and {@link updateDiagramGhost} re-renders the
+ * one root inside it. Rebuilding it per chunk — a new root every time — is
+ * what made a streaming diagram flicker and its height jolt.
  *
- * `nt-generating` is the app's mark for a block the model is still making — a
- * breathing accent edge, defined once in `globals.css`. It is what makes the
- * wait read as the model working rather than as a slow page: a dashed grey box
- * says "empty", and this box is not empty, it is busy.
+ * Wrapped in the editor's own block classes, as {@link ghostBlocksElement} is,
+ * so the spacing around the band is the stylesheet's and Tab moves nothing.
  */
-export function diagramSkeleton(label: string): HTMLElement {
-  const wrap = document.createElement("div");
-  wrap.className = "nt-diagram-preview is-loading nt-generating";
-  wrap.contentEditable = "false";
-  wrap.appendChild(headEl({ label, live: true }));
+export function diagramGhostElement(phase: DiagramPhase, source: string | null): HTMLElement {
+  const outer = div("bn-block-outer nt-diagram-ghost");
+  outer.contentEditable = "false";
+  const inner = div("bn-block");
+  const content = div("bn-block-content");
+  content.dataset.contentType = "canvas";
+  const host = div("nt-canvas-block relative w-full");
+  content.appendChild(host);
+  inner.appendChild(content);
+  outer.appendChild(inner);
+  roots.set(outer, createRoot(host));
+  updateDiagramGhost(outer, phase, source);
+  return outer;
+}
 
-  const surface = div("nt-diagram-preview-surface is-waiting");
-  surface.style.height = `${CANVAS_MIN_H}px`;
-  for (let i = 0; i < 3; i++) {
-    if (i) surface.appendChild(div("nt-skeleton-link"));
-    surface.appendChild(div("nt-skeleton-shape"));
-  }
-  wrap.appendChild(surface);
-  return wrap;
+const ghostState = new WeakMap<Element, { phase: DiagramPhase; source: string | null; scene: Scene | null }>();
+
+/** Re-renders a ghost from {@link diagramGhostElement} in place. Parses only when the source changed. */
+export function updateDiagramGhost(el: Element, phase: DiagramPhase, source: string | null): void {
+  const root = roots.get(el);
+  if (!root) return;
+  const was = ghostState.get(el);
+  if (was && was.phase === phase && was.source === source) return;
+  const scene = source === null ? null : was?.source === source ? was.scene : sceneFrom(source);
+  ghostState.set(el, { phase, source, scene });
+  el.setAttribute("data-phase", phase);
+  root.render(createElement(GhostBand, { phase, scene }));
 }
 
 /** The diagram, drawn by the canvas's own renderer. */
@@ -336,14 +351,24 @@ function diagramPreview(source: string, head: PreviewHead) {
   const scene = sceneFrom(source);
   const surface = div("nt-diagram-preview-surface");
   // The height the block itself will take, by the block's own rule, so
-  // accepting does not move the page.
-  surface.style.height = `${sceneBlockHeight(scene)}px`;
+  // accepting one in the column does not move the page. A wide one previews
+  // scaled into the column, so it lands taller than it shows here.
+  surface.style.height = `${bandHeightIn(scene)}px`;
   wrap.appendChild(surface);
+  // A column band's width, scaled to the page like one, so a narrow pane
+  // shrinks it with the text rather than leaving the height of a wider one.
+  wrap.style.width = `${COLUMN_WIDTH}px`;
 
   const root = createRoot(surface);
   roots.set(wrap, root);
-  root.render(createElement(ScenePreview, { scene }));
+  root.render(createElement(BandPreview, { scene, band: wrap }));
   return wrap;
+}
+
+/** The preview, following its page's fit while it is mounted — by then it is in the page. */
+function BandPreview({ scene, band }: { scene: Scene; band: HTMLElement }) {
+  useLayoutEffect(() => followFit(band), [band]);
+  return createElement(ScenePreview, { scene });
 }
 
 /** Typeset now if KaTeX is here, else show the source and typeset when it lands. */

@@ -9,7 +9,7 @@ import { StandInProvider } from "./components/StandIn";
 import { IdentitySync } from "./components/IdentitySync";
 import { NotionConfigProvider } from "./components/notion/NotionAvailable";
 import { oauthConfig } from "./api/notion/oauth";
-import { COLUMN_WIDTH } from "./lib/column";
+import { COLUMN_VARS } from "./lib/column";
 
 export const metadata: Metadata = {
   title: "Nootles",
@@ -25,7 +25,7 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${fontVariables} h-full antialiased`}
-      style={{ "--measure": `${COLUMN_WIDTH}px` } as React.CSSProperties}
+      style={COLUMN_VARS as React.CSSProperties}
     >
       <body className="min-h-full flex flex-col">
         <ClerkProvider>

@@ -10,9 +10,10 @@ import { ScenePreview, sceneFrom } from "./editor/ai/ScenePreview";
  * has a diagram on it — most do not, and this is the projects screen, which
  * otherwise has no reason to pull the scene graph in.
  *
- * `ScenePreview` fits the scene to its box, and the box here is measured in
- * document pixels because the scaling happens above it. So the diagram is laid
- * out exactly as the block lays it out, then shrunk with everything else.
+ * `ScenePreview` places the band as the block does, shrunk to the width the
+ * page gives it, and the slot around it is the drawing's shape at that width.
+ * The box is in document pixels because the page is scaled above it, so the
+ * diagram then shrinks with everything else.
  */
 export default function ThumbDiagram({ data }: { data: string }) {
   // A full HTML parse of the diagram, pure on the source — so it belongs to

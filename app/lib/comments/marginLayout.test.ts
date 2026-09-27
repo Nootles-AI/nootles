@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CARD_GAP, stackCards, type MarginItem } from "./marginLayout";
+import { CARD_GAP, clearAbove, clearBelow, stackCards, type MarginItem, type Span } from "./marginLayout";
 
 const item = (id: string, top: number, height = 50): MarginItem => ({ id, top, height });
 const layout = (items: MarginItem[], focused: string | null = null, gap?: number) =>
@@ -122,5 +122,66 @@ describe("stackCards at scale", () => {
     const copy = items.map((i) => ({ ...i }));
     expect(layout(items, "b")).toEqual(layout(items, "b"));
     expect(items).toEqual(copy);
+  });
+});
+
+describe("stackCards around a wide diagram", () => {
+  const band: Span = { top: 200, bottom: 600 };
+  const withBand = (items: MarginItem[], focused: string | null = null, spans: Span[] = [band]) =>
+    Object.fromEntries(stackCards(items, focused, 10, spans));
+
+  it("pushes a card whose anchor is inside the band below it", () => {
+    expect(withBand([item("a", 300)])).toEqual({ a: 610 });
+  });
+
+  it("pushes a card that would hang into the band below it", () => {
+    expect(withBand([item("a", 180)])).toEqual({ a: 610 });
+  });
+
+  it("leaves cards clear of the band where they want to be", () => {
+    expect(withBand([item("a", 0), item("b", 140), item("c", 700)])).toEqual({ a: 0, b: 140, c: 700 });
+  });
+
+  it("stacks the pushed cards below the band in anchor order", () => {
+    expect(withBand([item("a", 250), item("b", 260), item("c", 620)])).toEqual({ a: 610, b: 670, c: 730 });
+  });
+
+  it("clears a card that the stacking pushed into the band", () => {
+    expect(withBand([item("a", 100), item("b", 110)])).toEqual({ a: 100, b: 610 });
+  });
+
+  it("takes the focused card below the band, and cards above it above the band", () => {
+    const tops = withBand([item("a", 140), item("b", 300)], "b");
+    expect(tops.b).toBe(610);
+    expect(tops.a).toBe(140);
+  });
+
+  it("pushes a card above the focused one up clear of the band", () => {
+    // Focused lands just below the band; its neighbour above is pushed up past it.
+    const tops = withBand([item("a", 580), item("b", 590)], "b");
+    expect(tops.b).toBe(610);
+    expect(tops.a).toBe(200 - 10 - 50);
+  });
+
+  it("clears several bands, one after another", () => {
+    const spans = [band, { top: 610, bottom: 700 }];
+    expect(withBand([item("a", 300)], null, spans)).toEqual({ a: 710 });
+  });
+
+  it("changes nothing with no bands", () => {
+    const items = [item("a", 0), item("b", 20), item("c", 400)];
+    expect(withBand(items, "b", [])).toEqual(layout(items, "b", 10));
+  });
+});
+
+describe("clearBelow / clearAbove", () => {
+  it("touching a span is clear", () => {
+    expect(clearBelow(600, 50, [{ top: 200, bottom: 600 }], 8)).toBe(600);
+    expect(clearAbove(150, 50, [{ top: 200, bottom: 600 }], 8)).toBe(150);
+  });
+
+  it("moves an overlapping box to the far side, a gap away", () => {
+    expect(clearBelow(199, 50, [{ top: 200, bottom: 600 }], 8)).toBe(608);
+    expect(clearAbove(599, 50, [{ top: 200, bottom: 600 }], 8)).toBe(142);
   });
 });

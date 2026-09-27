@@ -1,4 +1,5 @@
 import {
+  drawnEdges,
   elbowPoints,
   obstaclesFor,
   pointsToPath,
@@ -26,8 +27,12 @@ import {
  *
  * So the gesture calls this once a frame and it does the same thing the
  * renderer does, imperatively: read where the shapes actually are now, run the
- * same router, and write the `d` back. React overwrites all of it on the commit
- * that follows, from the scene — this only has to be right until then.
+ * same router, and write the `d` back. None of it may outlive the gesture:
+ * React writes an attribute only when its own value for it changes, so a live
+ * `d` left behind survives any commit whose path equals the one React drew
+ * last — a cancel, or a landing that routes a connector where it was. The end
+ * of every gesture therefore writes {@link settleEdges} over it, from the
+ * committed scene alone.
  *
  * Reads are batched ahead of writes on purpose: measuring a box after writing a
  * path would force a second layout per connector.
@@ -157,7 +162,7 @@ function frameObstacles(
 }
 
 function elementsFor(
-  root: HTMLElement,
+  root: ParentNode,
   id: EdgeId,
   cache: EdgeElements | null | undefined,
 ): { paths: Element[]; label: HTMLElement | null } {
@@ -222,6 +227,25 @@ export function reflowEdges(
     if (els.label) {
       els.label.style.left = `${write.at.x}px`;
       els.label.style.top = `${write.at.y}px`;
+    }
+  }
+}
+
+/**
+ * Every connector's elements back to what the renderer draws for `scene` — the
+ * committed one, laid out — whatever a gesture wrote to them live. Derived
+ * from the scene alone, never measured: the landing may have moved the band's
+ * placement under the shapes, and an element read before its new transform is
+ * painted is read in the wrong frame.
+ */
+export function settleEdges(root: ParentNode | null, scene: Scene): void {
+  if (!root || scene.edges.length === 0) return;
+  for (const { edge, d, at } of drawnEdges(scene)) {
+    const { paths, label } = elementsFor(root, edge.id, null);
+    for (const path of paths) if (path.getAttribute("d") !== d) path.setAttribute("d", d);
+    if (label) {
+      label.style.left = `${at.x}px`;
+      label.style.top = `${at.y}px`;
     }
   }
 }

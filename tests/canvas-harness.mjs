@@ -2,8 +2,7 @@
  * The shared node-side half of the canvas browser harness — one esbuild
  * build, one static server, one Playwright launch, one set of network
  * guards, and the `check`/`xfail`/`todo` accounting every runner
- * (`canvas-camera.browser.mjs`, `canvas-picking.browser.mjs`,
- * `canvas-stage.browser.mjs`, and every later slice's own `.browser.mjs`)
+ * (`canvas-picking.browser.mjs` and every later slice's own `.browser.mjs`)
  * builds on. Nothing here drives a scenario — that is each runner's own job.
  *
  * Uses the existing esbuild dependency, `@tailwindcss/postcss` (already a
@@ -16,19 +15,14 @@
  * reach — a *new* edge into a lane module is a visible diff in a PR, never a
  * surprise in production.
  */
-import { build } from "esbuild";
+import { build, transform } from "esbuild";
 import { createServer } from "node:http";
-import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { tmpdir } from "node:os";
-import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import postcss from "postcss";
 import tailwind from "@tailwindcss/postcss";
-
-const execFileAsync = promisify(execFile);
 
 export const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -62,33 +56,6 @@ function rejectNextServerDiagnosticsPlugin() {
 }
 
 /**
- * A/B re-recording (§3.1.6): serves every `app/**` `.ts`/`.tsx`/`.css` file
- * from `git show <ref>:<path>` instead of disk, so bundle A is "the tree at
- * `ref`" and bundle B (built without this plugin) is the working tree —
- * same process, same browser, only the source differs.
- */
-function refSourcePlugin(ref) {
-  const appRoot = path.join(repo, "app") + path.sep;
-  return {
-    name: "canvas-baseline-ref",
-    setup(builder) {
-      builder.onLoad({ filter: /\.(ts|tsx|css)$/ }, async (args) => {
-        if (!args.path.startsWith(appRoot)) return null;
-        const rel = path.relative(repo, args.path).split(path.sep).join("/");
-        try {
-          const { stdout } = await execFileAsync("git", ["show", `${ref}:${rel}`], { cwd: repo, maxBuffer: 1024 * 1024 * 32 });
-          const loader = rel.endsWith(".css") ? "css" : rel.endsWith(".tsx") ? "tsx" : "ts";
-          return { contents: stdout, loader, resolveDir: path.dirname(args.path) };
-        } catch {
-          // Didn't exist at `ref` (a file added since) — fall through to disk.
-          return null;
-        }
-      });
-    },
-  };
-}
-
-/**
  * Writes `app/globals.css`, compiled by the app's own Tailwind pipeline, into
  * `output` as `app.css` — the only supported way a fixture gets the app's
  * `:root`. Hand-written stand-ins were the alternative, and they are how the
@@ -97,6 +64,10 @@ function refSourcePlugin(ref) {
  * missing token makes a themed surface compute `transparent` and reads as a
  * product regression (NT-72). A fixture that loads this one file cannot drift
  * from the app again, whatever `:root` grows next.
+ *
+ * The column's measures are not in the stylesheet — the root layout sets them
+ * on `<html>` from `COLUMN_VARS` — so they are appended here from the same
+ * module.
  */
 export async function writeAppStylesheet(output) {
   const appCssPath = path.join(repo, "app/globals.css");
@@ -104,21 +75,20 @@ export async function writeAppStylesheet(output) {
     await readFile(appCssPath, "utf8"),
     { from: appCssPath },
   );
-  await writeFile(path.join(output, "app.css"), styles.css);
+  const column = await transform(await readFile(path.join(repo, "app/lib/column.ts"), "utf8"), {
+    loader: "ts",
+    format: "esm",
+  });
+  const { COLUMN_VARS } = await import(`data:text/javascript,${encodeURIComponent(column.code)}`);
+  const vars = Object.entries(COLUMN_VARS)
+    .map(([name, value]) => `${name}: ${value};`)
+    .join(" ");
+  await writeFile(path.join(output, "app.css"), `${styles.css}\n:root { ${vars} }\n`);
 }
 
-/**
- * Builds the harness page once and serves it from a temp dir on 127.0.0.1.
- * `ref`, when given, builds `app/**` from that git ref instead of the
- * working tree (§3.1.6's A/B re-recording) — everything outside `app/**`
- * (this file, the fixtures, `tests/canvas-harness.browser.tsx` itself)
- * always comes from the working tree, since only the canvas implementation
- * is what a baseline re-record is asking "did THIS change cost anything".
- */
-export async function buildHarness({ ref } = {}) {
+/** Builds the harness page once and serves it from a temp dir on 127.0.0.1. */
+export async function buildHarness() {
   const output = await mkdtemp(path.join(tmpdir(), "canvas-harness-"));
-  const plugins = [rejectNextServerDiagnosticsPlugin()];
-  if (ref) plugins.push(refSourcePlugin(ref));
 
   const result = await build({
     absWorkingDir: repo,
@@ -132,7 +102,7 @@ export async function buildHarness({ ref } = {}) {
     tsconfig: "tsconfig.json",
     define: { "process.env.NODE_ENV": '"development"' },
     banner: { js: 'globalThis.process ??= { env: { NODE_ENV: "development" }, browser: true };' },
-    plugins,
+    plugins: [rejectNextServerDiagnosticsPlugin()],
     loader: { ".woff": "file", ".woff2": "file", ".ttf": "file" },
     logLevel: "warning",
     metafile: true,
@@ -183,47 +153,13 @@ export async function buildHarness({ ref } = {}) {
   };
 }
 
-/**
- * Launches Chromium and decides whether rAF is actually unlocked here: at
- * vsync-locked 60Hz a "5% of baseline" gate is meaningless noise (intervals
- * quantise to 16.7/33.3ms), so the gate mode travels with the baseline file
- * rather than being assumed.
- */
-export async function launch({ unlockedFrames = true } = {}) {
+/** Launches headless Chromium — the bundled build, or `CANVAS_CHROME_PATH`. */
+export async function launch() {
   const { chromium } = await import("playwright");
   const channel = process.env.CANVAS_BROWSER_CHANNEL === "headless-shell" ? undefined : "chromium";
   const executablePath = process.env.CANVAS_CHROME_PATH || undefined;
-  const browser = await chromium.launch({
-    headless: true,
-    channel,
-    executablePath,
-    args: unlockedFrames ? ["--disable-frame-rate-limit", "--disable-gpu-vsync"] : [],
-  });
-  const version = browser.version();
-
-  const probe = await browser.newPage();
-  await probe.setContent("<!doctype html><title>canvas-harness rate probe</title>");
-  const intervals = await probe.evaluate(
-    () =>
-      new Promise((resolve) => {
-        const out = [];
-        let last = 0;
-        let n = 0;
-        const tick = (now) => {
-          if (last !== 0) out.push(now - last);
-          last = now;
-          if (++n < 61) requestAnimationFrame(tick);
-          else resolve(out);
-        };
-        requestAnimationFrame(tick);
-      }),
-  );
-  await probe.close();
-  const sorted = [...intervals].sort((a, b) => a - b);
-  const median = sorted[Math.floor(sorted.length / 2)] ?? 16.7;
-  const mode = median < 12 ? "unlocked" : "vsync";
-
-  return { browser, mode, version };
+  const browser = await chromium.launch({ headless: true, channel, executablePath });
+  return { browser };
 }
 
 /**
@@ -338,35 +274,6 @@ export function checker() {
     summary: () => ({ failed, xfailed, xpassed, todo: todoCount }),
     failures,
   };
-}
-
-/** Nearest-rank percentiles on the sorted array — no interpolation, so a
- *  reported number is always one of the actual samples. */
-export function percentiles(samples) {
-  const n = samples.length;
-  if (n === 0) return { n: 0, p50: 0, p95: 0, p99: 0, max: 0 };
-  const sorted = [...samples].sort((a, b) => a - b);
-  const at = (p) => sorted[Math.min(n - 1, Math.max(0, Math.ceil(p * n) - 1))];
-  return { n, p50: at(0.5), p95: at(0.95), p99: at(0.99), max: sorted[n - 1] };
-}
-
-/** Count of frame intervals more than 1.5x the nominal frame time — the
- *  vsync-mode gate's currency, since a p95 envelope means nothing at a
- *  quantised 60Hz. */
-export function droppedFrames(intervals, nominal) {
-  return intervals.filter((v) => v > 1.5 * nominal).length;
-}
-
-/** `${platform}-${arch}-${cpuModelSlug}-chromium${major}` — a mismatch on
- *  any part is a different machine, not a comparable run. */
-export async function machineKey(version) {
-  const cpuModel = os.cpus()?.[0]?.model ?? "unknown";
-  const slug = cpuModel
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-+|-+$)/g, "");
-  const major = /(\d+)\./.exec(version)?.[1] ?? "0";
-  return `${process.platform}-${process.arch}-${slug}-chromium${major}`;
 }
 
 /** `tests/.artifacts/<name>.<iso>.json`, pass or fail. */

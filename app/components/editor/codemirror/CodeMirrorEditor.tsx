@@ -5,6 +5,7 @@ import { EditorState, Compartment, StateEffect } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { defaultKeymap, indentWithTab } from "@codemirror/commands";
 import { AI } from "@/app/lib/ai/aiConfig";
+import { onScaleWithin } from "@/app/lib/columnScale";
 import { useCompletionProject } from "../ai/CompletionContext";
 import { eveningExtensions } from "./theme";
 import { codeGhostExtension, setCodeGhost } from "./ghost";
@@ -127,7 +128,11 @@ export function CodeMirrorEditor({
       }),
     });
     viewRef.current = view;
+    // CodeMirror reads its scale off the page only when it measures, and a
+    // zoom resizes nothing it watches.
+    const offZoom = onScaleWithin(() => view.dom, () => view.requestMeasure());
     return () => {
+      offZoom();
       view.destroy();
       viewRef.current = null;
     };

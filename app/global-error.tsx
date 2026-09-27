@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, type CSSProperties } from "react";
 import * as Sentry from "@sentry/nextjs";
 import "./globals.css";
 import { Interrupted } from "./components/Interrupted";
 import { fontVariables } from "./fonts";
+import { COLUMN_VARS } from "./lib/column";
 
 /**
  * A throw in the root layout itself — a provider — which `error.tsx` sits
@@ -27,7 +28,11 @@ export default function GlobalError({
   }, [error]);
 
   return (
-    <html lang="en" className={`${fontVariables} h-full antialiased`}>
+    <html
+      lang="en"
+      className={`${fontVariables} h-full antialiased`}
+      style={COLUMN_VARS as CSSProperties}
+    >
       <body className="min-h-full flex flex-col">
         <title>Nootles</title>
         <Interrupted title="Something went wrong" retry={unstable_retry}>

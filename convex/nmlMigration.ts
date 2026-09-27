@@ -1,12 +1,10 @@
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { checkRead, checkWrite, pageForDoc } from "./prosemirror";
 import { ownerId, requireManageable, requireOwner } from "./auth";
-import { appendYUpdate } from "./ydoc";
-import { joinUpdateRows } from "./yshape";
+import { appendYUpdate, readStoredUpdates } from "./ydoc";
 import { NML_SCHEMA_VERSION } from "@/app/lib/nml/schema";
 import { NML_YJS_ENCODING_VERSION } from "@/app/lib/nml/yjs";
 
@@ -34,70 +32,6 @@ async function nmlStateRow(ctx: QueryCtx, docId: string) {
     .query("nmlDocState")
     .withIndex("by_doc", (q) => q.eq("docId", docId))
     .unique();
-}
-
-/**
- * What a whole-document read may weigh before it risks the platform's ceiling —
- * the same budget `ydoc.ts` reads the log under. A migrated root is bounded by
- * the v1 limits, but its legacy siblings and un-compacted log are not, so a doc
- * heavier than this fails closed rather than being read (and served) partially.
- */
-const VERIFY_READ_BUDGET = 6 * 1024 * 1024;
-
-/**
- * Collect a page's whole update history as raw bytes — the snapshot's joined
- * chunks plus every log update after it, in order — without ever building a
- * Y.Doc. Reconstructing and decoding a document near the v1 size limits costs
- * well over a hundred megabytes of heap, which a query/mutation isolate cannot
- * hold, so that work is left to the Node action in `nmlVerify.ts`; this only
- * reads bytes (cheap) so the isolate stays light. Snapshot chunks are byte
- * slices of one update and chunked update rows join the same way (see `yshape`
- * / `ydoc.compact`). Returns `{ updates }`, `{ tooLarge: true }` when the
- * history outweighs the read budget, or `null` when the page is not a Yjs doc.
- */
-async function collectStoredUpdates(
-  ctx: QueryCtx,
-  docId: string,
-): Promise<{ updates: ArrayBuffer[] } | { tooLarge: true } | null> {
-  const row = await ctx.db
-    .query("ydocs")
-    .withIndex("by_doc", (q) => q.eq("docId", docId))
-    .unique();
-  if (!row) return null;
-
-  const updates: ArrayBuffer[] = [];
-  let bytes = 0;
-  if (row.snapshotParts > 0) {
-    const chunks = await ctx.db
-      .query("ySnapshots")
-      .withIndex("by_doc_and_gen_and_part", (q) =>
-        q.eq("docId", docId).eq("gen", row.snapshotSeq),
-      )
-      .collect();
-    bytes = chunks.reduce((n, c) => n + c.data.byteLength, 0);
-    if (bytes > VERIFY_READ_BUDGET) return { tooLarge: true };
-    const ordered = [...chunks].sort((a, b) => a.part - b.part);
-    const whole = new Uint8Array(bytes);
-    let at = 0;
-    for (const c of ordered) {
-      whole.set(new Uint8Array(c.data), at);
-      at += c.data.byteLength;
-    }
-    updates.push(whole.buffer as ArrayBuffer);
-  }
-
-  const logRows: Doc<"yUpdates">[] = [];
-  for await (const u of ctx.db
-    .query("yUpdates")
-    .withIndex("by_doc_and_seq", (q) => q.eq("docId", docId).gt("seq", row.snapshotSeq))) {
-    bytes += u.update.byteLength;
-    if (bytes > VERIFY_READ_BUDGET) return { tooLarge: true };
-    logRows.push(u);
-  }
-  for (const u of joinUpdateRows(logRows)) {
-    updates.push(u.update.buffer.slice(u.update.byteOffset, u.update.byteOffset + u.update.byteLength) as ArrayBuffer);
-  }
-  return { updates };
 }
 
 /**
@@ -389,7 +323,7 @@ export const verifyMaterial = internalQuery({
     v.object({ status: v.literal("no-doc") }),
   ),
   handler: async (ctx, args) => {
-    const collected = await collectStoredUpdates(ctx, args.docId);
+    const collected = await readStoredUpdates(ctx, args.docId);
     if (collected === null) return { status: "no-doc" as const };
     if ("tooLarge" in collected) return { status: "too-large" as const };
     return { status: "ok" as const, updates: collected.updates };

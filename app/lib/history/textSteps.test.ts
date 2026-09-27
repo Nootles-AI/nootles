@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { Schema, Slice, Fragment } from "prosemirror-model";
-import { EditorState, TextSelection } from "prosemirror-state";
+import { EditorState, NodeSelection, TextSelection } from "prosemirror-state";
 import { liftTarget } from "prosemirror-transform";
 import { ySyncPluginKey } from "y-prosemirror";
-import { asOneStep, breaksTypingRun, textStepOf, textStepsPlugin } from "./textSteps";
+import { asOneStep, breaksTypingRun, caretOffNode, textStepOf, textStepsPlugin } from "./textSteps";
 
 // BlockNote's shape where it matters here: blocks that wrap a text block and
 // can nest in a group beneath it.
@@ -139,5 +139,41 @@ describe("textStepsPlugin", () => {
     const edited = s.apply(edit);
     const repaired = edited.apply(edited.tr.insertText("y").setMeta("appendedTransaction", edit));
     expect(textStepOf(repaired)?.unwritten).toBe(false);
+  });
+});
+
+describe("caretOffNode", () => {
+  const withDiagram = new Schema({
+    nodes: {
+      doc: { content: "group" },
+      group: { content: "block+" },
+      block: { content: "(paragraph | diagram) group?" },
+      paragraph: { content: "inline*" },
+      diagram: { atom: true, selectable: true },
+      text: { group: "inline" },
+    },
+  });
+  const n = withDiagram.nodes;
+  const wrap = (child: ReturnType<typeof n.paragraph.create>) => n.block.create(null, child);
+  const line = (s: string) => wrap(n.paragraph.create(null, s ? withDiagram.text(s) : null));
+  const held = (blocks: ReturnType<typeof wrap>[], at: number) => {
+    const d = n.doc.create(null, n.group.create(null, blocks));
+    return EditorState.create({ doc: d, selection: NodeSelection.create(d, at) });
+  };
+
+  it("puts the caret at the end of the text before a held diagram", () => {
+    // "one" runs 3–6; the second block opens at 8 and its diagram sits at 9.
+    const s = held([line("one"), wrap(n.diagram.create()), line("two")], 9);
+    expect(caretOffNode(s)?.head).toBe(6);
+  });
+
+  it("or, for a diagram that is the first block, at the start of the text after it", () => {
+    // The diagram sits at 2; the next block's text starts at 6.
+    const s = held([wrap(n.diagram.create()), line("two")], 2);
+    expect(caretOffNode(s)?.head).toBe(6);
+  });
+
+  it("leaves a text selection alone", () => {
+    expect(caretOffNode(state())).toBeNull();
   });
 });

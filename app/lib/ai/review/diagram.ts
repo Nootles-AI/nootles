@@ -1,3 +1,4 @@
+import { bandFloor } from "@/app/components/editor/canvas/scene/band";
 import { migrateLegacyCanvas } from "@/app/components/editor/canvas/scene/migrate";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import {
@@ -220,13 +221,16 @@ function pick(was: Scene, asked: Scene, now: Scene) {
   const surface = (scene: Scene) => ({
     w: scene.w,
     h: scene.h,
+    ...(scene.wide ? { wide: scene.wide } : {}),
     style: scene.style,
     attrs: scene.attrs,
     ...(scene.id !== undefined ? { id: scene.id } : {}),
   });
-  return JSON.stringify(surface(asked)) === JSON.stringify(surface(now))
-    ? surface(was)
-    : surface(now);
+  // A band's height follows its lowest shape, so moving one down is not a
+  // change to the surface; only room held past that is somebody's choice.
+  const chosen = (scene: Scene) =>
+    JSON.stringify({ ...surface(scene), h: scene.h > bandFloor(scene) ? scene.h : null });
+  return chosen(asked) === chosen(now) ? surface(was) : surface(now);
 }
 
 /** Connectors, on the same three terms as the shapes they join. */

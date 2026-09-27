@@ -14,7 +14,7 @@ import { labelText } from "./label";
  * A canvas block stores canvas HTML, not JSON:
  *
  * ```html
- * <nt-diagram id="c1" w="960" h="540" style="background:#fff">
+ * <nt-diagram id="c1" h="384" style="background:#fff">
  *   <nt-rect id="s1" x="40" y="24" w="160" h="72" rot="15"
  *            style="background:#6366f1; border-radius:12px">Ingest</nt-rect>
  *   <nt-group id="g1" x="0" y="200" w="400" h="160"
@@ -473,10 +473,24 @@ export function isEdgeAttr(attr: string): boolean {
  * Figma. Nothing else reverses it.
  */
 export interface Scene {
-  /** Width of the canvas surface in scene px. */
+  /**
+   * The root's `w` attribute as written, 0 when it is absent. A diagram on the
+   * page states none — its width follows from {@link Scene.wide} (see
+   * `./band`) — so only a storyboard frame, or a root from before bands,
+   * holds a number here. Never derived: a frame's drawing is scaled by it.
+   */
   w: number;
-  /** Height of the canvas surface in scene px. */
+  /** Height in scene px: a frame's, or a band's floor the content can raise. */
   h: number;
+  /**
+   * Drawn `WIDE_W` wide and centred on the column rather than in it. `true`
+   * (the bare attribute) is wide for what it holds: a drag or the pen turned it
+   * wide, and an edit that leaves its margins empty folds it back to the
+   * column. `"pinned"` (`wide="pinned"`) is wide because someone asked for it,
+   * and stays wide until someone asks for the column. No scene holds
+   * `wide: false`, a document the parser never produces.
+   */
+  wide?: Wide;
   /** Parsed `style` of `<nt-diagram>` — the surface's own background etc. */
   style: StyleMap;
   nodes: SceneNode[];
@@ -491,8 +505,22 @@ export interface Scene {
    * so the round trip does not invent one.
    */
   id?: string;
-  /** Root attributes outside {@link RESERVED_ATTRS}, verbatim. */
+  /** Root attributes outside {@link RESERVED_ATTRS} and {@link ROOT_ATTRS}, verbatim. */
   attrs: Record<string, string>;
+}
+
+/** How a band is wide: see {@link Scene.wide}. */
+export type Wide = true | "pinned";
+
+/**
+ * Attributes the root owns beyond {@link RESERVED_ATTRS}. Root-only: a shape's
+ * own `wide` is just an attribute, carried like any other.
+ */
+export const ROOT_ATTRS = ["wide"] as const;
+
+/** True when a root attribute is modelled explicitly and must not enter `attrs`. */
+export function isReservedRootAttr(attr: string): boolean {
+  return isReservedAttr(attr) || (ROOT_ATTRS as readonly string[]).includes(attr.toLowerCase());
 }
 
 /**
@@ -600,7 +628,10 @@ export type SceneOp =
   | { type: "move"; ids: NodeId[]; dx: number; dy: number }
   /**
    * Absolute boxes, per node: a handle drag gives every selected node a
-   * different frame, and a left-edge drag changes `x` as well as `w`.
+   * different frame, and a left-edge drag changes `x` as well as `w`. A
+   * plain or boolean group stretches its children with its box and an
+   * auto-layout group re-flows them; strokes, radii and type stay as authored
+   * (`scene/stretch`), which is what separates this from `scale`.
    */
   | { type: "resize"; frames: NodeFrame[] }
   /**
@@ -686,6 +717,12 @@ export type SceneOp =
       spacing?: number;
     }
   /**
+   * Mirror in place about the centre of the selection's bounds: each node's
+   * place, its rotation and its own geometry mirror, and a group's children
+   * with it. Labels move with their boxes and stay readable (`./flip`).
+   */
+  | { type: "flip"; ids: NodeId[]; axis: FlipAxis }
+  /**
    * Add already-built connectors, ids minted by the caller. An edge naming a
    * node that is not in the scene is dropped by the applier rather than stored:
    * a dangling connector has nothing to draw between.
@@ -700,9 +737,11 @@ export type SceneOp =
    */
   | { type: "reconnect"; id: EdgeId; from?: NodeId; to?: NodeId }
   /**
-   * The diagram's own fields — canvas size, the surface's `style`, and its
-   * root attributes. Merge semantics throughout, `undefined` removing a
-   * declaration or attribute. An op rather than a block-prop write so the
+   * The diagram's own fields — its height, whether it is wide, the surface's
+   * `style`, and its root attributes. Merge semantics throughout, `undefined`
+   * removing a declaration or attribute; `wide: false` unsets it, `"pinned"`
+   * pins it, and `true` makes it wide without unpinning one pinned. `w` is a
+   * frame's (a band states none). An op rather than a block-prop write so the
    * surface's size and background take the same undoable path as everything
    * else on it.
    */
@@ -710,6 +749,7 @@ export type SceneOp =
       type: "setDiagram";
       w?: number;
       h?: number;
+      wide?: boolean | "pinned";
       style?: StylePatch;
       attrs?: Record<string, string | undefined>;
     };
@@ -756,6 +796,9 @@ export type Alignment =
 export type AlignTarget = "selection" | "parent";
 
 export type DistributeAxis = "horizontal" | "vertical";
+
+/** `x` mirrors left for right (a horizontal flip), `y` top for bottom. */
+export type FlipAxis = "x" | "y";
 
 // ---------------------------------------------------------------------------
 // Helpers — pure, allocation-light, and the only sanctioned implementations

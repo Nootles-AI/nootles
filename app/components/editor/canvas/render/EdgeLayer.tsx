@@ -1,13 +1,7 @@
 "use client";
 
-import { memo, useLayoutEffect, useMemo, useRef } from "react";
-import {
-  edgePoints,
-  obstaclesFor,
-  pointsToPath,
-  polylineMidpoint,
-  sceneObstacles,
-} from "../scene/edgePath";
+import { memo, useLayoutEffect, useRef } from "react";
+import { drawnEdges } from "../scene/edgePath";
 import { ARROW_MARKER } from "../scene/edgeMarker";
 import type { ViewportController } from "../engine/useViewport";
 import type { EdgeId, Scene } from "../scene/types";
@@ -62,34 +56,20 @@ export const EdgeLayer = memo(function EdgeLayer({
   onPick,
   onHover,
 }: EdgeLayerProps) {
-  // Routing is a pure function of the scene, and hovering a line is not an
-  // edit: without this, gliding the pointer across the connectors re-routes
-  // every one of them to toggle a class name.
-  const drawn = useMemo(() => {
-    if (scene.edges.length === 0) return [];
-    // One pass over the nodes for the whole layer, not one per connector.
-    const obstacles = sceneObstacles(scene);
-    return scene.edges.flatMap((edge) => {
-      const points = edgePoints(scene, edge, obstaclesFor(obstacles, edge));
-      // A connector naming a node that is not there is kept in the file — the
-      // author can still fix it — but there is nothing to draw between.
-      return points
-        ? [{ edge, d: pointsToPath(points), at: polylineMidpoint(points) }]
-        : [];
-    });
-  }, [scene]);
+  // Routing is a pure function of the scene, memoised on it: gliding the
+  // pointer across the connectors toggles a class name, and re-routes nothing.
+  const drawn = drawnEdges(scene);
 
   const root = useRef<SVGSVGElement>(null);
   useLayoutEffect(() => {
     if (!viewport) return;
     let painted = 0;
     const write = () => {
-      const zoom = viewport.get().zoom;
-      // Only on an actual zoom: a pan notifies every frame and moves nothing
-      // here, and a discarded custom-property parse is not free.
-      if (zoom === painted) return;
-      painted = zoom;
-      root.current?.style.setProperty("--k", String(1 / zoom));
+      const scale = viewport.screenScale();
+      // Only when the scale moves: a discarded custom-property parse is not free.
+      if (scale === painted) return;
+      painted = scale;
+      root.current?.style.setProperty("--k", String(1 / scale));
     };
     write();
     return viewport.subscribe(write);

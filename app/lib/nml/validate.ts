@@ -140,9 +140,12 @@ export function validateDocument(input: unknown): NmlIssue[] {
     } else if (block.type === "canvas") {
       const nodes = sceneNodes(block.scene.nodes);
       const sceneIds = new Set(nodes.map((node) => node.id));
-      nodes.forEach((node, index) => addId(node.id, [...path, "scene", "nodes", index], ids, issues));
+      // A diagram's shapes and connectors are addressed through its canvas, so
+      // their ids need only be unique within it.
+      const local = new Map<string, Array<string | number>>();
+      nodes.forEach((node, index) => addId(node.id, [...path, "scene", "nodes", index], local, issues));
       block.scene.edges.forEach((edge, index) => {
-        addId(edge.id, [...path, "scene", "edges", index], ids, issues);
+        addId(edge.id, [...path, "scene", "edges", index], local, issues);
         if (!sceneIds.has(edge.from) || !sceneIds.has(edge.to)) {
           issue(issues, "dangling_edge", [...path, "scene", "edges", index], "Edge endpoints must name shapes in the same scene.", edge.id);
         }

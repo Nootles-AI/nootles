@@ -72,10 +72,15 @@ Project → Page (1:1 with a canvas surface) → Block[text | canvas] → Shape 
     single accent, and it marks *the system's live answer to an input* — never a property of the
     thing. That is the one job neutral grey cannot do. In practice: the selection frame and its
     grips, the size readout shown while a shape is dragged or resized, a selected connector and
-    its label, the connector tool's plugs / target ring / preview, and the layers panel's drag
-    drop-indicator. Note the layers panel's *selected row* is neutral
+    its label, the connector tool's plugs / target ring / preview, the wash over a column band's
+    margins while a drag or the pen pushes past its side (faint while held, deeper on the side a
+    drop or the next point would widen into), and the layers panel's drag drop-indicator. Note the layers panel's *selected row* is neutral
     (`--selected`) — a resting state is not an answer. Everything else on the canvas stays neutral.
     Don't extend it, and don't remove it.
+- Zoom belongs to the page, never to a diagram: it lives on `.nt-sheet` (between the scroller
+  and the column), 100–200%, per pane, never stored. Anything `position: fixed` rendered inside
+  the page must portal to the body, and client-coordinate maths divides by
+  `effectiveScale(el)` (`app/lib/columnScale.ts`).
 - Interactions should feel native (Notion-clean block logic, instant edit-on-insert,
   keyboard copy/cut/paste/delete everywhere).
 
@@ -130,6 +135,19 @@ so they don't collide (that's why the canvas layout helper is `autoLayout.ts`).
   AI whole-diagram writes — keeps working; external HTML writes diff INTO the maps, so
   even the AI's whole-diagram edits merge per shape.
 - Math persists as LaTeX source in a node attribute (debounced), whole-value LWW.
+- A diagram is a **band** on the page, not a surface with its own camera: its root is
+  `<nt-diagram h="…" [wide | wide="pinned"] [style]>` — shapes in page px from the text column's
+  left edge, width 720 (or 1200 centred when wide). A bare `wide` came from a drag or the pen and
+  folds back to the column once an edit empties the margins; `wide="pinned"` is the panel's Wide and
+  stays until Column is chosen. Both widths draw at the text's scale (`columnScale.ts`), so a toggle
+  moves nothing; a wide band shows as much of its margins as the pane has room for and clips the rest
+  at its sides (`followWide`). `h` is the stored height, always written, and never shrinks on its
+  own: a local edit needing more room raises it in the same entry, content from elsewhere draws at
+  `max(h, floor)`, and only the grip, the panel's H / Fit to content, or the Auto height pill bring
+  it down (`canvas/scene/band.ts`). Storyboard shots are frames, not
+  bands: they keep their `w`. Old roots are normalized at the diagram-block reader
+  (`migrateLegacyCanvas`), never in `parseScene`; `readCanvasSource` stays raw for frames. Every AI write goes through
+  `fitToBand`, and a read shows the band's width as `w` (never stored) and `h` as stored.
 - The canvas HTML round-trip is exact: `serialize(parse(html)) === html`, and
   `materialize(populate(parse(html)))` equals `parse(html)` — both are contracts the AI
   layer edits diagrams through. Keep them that way.
@@ -154,11 +172,12 @@ keep them that way.
 
 - **`check`** — `tsc --noEmit`, `npm run lint`, `npm test`. **This is the bar.** It must be
   green, and it is what to fix if it is not.
-- **`canvas-browser`** — `npm run test:canvas:browser` under Playwright on a shared runner.
-  Green on `main` since NT-72; **a red one is a real failure and is yours to read.** It was
-  red on every run from 2026-09-16 to 2026-09-21, which is how a genuine break in
-  `canvas-stage` reached `main` unnoticed — so treat "it always fails" as a claim that has
-  already cost this repo once.
+- **`canvas-browser`** — `npm run test:canvas:browser` under Playwright on a shared runner,
+  including `canvas-page` (diagrams on the page: cross-diagram selection, page keymap,
+  lifecycle, page drawing, document zoom). Green on `main` since NT-72; **a red one is a real
+  failure and is yours to read.** It was red on every run from 2026-09-16 to 2026-09-21, which
+  is how a genuine break reached `main` unnoticed — so treat "it always fails" as a claim that
+  has already cost this repo once.
 - **`comments-browser`** — `npm run test:comments:browser`: the hermetic comment harnesses
   (stand-in Convex, real UI) under Playwright's Chromium. A red one is a real failure.
 - **`comments-fullstack`** — `npm run test:comments:fullstack`: the comment suites against a

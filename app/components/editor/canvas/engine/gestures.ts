@@ -25,6 +25,27 @@
  * frame computes each node's box in both scene and parent space (see
  * {@link Frame}); the conversion is a rotation by the node's *ancestors'*
  * rotation, which is fixed for the duration of the gesture and captured once.
+ * Client → scene is asked afresh every frame: the page can scroll the band
+ * under a held pointer, and the band is wherever it is now.
+ *
+ * ## A band holds what is in it
+ *
+ * A diagram on the page is its band's width and grows downward, so a gesture
+ * keeps the selection inside the band's x-range and below its top — or, for
+ * content that already reached past them, no further out than it began. A
+ * move is clamped exactly, a scale's factor is capped, and a resize that would
+ * leave is clamped where the maths is linear and refused where it is not.
+ *
+ * A column band held against its side washes its margins in, faintly. A push
+ * well past the side — still pushing out — lets the drag go on into the
+ * margin, over the page, and the wash on that side deepens: let go there and
+ * the band turns wide, as one step with the move. The band itself never
+ * changes under the hand; brought back inside the column, the drag is held
+ * by its side again, and a cancel leaves nothing to take back. Held, a moved
+ * selection gives a little, and stretches a touch toward the pull, like a
+ * rubber band — {@link elasticGive} — and let past, it springs out under the
+ * pointer. Both are pictures on the elements; nothing lands but the move. A
+ * push only just past the side is a hard stop first: see {@link HOLD_PUSH}.
  *
  * ## Modifiers, as Figma has trained everyone to expect
  *
@@ -45,12 +66,14 @@ import {
   layoutOf,
   resolveLayout,
 } from "../scene/autoLayout";
+import { reachesMargins } from "../scene/band";
 import {
   absoluteRect,
   absoluteRotation,
   angleOf,
   HANDLE_EDGES,
   HANDLES,
+  nodeBounds,
   normalizeAngle,
   resizeRect,
   rotateAround,
@@ -58,14 +81,16 @@ import {
   snapAngle,
   toLocal,
   unionBounds,
-  viewportToScene,
   type Handle,
   type RotatedRect,
 } from "../scene/geometry";
+import { isAutoSize } from "../scene/boxModel";
 import { mintIds, reflowHugs } from "../scene/ops";
+import { resizedNode, stretchesChildren } from "../scene/stretch";
 import {
   findNode,
   findParent,
+  isBoolean,
   isContainer,
   nodePath,
   walk,
@@ -77,14 +102,15 @@ import {
   type Scene,
   type SceneNode,
   type SceneOp,
-  type Viewport,
 } from "../scene/types";
 import {
   boxTargets,
   collectSnapScope,
   createSnapper,
   resizeTargets,
+  type SnapExtra,
   type SnapGuide,
+  type SnapLine,
   type SnapTarget,
   type Snapper,
 } from "./snapping";
@@ -102,6 +128,8 @@ export interface TransformStore {
   /** Open a coalescing bracket: everything until `commit` is one undo entry. */
   begin(): void;
   commit(): void;
+  /** Close the bracket as though it never opened — a widening a cancel takes back. */
+  abort(): void;
   dispatch(ops: SceneOp[]): void;
 }
 
@@ -144,14 +172,37 @@ const READOUT: Record<GestureMode, ReadoutMode | null> = {
   reorder: null,
 };
 
+/** A band's x-range in scene px; its top is always 0. */
+export interface BandRange {
+  minX: number;
+  maxX: number;
+}
+
+/**
+ * A column band's margins, as a drag or the pen answers them: washed in
+ * faintly while held at the side (`held`), and deeper on the side a drop — or
+ * the pen's next point — would take the band wide into. `null` is no wash.
+ */
+export type MarginWash = null | "held" | "left" | "right" | "both";
+
 export interface TransformGestureOptions {
   store: TransformStore;
-  /** Live viewport. Read every frame, so zooming mid-drag stays correct. */
-  getViewport(): Viewport;
+  /** Event coordinates → scene px. Asked every frame. */
+  clientToScene(point: Point): Point;
+  /** Screen px per scene px, so snapping reads the same on screen at any scale. */
+  screenScale(): number;
+  /** The band the selection is held in, or `null` for a frame, which has none. */
+  band?(): BandRange | null;
+  /**
+   * A column band's range were it wide, as far as the page shows it: what a
+   * push past its side opens to the drag, and a drop there makes the band.
+   * Absent for a wide band and for a frame; `null` where no margin shows.
+   */
+  wideBand?(): BandRange | null;
+  /** How a column band's margins show this frame. */
+  pushing?(wash: MarginWash): void;
   /** Selection ids. Ids nested inside another selected node are ignored. */
   getSelection(): readonly NodeId[];
-  /** The element the viewport transform is applied to — the coordinate origin. */
-  getContainer(): HTMLElement | null;
   /** A node's rendered element. The surface finds and caches it; we only read. */
   getElement(id: NodeId): HTMLElement | null;
   overlay?: { current: OverlayHandle | null };
@@ -160,13 +211,28 @@ export interface TransformGestureOptions {
   /** Raised when a gesture starts moving and when it ends. */
   onActiveChange?(active: boolean): void;
   /**
-   * After each frame's DOM writes, with every moving node's box this frame.
-   * For anything drawn *from* the shapes rather than by them — the connectors,
-   * whose route is a function of two boxes that this gesture is in the middle
-   * of moving, and a boolean group, whose one drawing is cut from operands
-   * that have no element of their own to read.
+   * After each frame's DOM writes, with every moving node's box this frame and
+   * the lowest scene y any of them reaches, rotation included (`-Infinity`
+   * when the frame placed none — a reorder). For anything drawn *from* the
+   * shapes rather than by them — the connectors, whose route is a function of
+   * two boxes that this gesture is in the middle of moving, a boolean group,
+   * whose one drawing is cut from operands that have no element of their own
+   * to read.
    */
-  onFrame?(frames: readonly LiveFrame[]): void;
+  onFrame?(frames: readonly LiveFrame[], bottom: number): void;
+  /**
+   * With the frame's other writes, the lowest scene y the moving boxes reach:
+   * the band grows to hold them. A write, never a read, so a gesture spanning
+   * several diagrams writes every band before anything measures one.
+   */
+  grow?(bottom: number): void;
+  /** Lines beyond the diagram's own shapes — a frame's box, a band's column. */
+  snapExtra?(): SnapExtra;
+  /**
+   * Inside the bracket the gesture lands in, after its ops: anything the
+   * landing implies, in the same undo entry.
+   */
+  onLand?(): void;
   /** Grid pitch in scene px. `0`/omitted disables grid snapping. */
   grid?: number;
   /** Snap distance in SCREEN px, so it is constant at every zoom. */
@@ -183,6 +249,40 @@ export interface LiveFrame {
   w: number;
   h: number;
   rot: number;
+}
+
+/**
+ * What one frame of a gesture came to, in the scene px of the diagram that
+ * decided it. A gesture spanning several diagrams is decided once, by the
+ * diagram under the pointer, and every other one lands the same decision in
+ * its own px — see {@link convertDecision}.
+ */
+export type Decision =
+  | { kind: "move"; dx: number; dy: number }
+  | { kind: "resize"; dx: number; dy: number }
+  | { kind: "scale"; k: number }
+  | { kind: "rotate"; deg: number };
+
+/** How far a move may take a selection, in scene px; downward is open. */
+export interface Allowed {
+  minDx: number;
+  maxDx: number;
+  minDy: number;
+}
+
+/**
+ * What a session is told by whoever runs several at once. `bounds` is the box
+ * every one of them acts about — the page's selection, in this diagram's px —
+ * so a resize stretches, a scale pins and a rotation turns about the same
+ * place in each. `sole` says whether the page holds exactly one shape.
+ */
+export interface SessionOverrides {
+  bounds?: Rect;
+  sole?: boolean;
+  /** Decided with others: a resize is refused whole rather than clamped per edge. */
+  lockstep?: boolean;
+  /** Other diagrams' shapes, in this one's px — the decider's alone. */
+  foreign?: readonly SnapLine[];
 }
 
 export interface TransformGestureApi {
@@ -221,6 +321,41 @@ export type PointerLike = {
 
 /** Screen px of travel before a press becomes a drag rather than a click. */
 const DRAG_THRESHOLD = 3;
+
+/**
+ * The side of a column band, pushed against, in three phases of how far the
+ * pointer has gone on past where it holds the selection (screen px): up to
+ * `HOLD_PUSH` a hard stop, the selection dead still at the edge; up to
+ * `WIDEN_PUSH` it gives, like a rubber band ({@link elasticGive}, measured from
+ * `HOLD_PUSH`); past that — still pushing out — it snaps over into the
+ * margin. Generous on purpose: the column is where things belong, and a shape
+ * nudged to its edge should stay.
+ */
+export const HOLD_PUSH = 32;
+export const WIDEN_PUSH = 96;
+
+/** Screen px a selection held at the column's side gives past it, at most. */
+export const ELASTIC_R = 14;
+/** How much it stretches along the pull at most, as a fraction of its width. */
+export const ELASTIC_STRETCH = 0.04;
+/** The spring out past the side: short, and a touch past where it lands. */
+const SNAP_MS = 140;
+const SNAP_EASE = "cubic-bezier(0.34, 1.45, 0.64, 1)";
+const SNAP_ID = "nt-snap";
+
+/**
+ * Screen px a held selection gives for a pull `overshoot` px into the sprung
+ * phase — past the hard stop: a rubber band's `R·(1 − e^(−x/R))`, so it creeps
+ * at first and then hardly moves, never reaching `r`.
+ */
+export function elasticGive(overshoot: number, r = ELASTIC_R): number {
+  return overshoot > 0 ? r * (1 - Math.exp(-overshoot / r)) : 0;
+}
+
+/** The stretch along the pull for the same overshoot: 1, easing up toward `1 + ELASTIC_STRETCH`. */
+export function elasticStretch(overshoot: number, r = ELASTIC_R): number {
+  return 1 + (ELASTIC_STRETCH * elasticGive(overshoot, r)) / r;
+}
 
 /** Shift-rotate quantum, Figma's. Unshifted, rotation still lands on a degree. */
 const ROTATE_STEP = 15;
@@ -271,6 +406,97 @@ interface Mods {
   free: boolean;
 }
 
+/**
+ * The edges a selection is held inside: the band's, or — for content that
+ * already reached past one — wherever it began, so nothing is yanked back into
+ * the band on the first frame and nothing goes further out. Downward is open:
+ * the band grows.
+ */
+interface Fence {
+  left: number;
+  right: number;
+  top: number;
+}
+
+/** A fence, and the room it leaves a move. */
+interface Hold {
+  fence: Fence | null;
+  allowed: Allowed | null;
+}
+
+function holdFor(band: BandRange | null, reach: Rect): Hold {
+  return { fence: fenceFor(band, reach), allowed: moveAllowed(band, reach) };
+}
+
+function fenceFor(band: BandRange | null, box: Rect): Fence | null {
+  if (!band) return null;
+  return {
+    left: Math.min(band.minX, box.x),
+    right: Math.max(band.maxX, box.x + box.w),
+    top: Math.min(0, box.y),
+  };
+}
+
+/** Below this, two coordinates are the same place. */
+const FENCE_EPS = 1e-6;
+
+/**
+ * How far a box may move inside a band: to its edges and no higher than its
+ * top, or — for a box that already reached past one — no further out than it
+ * began, so nothing jumps on the first frame.
+ */
+export function moveAllowed(band: BandRange | null, reach: Rect): Allowed | null {
+  const fence = fenceFor(band, reach);
+  if (!fence) return null;
+  return {
+    minDx: fence.left - reach.x,
+    maxDx: fence.right - (reach.x + reach.w),
+    minDy: fence.top - reach.y,
+  };
+}
+
+/** Room that suits both; `null` is no fence at all. Each holds zero, so the result does. */
+export function intersectAllowed(a: Allowed | null, b: Allowed | null): Allowed | null {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    minDx: Math.max(a.minDx, b.minDx),
+    maxDx: Math.min(a.maxDx, b.maxDx),
+    minDy: Math.max(a.minDy, b.minDy),
+  };
+}
+
+/** `a` measured in another diagram's px, `ratio` of theirs to one of these. */
+export function scaleAllowed(a: Allowed | null, ratio: number): Allowed | null {
+  if (!a || ratio === 1) return a;
+  return { minDx: a.minDx * ratio, maxDx: a.maxDx * ratio, minDy: a.minDy * ratio };
+}
+
+/**
+ * A decision made in one diagram's px, for another's: lengths go through the
+ * screen, where the two agree (`from` and `to` are each one's screen px per
+ * scene px); a factor and an angle mean the same everywhere.
+ */
+export function convertDecision(decision: Decision, from: number, to: number): Decision {
+  const ratio = from / to;
+  if (ratio === 1) return decision;
+  switch (decision.kind) {
+    case "move":
+    case "resize":
+      return { kind: decision.kind, dx: decision.dx * ratio, dy: decision.dy * ratio };
+    default:
+      return decision;
+  }
+}
+
+const IDENTITY: Record<GestureMode, Decision> = {
+  move: { kind: "move", dx: 0, dy: 0 },
+  reorder: { kind: "move", dx: 0, dy: 0 },
+  resize: { kind: "resize", dx: 0, dy: 0 },
+  scale: { kind: "scale", k: 1 },
+  rotate: { kind: "rotate", deg: 0 },
+};
+
 /** A node as it was when the gesture began, plus the styles to restore. */
 interface NodeStart {
   id: NodeId;
@@ -289,6 +515,20 @@ interface NodeStart {
   height: string;
   /** Set only for a shape whose geometry a stretch cannot draw; see
    *  {@link shapeWriter}. */
+  shape: ShapeWriter | null;
+  /** The laid-out node, which a resize previews {@link resizedNode} from. */
+  node: SceneNode;
+  /** Under a resize, every descendant a group's stretch moves; see {@link innerOf}. */
+  inner: InnerStart[];
+}
+
+/** A descendant's element as React left it, for a stretch to write over and put back. */
+interface InnerStart {
+  id: NodeId;
+  el: HTMLElement;
+  transform: string;
+  width: string;
+  height: string;
   shape: ShapeWriter | null;
 }
 
@@ -336,6 +576,9 @@ interface ReorderState {
 
 interface Session {
   mode: GestureMode;
+  /** The only shape the gesture moves on the whole page: its own axes, its own angle. */
+  sole: boolean;
+  lockstep: boolean;
   pointerId: number;
   handle: Handle | null;
   scene: Scene;
@@ -343,13 +586,43 @@ interface Session {
   origin: Point;
   startClient: Point;
   client: Point;
-  containerLeft: number;
-  containerTop: number;
   mods: Mods;
   starts: NodeStart[];
   frames: Frame[];
   scratch: RotatedRect[];
   bounds: Rect;
+  /** How far the selection may go this gesture, or `null` outside a band. */
+  fence: Fence | null;
+  /** The selection's box at the start, rotation included — what the fence holds. */
+  reach: Rect;
+  /** A move's reach inside the fence — narrowed to every diagram's when decided for several. */
+  allowed: Allowed | null;
+  /** The last decision that stayed inside the fence, for a resize or a rotation to fall back on. */
+  accepted: Decision;
+  /** The modifiers `accepted` was placed under — Shift and Alt shape a resize. */
+  acceptedMods: Mods;
+  /** What the band itself holds the selection inside — the column's, for a column band. */
+  column: Hold;
+  /** What a push past a column band's side opens: its margins' hold. `null` where none is offered. */
+  spill: Hold | null;
+  /** The drag has been let past the column's side, and the fence is {@link spill}'s. */
+  spilling: boolean;
+  /** Screen px the pointer is past where the column's side holds the selection, this frame. */
+  push: number;
+  /** Last frame's {@link push}: the push past the threshold has to be outward. */
+  lastPush: number;
+  /** Which side it is pushing past: -1 left, 1 right, 0 neither. */
+  side: -1 | 0 | 1;
+  /**
+   * The rubber band this frame: screen px past the column's hold, signed by
+   * side, that a held move shows as give and stretch; 0 for none. A picture
+   * only — the frames are where the side holds them.
+   */
+  pull: number;
+  /** The give (scene px) and stretch last drawn, which a spring out starts from. */
+  shown: { give: number; stretch: number };
+  /** Reduced motion asked for: a plain hold, then a jump. */
+  calm: boolean;
   centre: Point;
   startAngle: number;
   /** Accumulated rotation, unwrapped so a full turn keeps counting. */
@@ -375,14 +648,14 @@ interface Session {
  * click count, and a `dblclick` listener would arrive after the drag it is
  * meant to replace, so the pair is recognised here from time and distance.
  */
-interface Press {
+export interface Press {
   key: string;
   time: number;
   x: number;
   y: number;
 }
 
-function isDoubleClick(press: Press, key: string, event: PointerLike): boolean {
+export function isDoubleClick(press: Press, key: string, event: PointerLike): boolean {
   const now = performance.now();
   const again =
     press.key === key &&
@@ -395,6 +668,51 @@ function isDoubleClick(press: Press, key: string, event: PointerLike): boolean {
   press.x = event.clientX;
   press.y = event.clientY;
   return again;
+}
+
+/** What a held pointer reports to whoever is driving a gesture with it. */
+export interface PointerDrive {
+  move(event: PointerEvent): void;
+  /** Any key but Escape, down or up: a modifier may have changed. */
+  key(event: KeyboardEvent): void;
+  /** Released (with the event) or cancelled — Escape, or the pointer lost. */
+  end(cancelled: boolean, event?: PointerEvent): void;
+}
+
+/**
+ * One pointer, followed on the window until it lets go. Returns the detach,
+ * which `end` does not call for you — a driver tearing down several sessions
+ * wants to choose when its listeners go.
+ */
+export function drivePointer(pointerId: number, drive: PointerDrive): () => void {
+  const onMove = (ev: PointerEvent) => {
+    if (ev.pointerId === pointerId) drive.move(ev);
+  };
+  const onUp = (ev: PointerEvent) => {
+    if (ev.pointerId === pointerId) drive.end(false, ev);
+  };
+  const onKey = (ev: KeyboardEvent) => {
+    // Ahead of every keymap: the Escape that cancels a gesture is spent here.
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      ev.stopPropagation();
+      drive.end(true);
+      return;
+    }
+    drive.key(ev);
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
+  window.addEventListener("keydown", onKey, true);
+  window.addEventListener("keyup", onKey, true);
+  return () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
+    window.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("keyup", onKey, true);
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -417,50 +735,29 @@ export function useTransformGesture(
     (event: PointerLike, mode: GestureMode, handle: Handle | null) => {
       const o = optionsRef.current;
       if (sessionRef.current) return;
-      const session = createSession(o, event, mode, handle);
+      const session = createGestureSession(o, event, mode, handle);
       if (!session) return;
       event.preventDefault();
       sessionRef.current = session;
 
-      const done = (cancelled: boolean) => {
-        if (sessionRef.current !== session) return;
-        sessionRef.current = null;
-        finish(session, optionsRef.current, cancelled);
-      };
-      const onMove = (ev: PointerEvent) => {
-        if (ev.pointerId !== session.pointerId) return;
-        session.client.x = ev.clientX;
-        session.client.y = ev.clientY;
-        readMods(session, ev);
-        schedule(session, optionsRef.current);
-      };
-      const onUp = (ev: PointerEvent) => {
-        if (ev.pointerId !== session.pointerId) return;
-        readMods(session, ev);
-        done(false);
-      };
-      const onKey = (ev: KeyboardEvent) => {
-        if (ev.key === "Escape") {
-          ev.preventDefault();
-          done(true);
-          return;
-        }
-        readMods(session, ev);
-        schedule(session, optionsRef.current);
-      };
-
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
-      window.addEventListener("pointercancel", onUp);
-      window.addEventListener("keydown", onKey);
-      window.addEventListener("keyup", onKey);
-      session.detach = () => {
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
-        window.removeEventListener("pointercancel", onUp);
-        window.removeEventListener("keydown", onKey);
-        window.removeEventListener("keyup", onKey);
-      };
+      session.detach = drivePointer(session.pointerId, {
+        move: (ev) => {
+          session.client.x = ev.clientX;
+          session.client.y = ev.clientY;
+          readGestureMods(session, ev);
+          schedule(session, optionsRef.current);
+        },
+        key: (ev) => {
+          readGestureMods(session, ev);
+          schedule(session, optionsRef.current);
+        },
+        end: (cancelled, ev) => {
+          if (sessionRef.current !== session) return;
+          if (ev) readGestureMods(session, ev);
+          sessionRef.current = null;
+          finish(session, optionsRef.current, cancelled);
+        },
+      });
     },
     [],
   );
@@ -486,7 +783,7 @@ export function useTransformGesture(
           return;
         }
         event.preventDefault();
-        resetRotation(optionsRef.current);
+        resetGestureRotation(optionsRef.current);
       },
       startRadius: (event, corner) =>
         isDoubleClick(pressRef.current, `radius:${corner}`, event)
@@ -637,15 +934,10 @@ function startRadiusDrag(
   corner: Handle,
 ) {
   const index = RADIUS_CORNERS.indexOf(corner);
-  const container = o.getContainer();
   const target = soleTarget(o);
-  if (index < 0 || !container || !target) return;
+  if (index < 0 || !target) return;
   const { scene, node, el } = target;
 
-  const viewport = o.getViewport();
-  const cbox = container.getBoundingClientRect();
-  const toScene = (point: Point) =>
-    viewportToScene({ x: point.x - cbox.left, y: point.y - cbox.top }, viewport);
   const box: RotatedRect = {
     ...absoluteRect(scene, node.id),
     rot: absoluteRotation(scene, node.id),
@@ -665,7 +957,7 @@ function startRadiusDrag(
 
   const paint = () => {
     raf = 0;
-    const local = toLocal(toScene(client), box);
+    const local = toLocal(o.clientToScene(client), box);
     const dx = index === 1 || index === 2 ? box.w - local.x : local.x;
     const dy = index >= 2 ? box.h - local.y : local.y;
     const next = Math.round(Math.min(Math.max((dx + dy) / 2, 0), limit));
@@ -710,6 +1002,7 @@ function startRadiusDrag(
   const onKey = (ev: KeyboardEvent) => {
     if (ev.key === "Escape") {
       ev.preventDefault();
+      ev.stopPropagation();
       end(true);
       return;
     }
@@ -721,15 +1014,15 @@ function startRadiusDrag(
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
     window.removeEventListener("pointercancel", onUp);
-    window.removeEventListener("keydown", onKey);
-    window.removeEventListener("keyup", onKey);
+    window.removeEventListener("keydown", onKey, true);
+    window.removeEventListener("keyup", onKey, true);
   };
 
   window.addEventListener("pointermove", onMove);
   window.addEventListener("pointerup", onUp);
   window.addEventListener("pointercancel", onUp);
-  window.addEventListener("keydown", onKey);
-  window.addEventListener("keyup", onKey);
+  window.addEventListener("keydown", onKey, true);
+  window.addEventListener("keyup", onKey, true);
 }
 
 /** The shorthand the style panel writes, from four px radii. */
@@ -748,14 +1041,16 @@ function radiusCss(
 // Starting a gesture
 // ---------------------------------------------------------------------------
 
-function createSession(
+/** One diagram's share of a gesture, or `null` when it has nothing it may move. */
+export type GestureSession = Session;
+
+export function createGestureSession(
   o: TransformGestureOptions,
   event: PointerLike,
   mode: GestureMode,
   handle: Handle | null,
+  overrides: SessionOverrides = {},
 ): Session | null {
-  const container = o.getContainer();
-  if (!container) return null;
   // Laid out, so a child of an auto-layout group starts the gesture from where
   // it is on screen rather than from an `x`/`y` nothing has honoured since it
   // was put in the group.
@@ -763,13 +1058,7 @@ function createSession(
   const ids = topMostIds(scene, o.getSelection());
   if (!ids.length) return null;
 
-  // One layout read for the whole gesture; never inside a move handler.
-  const box = container.getBoundingClientRect();
-  const viewport = o.getViewport();
-  const origin = viewportToScene(
-    { x: event.clientX - box.left, y: event.clientY - box.top },
-    viewport,
-  );
+  const origin = o.clientToScene({ x: event.clientX, y: event.clientY });
 
   const starts: NodeStart[] = [];
   const nodes: SceneNode[] = [];
@@ -793,24 +1082,30 @@ function createSession(
       width: el?.style.width ?? "",
       height: el?.style.height ?? "",
       shape: el && mode === "resize" ? shapeWriter(node, el) : null,
+      node,
+      inner: mode === "resize" ? innerOf(node, o.getElement) : [],
     });
   }
   if (!starts.length) return null;
 
   const scratch: RotatedRect[] = starts.map((s) => ({ ...s.scene, rot: s.sceneRot }));
-  const bounds = selectionBounds(scratch);
+  const bounds = overrides.bounds ?? selectionBounds(scratch);
+  const reach = unionBounds(scratch);
   const targets = boxTargets(bounds);
+  const column = holdFor(o.band?.() ?? null, reach);
+  const wideBand = o.wideBand?.() ?? null;
+  const extra = o.snapExtra?.() ?? {};
 
   const session: Session = {
     mode,
+    sole: overrides.sole ?? starts.length === 1,
+    lockstep: overrides.lockstep ?? false,
     pointerId: event.pointerId,
     handle,
     scene,
     origin,
     startClient: { x: event.clientX, y: event.clientY },
     client: { x: event.clientX, y: event.clientY },
-    containerLeft: box.left,
-    containerTop: box.top,
     mods: {
       shift: event.shiftKey,
       alt: event.altKey,
@@ -832,6 +1127,20 @@ function createSession(
     })),
     scratch,
     bounds,
+    fence: column.fence,
+    reach,
+    allowed: column.allowed,
+    accepted: IDENTITY[mode],
+    acceptedMods: { shift: event.shiftKey, alt: event.altKey, free: event.metaKey || event.ctrlKey },
+    column,
+    spill: wideBand ? holdFor(wideBand, reach) : null,
+    spilling: false,
+    push: 0,
+    lastPush: 0,
+    side: 0,
+    pull: 0,
+    shown: { give: 0, stretch: 1 },
+    calm: typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches,
     centre: { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 },
     startAngle: angleOf(
       { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 },
@@ -843,11 +1152,14 @@ function createSession(
     targets,
     targetsX: targets.filter((t) => t.axis === "x"),
     targetsY: targets.filter((t) => t.axis === "y"),
-    snapper: createSnapper(collectSnapScope(scene, new Set(ids)), {
-      threshold: o.snapThreshold,
-      grid: o.grid,
-      moving: bounds,
-    }),
+    snapper: createSnapper(
+      collectSnapScope(scene, new Set(ids), { ...extra, foreign: overrides.foreign ?? extra.foreign }),
+      {
+        threshold: o.snapThreshold,
+        grid: o.grid,
+        moving: bounds,
+      },
+    ),
     reorder: null,
     flow: starts.some((s) => s.flow),
     active: false,
@@ -946,48 +1258,290 @@ function schedule(session: Session, o: TransformGestureOptions) {
   });
 }
 
-function readMods(session: Session, event: PointerLike | KeyboardEvent) {
+export function readGestureMods(session: Session, event: PointerLike | KeyboardEvent) {
   session.mods.shift = event.shiftKey;
   session.mods.alt = event.altKey;
   session.mods.free = event.metaKey || event.ctrlKey;
 }
 
+/** Whether the pointer has travelled far enough from the press to be a drag. */
+export function pastThreshold(start: Point, client: Point): boolean {
+  return (
+    Math.abs(client.x - start.x) >= DRAG_THRESHOLD ||
+    Math.abs(client.y - start.y) >= DRAG_THRESHOLD
+  );
+}
+
+/**
+ * A column band holding the selection at its side: its margins wash in while
+ * it holds, and a push past {@link WIDEN_PUSH}, still outward, lets the drag
+ * into them ({@link spillGesture}); brought back until nothing is past the
+ * side, the column holds it again. True when that changed — the frame is then
+ * decided again, against the new fence.
+ */
+export function pushEdge(session: Session, o: TransformGestureOptions): boolean {
+  const next = spillNext(session);
+  const changed = next !== session.spilling;
+  if (changed) spillGesture(session, next);
+  o.pushing?.(washOf(session));
+  return changed;
+}
+
+/**
+ * Whether the drag should be past the column's side from this frame: once it
+ * has pushed {@link WIDEN_PUSH} on past the side and is still pushing out, and
+ * until nothing of it is past the side any more. Records the push it read.
+ */
+export function spillNext(session: Session): boolean {
+  const { push, lastPush } = session;
+  session.lastPush = push;
+  if (!session.spill) return false;
+  if (session.spilling) return push > 0;
+  return push >= WIDEN_PUSH && push > lastPush;
+}
+
+/** Let the drag past the column's side into the margins, or hold it at the side again. */
+export function spillGesture(session: Session, on: boolean): void {
+  const hold = on && session.spill ? session.spill : session.column;
+  session.spilling = on && !!session.spill;
+  session.fence = hold.fence;
+  session.allowed = hold.allowed;
+}
+
+/**
+ * The rubber band a held move shows this frame (see {@link Session.pull}):
+ * nothing through the hard stop, then the push past {@link HOLD_PUSH}.
+ */
+export function pullOf(session: Session): number {
+  if (!session.spill || session.spilling || session.mode !== "move" || session.calm) return 0;
+  return Math.max(0, session.push - HOLD_PUSH) * session.side;
+}
+
+/**
+ * Let past the side this frame: each element starts from where it was just
+ * drawn — held, given, stretched — and springs to where the pointer has it.
+ * `was` is each frame's scene x before this one placed it.
+ */
+export function springOut(
+  session: Session,
+  was: readonly number[],
+  from: { give: number; stretch: number },
+): void {
+  if (session.calm) return;
+  const { give, stretch } = from;
+  for (let i = 0; i < session.starts.length; i++) {
+    const start = session.starts[i];
+    const el = start.el;
+    if (!el || start.flow || typeof el.animate !== "function") continue;
+    const jump = rotatePoint({ x: session.frames[i].sx - (was[i] + give), y: 0 }, -start.ancestorRot);
+    el.animate(
+      [
+        { translate: `${-jump.x}px ${-jump.y}px`, scale: `${stretch} 1` },
+        { translate: "0px 0px", scale: "1 1" },
+      ],
+      { duration: SNAP_MS, easing: SNAP_EASE, id: SNAP_ID },
+    );
+  }
+}
+
+/**
+ * The rubber band, drawn: each element given along the pull and stretched
+ * about the selection's trailing edge, through the individual `translate` and
+ * `scale` properties so the frame's own `transform` is untouched. Scene px
+ * throughout; a node under a turned group gives but does not stretch. The
+ * selection frame and its readout stay where the move would land — held at
+ * the side — so the shape is seen pulling away from it.
+ */
+function writePull(session: Session, o: TransformGestureOptions) {
+  const pull = session.pull;
+  if (!pull && !session.shown.give) return;
+  const amount = Math.abs(pull);
+  const give = (Math.sign(pull) * elasticGive(amount)) / o.screenScale();
+  const stretch = pull ? elasticStretch(amount) : 1;
+  session.shown = { give, stretch };
+  const anchor = pull > 0 ? pullEdges(session).left : pullEdges(session).right;
+  for (let i = 0; i < session.starts.length; i++) {
+    const start = session.starts[i];
+    const el = start.el;
+    if (!el || start.flow) continue;
+    if (!pull) {
+      el.style.translate = "";
+      el.style.scale = "";
+      continue;
+    }
+    if (start.ancestorRot) {
+      const t = rotatePoint({ x: give, y: 0 }, -start.ancestorRot);
+      el.style.translate = `${t.x}px ${t.y}px`;
+      continue;
+    }
+    const f = session.frames[i];
+    // The trailing edge in the parent's px, about the element's own origin — its centre.
+    const edge = anchor - (f.sx - f.x);
+    const tx = (1 - stretch) * (edge - start.local.w / 2) + give;
+    el.style.translate = `${tx}px 0px`;
+    el.style.scale = `${stretch} 1`;
+  }
+}
+
+/** The selection's side edges this frame, in scene px. */
+function pullEdges(session: Session): { left: number; right: number } {
+  let left = Infinity;
+  let right = -Infinity;
+  for (const f of session.frames) {
+    left = Math.min(left, f.sx);
+    right = Math.max(right, f.sx + f.sw);
+  }
+  return { left, right };
+}
+
+/** The margins' wash for where the drag is this frame. */
+export function washOf(session: Session): MarginWash {
+  if (session.spilling) return session.side < 0 ? "left" : session.side > 0 ? "right" : "held";
+  return session.push > 0 ? "held" : null;
+}
+
+/**
+ * The press became a drag. `announce` tells the overlay what its readout
+ * should say — the one overlay a gesture spanning several diagrams draws in.
+ */
+export function activateGesture(session: Session, o: TransformGestureOptions, announce = true) {
+  session.active = true;
+  if (announce) o.overlay?.current?.mode(READOUT[session.mode]);
+  o.onActiveChange?.(true);
+}
+
 function runFrame(session: Session, o: TransformGestureOptions) {
   if (!session.active) {
-    const dx = session.client.x - session.startClient.x;
-    const dy = session.client.y - session.startClient.y;
-    if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
-    session.active = true;
-    o.overlay?.current?.mode(READOUT[session.mode]);
-    o.onActiveChange?.(true);
+    if (!pastThreshold(session.startClient, session.client)) return;
+    activateGesture(session, o);
   }
 
-  const viewport = o.getViewport();
-  const point = viewportToScene(
-    {
-      x: session.client.x - session.containerLeft,
-      y: session.client.y - session.containerTop,
-    },
-    viewport,
-  );
+  const point = o.clientToScene(session.client);
 
   if (session.mode === "reorder") {
     applyReorder(session, point);
     writeOverlay(session, o, NO_GUIDES);
-    o.onFrame?.(NO_FRAMES);
+    o.onFrame?.(NO_FRAMES, -Infinity);
     return;
   }
 
+  let { decision, guides } = decideGesture(session, o, point);
+  // Where each shape was drawn before a push lets it past, to spring from.
+  let was: number[] | null = null;
+  if (session.spill && pushEdge(session, o)) {
+    if (session.spilling) was = session.frames.map((f) => f.sx);
+    ({ decision, guides } = decideGesture(session, o, point));
+  }
+  session.pull = pullOf(session);
+  const from = session.shown;
   const min = o.minSize ?? 1;
-  const guides =
-    session.mode === "move"
-      ? applyMove(session, point, viewport.zoom)
-      : session.mode === "resize"
-        ? applyResize(session, point, viewport.zoom, min)
-        : session.mode === "scale"
-          ? applyScale(session, point, min)
-          : applyRotate(session, point);
+  let shown = guides;
+  if (applyDecision(session, decision, min)) {
+    acceptDecision(session, decision);
+  } else {
+    fallBack(session, min);
+    shown = NO_GUIDES;
+  }
+  writeGesture(session, o, shown, true);
+  if (was) springOut(session, was, from);
+  // After the writes: whatever reads the shapes' live boxes must read them as
+  // they are this frame, not as they were last one.
+  o.onFrame?.(session.frames, liveBottomOf(session.frames));
+}
 
+const NO_FRAMES: readonly LiveFrame[] = [];
+
+/**
+ * What the pointer at `point` (scene px) asks of this frame — snapped, and
+ * held inside the band wherever that is exact.
+ */
+export function decideGesture(
+  session: Session,
+  o: TransformGestureOptions,
+  point: Point,
+): { decision: Decision; guides: readonly SnapGuide[] } {
+  const scale = o.screenScale();
+  switch (session.mode) {
+    case "resize":
+      return decideResize(session, point, scale);
+    case "scale":
+      return { decision: decideScale(session, point, o.minSize ?? 1), guides: NO_GUIDES };
+    case "rotate":
+      return { decision: decideRotate(session, point), guides: NO_GUIDES };
+    default:
+      return decideMove(session, point, scale);
+  }
+}
+
+/**
+ * Every frame placed as `decision` says. False when a resize or a rotation
+ * would take a box past the fence — the caller then places the last one that
+ * did not, for this diagram and every other one moving with it.
+ */
+export function applyDecision(session: Session, decision: Decision, minSize: number): boolean {
+  switch (decision.kind) {
+    case "move":
+      placeMove(session, decision.dx, decision.dy);
+      return true;
+    case "resize":
+      if (!session.handle) return true;
+      placeResize(
+        session,
+        session.handle,
+        { x: decision.dx, y: decision.dy },
+        session.mods.shift,
+        session.mods.alt,
+        minSize,
+      );
+      return !escapes(session);
+    case "scale":
+      placeScale(session, decision.k);
+      return true;
+    case "rotate":
+      placeRotate(session, decision.deg);
+      return !escapes(session);
+  }
+}
+
+/** `decision` stayed inside the fence: what a refused one falls back on. */
+export function acceptDecision(session: Session, decision: Decision) {
+  session.accepted = decision;
+  session.acceptedMods = { ...session.mods };
+}
+
+/**
+ * A refused decision: the last accepted one, placed again under the modifiers
+ * it was placed under — Shift pressed since would re-read a resize as
+ * aspect-locked, a different box that no one checked. Whether it still fits:
+ * the fence it was held by may have narrowed back since.
+ */
+export function replayAccepted(session: Session, minSize: number): boolean {
+  const now = session.mods;
+  session.mods = session.acceptedMods;
+  try {
+    return applyDecision(session, session.accepted, minSize);
+  } finally {
+    session.mods = now;
+  }
+}
+
+/** Back to where the gesture began, which is inside by construction. */
+export function resetDecision(session: Session, minSize: number) {
+  acceptDecision(session, IDENTITY[session.mode]);
+  applyDecision(session, session.accepted, minSize);
+}
+
+function fallBack(session: Session, minSize: number) {
+  if (!replayAccepted(session, minSize)) resetDecision(session, minSize);
+}
+
+/** The frame's writes, in one pass: the shapes, the overlay if it is this session's, the band. */
+export function writeGesture(
+  session: Session,
+  o: TransformGestureOptions,
+  guides: readonly SnapGuide[],
+  overlay: boolean,
+) {
   // A scale previews as a transform, which no layout can see — so an
   // auto-layout parent has nothing to reflow from until the gesture lands, and
   // asking it where things would go would only move the overlay off the pixels.
@@ -995,19 +1549,64 @@ function runFrame(session: Session, o: TransformGestureOptions) {
   syncGhosts(session);
   if (session.mode === "scale") writeScale(session);
   else writeFrames(session, session.mode === "resize");
-  writeOverlay(session, o, guides);
-  // After the writes: whatever reads the shapes' live boxes must read them as
-  // they are this frame, not as they were last one.
-  o.onFrame?.(session.frames);
+  if (session.mode === "move") writePull(session, o);
+  if (overlay) writeOverlay(session, o, guides);
+  o.grow?.(liveBottomOf(session.frames));
 }
 
-const NO_FRAMES: readonly LiveFrame[] = [];
+/** A frame's scene box as drawn, turned by its rotation. */
+function drawnBounds(f: Frame): Rect {
+  return nodeBounds({ x: f.sx, y: f.sy, w: f.sw, h: f.sh, rot: f.srot });
+}
 
-function applyMove(
+/** The lowest scene y the boxes reach, each turned by its rotation; `-Infinity` for none. */
+export function liveBottomOf(
+  frames: readonly { sx: number; sy: number; sw: number; sh: number; srot: number }[],
+): number {
+  let bottom = -Infinity;
+  for (const f of frames) {
+    const b = nodeBounds({ x: f.sx, y: f.sy, w: f.sw, h: f.sh, rot: f.srot });
+    bottom = Math.max(bottom, b.y + b.h);
+  }
+  return bottom;
+}
+
+/** Every box this frame, in scene px with its rotation — what a union overlay is drawn from. */
+export function liveBoxes(session: Session): readonly RotatedRect[] {
+  for (let i = 0; i < session.frames.length; i++) {
+    const frame = session.frames[i];
+    const box = session.scratch[i];
+    box.x = frame.sx;
+    box.y = frame.sy;
+    box.w = frame.sw;
+    box.h = frame.sh;
+    box.rot = frame.srot;
+  }
+  return session.scratch;
+}
+
+/** Whether this frame's boxes have gone past the fence. */
+function escapes(session: Session): boolean {
+  const fence = session.fence;
+  if (!fence) return false;
+  for (const f of session.frames) {
+    const b = drawnBounds(f);
+    if (
+      b.x < fence.left - FENCE_EPS ||
+      b.x + b.w > fence.right + FENCE_EPS ||
+      b.y < fence.top - FENCE_EPS
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function decideMove(
   session: Session,
   point: Point,
-  zoom: number,
-): readonly SnapGuide[] {
+  scale: number,
+): { decision: Decision; guides: readonly SnapGuide[] } {
   let dx = point.x - session.origin.x;
   let dy = point.y - session.origin.y;
 
@@ -1022,11 +1621,13 @@ function applyMove(
       targets = session.targetsY;
     }
   }
+  // How far past the side the pointer went is the pointer's own, unsnapped.
+  const pointerDx = dx;
 
   const snapped = session.snapper.snap(
     targets,
     { x: dx, y: dy },
-    zoom,
+    scale,
     !session.mods.free,
     // The one gesture that carries a rigid box, so the one that can be offered
     // an equal gap on either side of it.
@@ -1035,6 +1636,22 @@ function applyMove(
   dx = snapped.dx;
   dy = snapped.dy;
 
+  const allowed = session.allowed;
+  if (allowed) {
+    dx = Math.min(allowed.maxDx, Math.max(allowed.minDx, dx));
+    dy = Math.max(allowed.minDy, dy);
+  }
+  // Measured against the column's hold whatever the fence is now: how far past
+  // the side the drag is decides whether it is let past, and whether it still is.
+  const held = session.column.allowed;
+  const over = held ? pointerDx - held.maxDx : 0;
+  const under = held ? held.minDx - pointerDx : 0;
+  session.push = Math.max(0, over, under) * scale;
+  session.side = over > 0 ? 1 : under > 0 ? -1 : 0;
+  return { decision: { kind: "move", dx, dy }, guides: snapped.guides };
+}
+
+function placeMove(session: Session, dx: number, dy: number) {
   for (let i = 0; i < session.starts.length; i++) {
     const start = session.starts[i];
     const frame = session.frames[i];
@@ -1044,33 +1661,30 @@ function applyMove(
     frame.sx = start.scene.x + dx;
     frame.sy = start.scene.y + dy;
   }
-  return snapped.guides;
 }
 
-function applyResize(
+function decideResize(
   session: Session,
   point: Point,
-  zoom: number,
-  minSize: number,
-): readonly SnapGuide[] {
+  scale: number,
+): { decision: Decision; guides: readonly SnapGuide[] } {
   const handle = session.handle;
-  if (!handle) return NO_GUIDES;
+  let delta = { x: point.x - session.origin.x, y: point.y - session.origin.y };
+  if (!handle) return { decision: { kind: "resize", dx: 0, dy: 0 }, guides: NO_GUIDES };
 
   const aspect = session.mods.shift;
   const fromCentre = session.mods.alt;
-  const single = session.starts.length === 1;
-  let delta = { x: point.x - session.origin.x, y: point.y - session.origin.y };
   let guides: readonly SnapGuide[] = NO_GUIDES;
 
   // A rotated node resizes along its own axes and an aspect lock owns the
   // second axis outright; in both cases a snapped edge would fight the drag.
   const snappable =
-    !aspect && !session.mods.free && !(single && session.starts[0].sceneRot !== 0);
+    !aspect && !session.mods.free && !(session.sole && session.starts[0].sceneRot !== 0);
   if (snappable) {
     const snapped = session.snapper.snap(
       resizeTargets(session.bounds, handle, fromCentre),
       delta,
-      zoom,
+      scale,
       true,
       // An edge handle drives one axis. Saying so keeps its guide as long as
       // what actually moved, rather than as long as the pointer wandered.
@@ -1082,7 +1696,60 @@ function applyResize(
     session.snapper.reset();
   }
 
-  if (single) {
+  session.push = 0;
+  session.side = 0;
+  if (session.fence && !session.lockstep) {
+    const asked = delta.x;
+    const held = fenceResize(session, session.column.fence, handle, delta, aspect, fromCentre);
+    const past = asked - held.x;
+    session.push = Math.abs(past) * scale;
+    session.side = past > 0 ? 1 : past < 0 ? -1 : 0;
+    delta = session.spilling ? fenceResize(session, session.fence, handle, delta, aspect, fromCentre) : held;
+  }
+  return { decision: { kind: "resize", dx: delta.x, dy: delta.y }, guides };
+}
+
+/**
+ * The drag with the edges it moves stopped at the fence. Exact wherever an
+ * edge follows the pointer one for one — an unrotated box, no aspect lock
+ * tying one axis to the other; anything else is left to the refusal in
+ * {@link applyDecision}. The bottom is never stopped: the band grows.
+ */
+function fenceResize(
+  session: Session,
+  fence: Fence | null,
+  handle: Handle,
+  delta: Point,
+  aspect: boolean,
+  fromCentre: boolean,
+): Point {
+  const single = session.sole;
+  if (!fence || aspect || (single && session.starts[0].sceneRot !== 0)) return delta;
+  const b = single ? session.starts[0].scene : session.bounds;
+  const { hx, hy } = HANDLE_EDGES[handle];
+  let { x, y } = delta;
+  if (hx < 0) {
+    x = Math.max(x, fence.left - b.x);
+    if (fromCentre) x = Math.max(x, b.x + b.w - fence.right);
+  } else if (hx > 0) {
+    x = Math.min(x, fence.right - (b.x + b.w));
+    if (fromCentre) x = Math.min(x, b.x - fence.left);
+  }
+  if (hy < 0) y = Math.max(y, fence.top - b.y);
+  else if (hy > 0 && fromCentre) y = Math.min(y, b.y - fence.top);
+  return { x, y };
+}
+
+/** Every frame of a resize, from the drag in scene px. */
+function placeResize(
+  session: Session,
+  handle: Handle,
+  delta: Point,
+  aspect: boolean,
+  fromCentre: boolean,
+  minSize: number,
+): void {
+  if (session.sole && session.starts.length === 1) {
     const start = session.starts[0];
     const box = resizeRect(
       start.local,
@@ -1093,7 +1760,7 @@ function applyResize(
     box.w = Math.max(minSize, box.w);
     box.h = Math.max(minSize, box.h);
     setFromLocal(session.frames[0], start, box, start.rot);
-    return guides;
+    return;
   }
 
   const next = resizeRect(session.bounds, handle, delta, {
@@ -1116,7 +1783,19 @@ function applyResize(
       start.sceneRot,
     );
   }
-  return guides;
+}
+
+/**
+ * The point a scale pins: the far side from the dragged handle, or with Alt
+ * the centre, as a resize does.
+ */
+function scaleAnchor(session: Session): Point {
+  const b = session.bounds;
+  const { hx, hy } = HANDLE_EDGES[session.handle ?? "se"];
+  const centre = session.mods.alt;
+  const ax = centre ? 0.5 : hx > 0 ? 0 : hx < 0 ? 1 : 0.5;
+  const ay = centre ? 0.5 : hy > 0 ? 0 : hy < 0 ? 1 : 0.5;
+  return { x: b.x + ax * b.w, y: b.y + ay * b.h };
 }
 
 /**
@@ -1129,20 +1808,13 @@ function applyResize(
  * own axis and ignores the rest, which falls out of the projection for free.
  * Alt pins the centre instead of the far side, as it does in a resize.
  */
-function applyScale(
-  session: Session,
-  point: Point,
-  minSize: number,
-): readonly SnapGuide[] {
+function decideScale(session: Session, point: Point, minSize: number): Decision {
   const handle = session.handle;
-  if (!handle) return NO_GUIDES;
+  if (!handle) return IDENTITY.scale;
 
   const b = session.bounds;
   const { hx, hy } = HANDLE_EDGES[handle];
-  const centre = session.mods.alt;
-  const ax = centre ? 0.5 : hx > 0 ? 0 : hx < 0 ? 1 : 0.5;
-  const ay = centre ? 0.5 : hy > 0 ? 0 : hy < 0 ? 1 : 0.5;
-  const anchor = { x: b.x + ax * b.w, y: b.y + ay * b.h };
+  const anchor = scaleAnchor(session);
   // The arm from the pinned point out to the handle, which the drag lengthens.
   const arm = {
     x: b.x + ((hx + 1) / 2) * b.w - anchor.x,
@@ -1156,9 +1828,24 @@ function applyScale(
   // need a negative stroke width to mean anything.
   const floor = minSize / Math.max(b.w, b.h, minSize);
   const k = span === 0 ? 1 : Math.max(floor, 1 + (dx * arm.x + dy * arm.y) / span);
+  return { kind: "scale", k: capScale(session, k) };
+}
+
+/**
+ * `k`, held to what keeps this session's selection inside its band. Every
+ * allowed range holds 1, so holding one session's `k` inside another's never
+ * takes it back out of the first.
+ */
+export function capScale(session: Session, k: number): number {
+  if (!session.fence) return k;
+  const { lo, hi } = scaleRange(session.reach, scaleAnchor(session), session.fence);
+  return Math.min(hi, Math.max(lo, k));
+}
+
+function placeScale(session: Session, k: number) {
+  const anchor = scaleAnchor(session);
   session.k = k;
   session.anchor = anchor;
-
   for (let i = 0; i < session.starts.length; i++) {
     const start = session.starts[i];
     const w = start.scene.w * k;
@@ -1172,7 +1859,34 @@ function applyScale(
       start.sceneRot,
     );
   }
-  return NO_GUIDES;
+}
+
+/**
+ * The factors about `anchor` that keep `box` inside the fence. A uniform scale
+ * takes a rotated box's bounds with it, so the selection's own bounds are all
+ * there is to check; at 1 it is inside by construction.
+ *
+ * Shrinking is bounded too: the anchor is not always inside the fence — a
+ * rotated shape's pinned corner can sit past it, and so can the shared anchor
+ * of a selection spanning diagrams, read in the scene of a band it is not in —
+ * and a box drawn toward an anchor outside is drawn out with it.
+ */
+function scaleRange(box: Rect, anchor: Point, fence: Fence): { lo: number; hi: number } {
+  let lo = 0;
+  let hi = Infinity;
+  // Each side lands at `anchor + k * d`, which must stay on the fence's side of `edge`.
+  const atLeast = (a: number, d: number, edge: number) => {
+    if (d > 0) lo = Math.max(lo, (edge - a) / d);
+    else if (d < 0) hi = Math.min(hi, (a - edge) / -d);
+  };
+  const atMost = (a: number, d: number, edge: number) => {
+    if (d > 0) hi = Math.min(hi, (edge - a) / d);
+    else if (d < 0) lo = Math.max(lo, (a - edge) / -d);
+  };
+  atLeast(anchor.x, box.x - anchor.x, fence.left);
+  atMost(anchor.x, box.x + box.w - anchor.x, fence.right);
+  atLeast(anchor.y, box.y - anchor.y, fence.top);
+  return { lo, hi };
 }
 
 /**
@@ -1226,7 +1940,7 @@ function relayout(session: Session) {
   }
 }
 
-function applyRotate(session: Session, point: Point): readonly SnapGuide[] {
+function decideRotate(session: Session, point: Point): Decision {
   const angle = angleOf(session.centre, point) - session.startAngle;
   // `angleOf` wraps at 360; unwrap against the running total so a shape can be
   // spun round more than once without the rotation flipping sign.
@@ -1237,9 +1951,11 @@ function applyRotate(session: Session, point: Point): readonly SnapGuide[] {
 
   // Quantise the resulting *angle* of a lone node rather than the delta, so a
   // shape that starts crooked ends up square.
-  const base = session.starts.length === 1 ? session.starts[0].sceneRot : 0;
-  const delta = quantizeRotation(base + turn, session.mods.shift) - base;
+  const base = session.sole ? session.starts[0].sceneRot : 0;
+  return { kind: "rotate", deg: quantizeRotation(base + turn, session.mods.shift) - base };
+}
 
+function placeRotate(session: Session, delta: number) {
   for (let i = 0; i < session.starts.length; i++) {
     const start = session.starts[i];
     const centre = rotateAround(
@@ -1259,7 +1975,6 @@ function applyRotate(session: Session, point: Point): readonly SnapGuide[] {
       start.sceneRot + delta,
     );
   }
-  return NO_GUIDES;
 }
 
 /**
@@ -1277,7 +1992,7 @@ function quantizeRotation(angle: number, shift: boolean): number {
 }
 
 /** Double-clicking a rotation zone stands the selection back up. */
-function resetRotation(o: TransformGestureOptions) {
+export function resetGestureRotation(o: TransformGestureOptions) {
   const scene = o.store.getScene();
   const ids = topMostIds(scene, o.getSelection()).filter((id) => {
     const node = findNode(scene, id);
@@ -1423,6 +2138,48 @@ function setFromScene(frame: Frame, start: NodeStart, box: Rect, srot: number) {
 // Writing pixels
 // ---------------------------------------------------------------------------
 
+/**
+ * The elements a group's resize moves besides its own: each child of a group
+ * that stretches, down through the plain groups. An auto-layout group's
+ * children are placed by its CSS and a boolean's are not drawn, so neither is
+ * entered — the group itself is written, and the browser or its cut does the
+ * rest.
+ */
+function innerOf(node: SceneNode, getElement: (id: NodeId) => HTMLElement | null): InnerStart[] {
+  if (!stretchesChildren(node) || isBoolean(node)) return [];
+  const out: InnerStart[] = [];
+  walk(node.children, (child) => {
+    const el = getElement(child.id);
+    if (el) {
+      out.push({
+        id: child.id,
+        el,
+        transform: el.style.transform,
+        width: el.style.width,
+        height: el.style.height,
+        shape: shapeWriter(child, el),
+      });
+    }
+    if (!stretchesChildren(child) || isBoolean(child)) return false;
+  });
+  return out;
+}
+
+/** A group's descendants where the `resize` op will put them, this frame. */
+function writeInner(start: NodeStart, frame: Frame) {
+  const next = resizedNode(start.node, frame);
+  const byId = new Map<NodeId, SceneNode>();
+  walk([next], (node) => void byId.set(node.id, node));
+  for (const inner of start.inner) {
+    const node = byId.get(inner.id);
+    if (!node) continue;
+    inner.el.style.transform = `translate3d(${node.x}px, ${node.y}px, 0) rotate(${node.rot}deg)`;
+    if (!isAutoSize(node.style.width)) inner.el.style.width = `${node.w}px`;
+    if (!isAutoSize(node.style.height)) inner.el.style.height = `${node.h}px`;
+    inner.shape?.write(node.w, node.h);
+  }
+}
+
 function writeFrames(session: Session, sized: boolean) {
   for (let i = 0; i < session.starts.length; i++) {
     const start = session.starts[i];
@@ -1438,6 +2195,7 @@ function writeFrames(session: Session, sized: boolean) {
       el.style.width = `${frame.w}px`;
       el.style.height = `${frame.h}px`;
       start.shape?.write(frame.w, frame.h);
+      if (start.inner.length) writeInner(start, frame);
     }
   }
 }
@@ -1481,16 +2239,7 @@ function writeOverlay(
     );
     return;
   }
-  for (let i = 0; i < session.frames.length; i++) {
-    const frame = session.frames[i];
-    const box = session.scratch[i];
-    box.x = frame.sx;
-    box.y = frame.sy;
-    box.w = frame.sw;
-    box.h = frame.sh;
-    box.rot = frame.srot;
-  }
-  overlay.update(unionBounds(session.scratch), 0, guides);
+  overlay.update(unionBounds(liveBoxes(session)), 0, guides);
 }
 
 function restoreDom(session: Session) {
@@ -1499,7 +2248,16 @@ function restoreDom(session: Session) {
     start.el.style.transform = start.transform;
     start.el.style.width = start.width;
     start.el.style.height = start.height;
+    start.el.style.translate = "";
+    start.el.style.scale = "";
+    for (const spring of start.el.getAnimations?.() ?? []) if (spring.id === SNAP_ID) spring.cancel();
     start.shape?.restore();
+    for (const inner of start.inner) {
+      inner.el.style.transform = inner.transform;
+      inner.el.style.width = inner.width;
+      inner.el.style.height = inner.height;
+      inner.shape?.restore();
+    }
   }
   for (const other of session.reorder?.others ?? []) {
     if (other.el) other.el.style.transform = other.transform;
@@ -1556,41 +2314,68 @@ function finish(
     if (!cancelled) runFrame(session, o);
   }
   session.detach();
+  const { ops, select } = finishGesture(session, o, cancelled);
+  const landed = landGesture(o, ops, session.spilling);
+  if (landed && select?.length) o.onSelect?.(select);
+  endGesture(session, o);
+}
+
+/**
+ * Puts the DOM back where the scene will take over, and says what the gesture
+ * comes to — nothing, for a click or a cancel. Dispatches nothing: a gesture
+ * spanning several diagrams lands all of them in one step.
+ */
+export function finishGesture(
+  session: Session,
+  o: TransformGestureOptions,
+  cancelled: boolean,
+): { ops: SceneOp[]; select: NodeId[] | null } {
   removeGhosts(session);
+  // Every element back to what React last wrote, before anything lands: React
+  // writes a style only when its own value changes, so a preview left on an
+  // element survives any landing that renders it as it was — a cancel, a
+  // scale from a corner (whose `x`/`y` React already holds), a flow child
+  // whose slot did not move. The render that follows starts from what it
+  // believes is there, and draws the landing itself.
+  restoreDom(session);
 
   let ops: SceneOp[] = [];
   let select: NodeId[] | null = null;
   if (cancelled || !session.active) {
-    restoreDom(session);
+    // Nothing lands.
   } else if (session.mode === "reorder") {
-    // React re-lays the group out from the committed order; our preview offsets
-    // would be added on top of it.
-    restoreDom(session);
     ops = reorderOps(session);
   } else if (session.mode === "move" && session.mods.alt) {
-    restoreDom(session);
     const duplicate = duplicateOps(session, o);
     ops = duplicate.ops;
     select = duplicate.ids;
   } else {
-    // A scale previews as a CSS transform on the element, and React writes a
-    // style key only when it changes. Scaled from a corner, `x`/`y` are what
-    // they were, so the transform React would write is the one it wrote last
-    // — and the preview's `scale(k)` would stay on an element whose box the
-    // op has already grown by k, drawing it k times too large. The element
-    // goes back to what React last wrote before the op lands, so the render
-    // that follows starts from what it believes is there.
-    if (session.mode === "scale") restoreDom(session);
     ops = transformOps(session);
   }
+  return { ops, select };
+}
 
-  if (ops.length) {
-    o.store.begin();
-    o.store.dispatch(ops);
-    o.store.commit();
-    if (select?.length) o.onSelect?.(select);
-  }
+/**
+ * One undo entry: the gesture's ops and whatever landing them implies — for a
+ * drag let past a column band's side (`spilled`), the band turned wide where
+ * the drop left something in its margins. False for none.
+ */
+export function landGesture(o: TransformGestureOptions, ops: readonly SceneOp[], spilled = false): boolean {
+  if (!ops.length) return false;
+  o.store.begin();
+  o.store.dispatch([...ops]);
+  if (spilled && reachesMargins(o.store.getScene())) o.store.dispatch([WIDEN]);
+  o.onLand?.();
+  o.store.commit();
+  return true;
+}
+
+const WIDEN: SceneOp = { type: "setDiagram", wide: true };
+
+/** The gesture is over: the overlay draws from the scene again, and the host hears so. */
+export function endGesture(session: Session, o: TransformGestureOptions) {
   if (!session.active) return;
+  o.pushing?.(null);
   o.overlay?.current?.update(null, 0, NO_GUIDES);
   o.onActiveChange?.(false);
 }

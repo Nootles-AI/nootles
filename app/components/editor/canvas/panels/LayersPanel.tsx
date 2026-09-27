@@ -11,7 +11,8 @@ import {
 } from "react";
 import { Editable } from "@/app/components/Editable";
 import { ChevronRight } from "@/app/components/Icons";
-import { useContextMenu } from "../ContextMenu";
+import { deleteSelection, menuTargets, useContextMenu } from "../ContextMenu";
+import type { PageCanvas } from "../page/PageCanvas";
 import { SHORTCUTS_BY_ID } from "../engine/shortcuts";
 import { useSceneSnapshot, type SceneStore } from "../engine/useScene";
 import type { SelectionStore } from "../engine/useSelection";
@@ -181,9 +182,18 @@ function sameDrop(a: Drop | null, b: Drop | null): boolean {
 export function LayersPanel({
   store,
   selection,
+  page,
+  blockId,
 }: {
   store: SceneStore;
   selection: SelectionStore;
+  /**
+   * The page the diagram is on, and which block it is: a Shift-range keeps
+   * the other diagrams' selections, and ⌫ deletes what is selected in all of
+   * them.
+   */
+  page?: PageCanvas | null;
+  blockId?: string;
 }) {
   "use memo";
   const scene = useSceneSnapshot(store);
@@ -201,7 +211,7 @@ export function LayersPanel({
   );
   const [moving, setMoving] = useState<ReadonlySet<NodeId> | null>(null);
   const [drop, setDrop] = useState<Drop | null>(null);
-  const { open: openMenu, menu } = useContextMenu(store, selection);
+  const { open: openMenu, menu } = useContextMenu(store, selection, page ?? undefined);
 
   // Selecting a nested shape on the canvas has to reveal it here. Adjusted
   // during render rather than from an effect, so the row exists on the same
@@ -275,7 +285,10 @@ export function LayersPanel({
       const b = rows.findIndex((r) => r.node.id === id);
       if (a >= 0 && b >= 0) {
         const [lo, hi] = a < b ? [a, b] : [b, a];
-        selection.select(rows.slice(lo, hi + 1).map((r) => r.node.id));
+        const range = rows.slice(lo, hi + 1).map((r) => r.node.id);
+        // The range replaces this diagram's selection and leaves the others'.
+        if (page && blockId) page.selection.selectIn(blockId, range, { keep: true });
+        else selection.select(range);
         return;
       }
     }
@@ -362,18 +375,12 @@ export function LayersPanel({
   // inside it. The canvas keymap only sees keys pressed on the canvas itself.
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (renaming || !isDeleteKey(e)) return;
-    // Connectors first, as `edit.delete` does: the two selections are mutually
-    // exclusive, so at most one of these is non-empty. The connector list is
+    // What ⌫ on the canvas and the menu's Delete do: connectors or shapes, in
+    // every diagram the page's selection reaches into. The connector list is
     // inside this panel, so the key has to mean there what it means on canvas.
-    const { ids, edgeIds } = snapshot;
-    if (ids.length === 0 && edgeIds.length === 0) return;
-    e.preventDefault();
-    store.dispatch(
-      edgeIds.length > 0
-        ? { type: "removeEdge", ids: [...edgeIds] }
-        : { type: "remove", ids: [...ids] },
-    );
-    selection.clear();
+    if (deleteSelection(menuTargets(store, selection, page ?? undefined), page?.batch)) {
+      e.preventDefault();
+    }
   };
 
   return (

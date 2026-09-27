@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { DOMParser } from "linkedom";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  createDiagramCommands,
+  createNudgeRun,
   formatShortcut,
   matchShortcut,
   SHORTCUTS,
@@ -7,6 +10,8 @@ import {
   type Shortcut,
   type ShortcutId,
 } from "./shortcuts";
+import { SceneStore } from "./useScene";
+import { createSelectionStore } from "./useSelection";
 
 /** A fake `KeyboardEvent` — this environment (edge-runtime) has no real DOM,
  *  and `matchShortcut` only ever reads these six fields (§0 of the module's
@@ -95,23 +100,16 @@ function assertNoCollisions(tuples: Array<Tuple & { id: ShortcutId }>): void {
 }
 
 describe("matchShortcut", () => {
-  it("Mod+Ctrl+f matches meta+ctrl+KeyF on Apple and nothing off Apple", () => {
-    const e = keyEvent({ metaKey: true, ctrlKey: true, code: "KeyF", key: "f" });
-    expect(matchShortcut(e, true)).toBe("view.fullscreen");
-    expect(matchShortcut(e, false)).toBeNull();
+  it('Mod+] matches by code BracketRight and by key "]"', () => {
+    const byKey = keyEvent({ metaKey: true, key: "]" });
+    expect(matchShortcut(byKey, true)).toBe("arrange.forward");
+    const byCode = keyEvent({ metaKey: true, code: "BracketRight", key: "unrelated" });
+    expect(matchShortcut(byCode, true)).toBe("arrange.forward");
   });
 
-  it("f11 matches on other platforms only", () => {
-    const e = keyEvent({ key: "F11" });
-    expect(matchShortcut(e, false)).toBe("view.fullscreen");
-    expect(matchShortcut(e, true)).toBeNull();
-  });
-
-  it('Mod+. matches by code Period and by key "."', () => {
-    const byKey = keyEvent({ metaKey: true, key: "." });
-    expect(matchShortcut(byKey, true)).toBe("view.minimal");
-    const byCode = keyEvent({ metaKey: true, code: "Period", key: "unrelated" });
-    expect(matchShortcut(byCode, true)).toBe("view.minimal");
+  it("Shift+0 types a parenthesis on the page and is nobody's shortcut", () => {
+    expect(matchShortcut(keyEvent({ shiftKey: true, key: ")", code: "Digit0" }), true)).toBeNull();
+    expect(matchShortcut(keyEvent({ shiftKey: true, key: ")", code: "Digit0" }), false)).toBeNull();
   });
 
   it("existing bindings still match unchanged", () => {
@@ -120,7 +118,7 @@ describe("matchShortcut", () => {
       { id: "edit.undo", spec: "Mod+z" },
       { id: "edit.redo", spec: "Mod+Shift+z" },
       { id: "align.left", spec: "Alt+a" },
-      { id: "view.zoomFit", spec: "Shift+1" },
+      { id: "view.zoomIn", spec: "Mod+=" },
       { id: "edit.deselect", spec: "escape" },
       { id: "tool.hand", spec: "Alt+Shift+h" },
       { id: "tool.rect", spec: "r" },
@@ -161,6 +159,31 @@ describe("matchShortcut", () => {
   });
 });
 
+describe("flip and distribute", () => {
+  it("⇧H and ⇧V flip, beside the bare letters, the tool chords and ⌘⇧H", () => {
+    for (const apple of [true, false]) {
+      expect(matchShortcut(keyEvent({ shiftKey: true, key: "H", code: "KeyH" }), apple)).toBe("arrange.flipH");
+      expect(matchShortcut(keyEvent({ shiftKey: true, key: "V", code: "KeyV" }), apple)).toBe("arrange.flipV");
+      expect(matchShortcut(keyEvent({ key: "h", code: "KeyH" }), apple)).toBe("tool.hand");
+      expect(matchShortcut(keyEvent({ altKey: true, shiftKey: true, key: "Ó", code: "KeyH" }), apple)).toBe("tool.hand");
+      expect(matchShortcut(keyEvent({ altKey: true, shiftKey: true, key: "◊", code: "KeyV" }), apple)).toBe("tool.move");
+    }
+    expect(matchShortcut(keyEvent({ metaKey: true, shiftKey: true, key: "h", code: "KeyH" }), true)).toBe("toggle.hidden");
+  });
+
+  it("distribute is ⌃⌥ on a Mac and Ctrl+Alt elsewhere, with Figma's letters", () => {
+    expect(matchShortcut(keyEvent({ ctrlKey: true, altKey: true, key: "˙", code: "KeyH" }), true)).toBe("align.distributeH");
+    expect(matchShortcut(keyEvent({ ctrlKey: true, altKey: true, key: "√", code: "KeyV" }), true)).toBe("align.distributeV");
+    expect(matchShortcut(keyEvent({ ctrlKey: true, altKey: true, key: "h", code: "KeyH" }), false)).toBe("align.distributeH");
+    expect(matchShortcut(keyEvent({ ctrlKey: true, altKey: true, key: "v", code: "KeyV" }), false)).toBe("align.distributeV");
+    // ⌘⌥H is macOS's Hide Others, never ours.
+    expect(matchShortcut(keyEvent({ metaKey: true, altKey: true, key: "˙", code: "KeyH" }), true)).toBeNull();
+    expect(shortcutHint("align.distributeH", true)).toBe("⌃⌥H");
+    expect(shortcutHint("align.distributeV", false)).toBe("Ctrl+Alt+V");
+    expect(shortcutHint("arrange.flipH", true)).toBe("⇧H");
+  });
+});
+
 describe("formatShortcut", () => {
   it("renders ⌘⌃F, ⌘., F11", () => {
     expect(formatShortcut("Mod+Ctrl+f", true)).toBe("⌘⌃F");
@@ -170,11 +193,142 @@ describe("formatShortcut", () => {
 });
 
 describe("shortcutHint", () => {
-  it('shortcutHint("view.fullscreen", false) === "F11"', () => {
-    expect(shortcutHint("view.fullscreen", false)).toBe("F11");
+  it("shows a tool's chord first and its bare letter as the second binding", () => {
+    expect(shortcutHint("tool.rect", true)).toBe("⌥⇧R");
+    expect(shortcutHint("tool.rect", true, 1)).toBe("R");
+    expect(shortcutHint("tool.rect", false)).toBe("Alt+Shift+R");
+  });
+});
+
+describe("a diagram has no camera", () => {
+  it("binds no zoom tool, no fit, no stage and no screen modes", () => {
+    const ids: readonly string[] = SHORTCUTS.map((s) => s.id);
+    for (const gone of [
+      "tool.zoom",
+      "view.zoomFit",
+      "view.zoomSelection",
+      "view.stage",
+      "view.minimal",
+      "view.fullscreen",
+    ]) {
+      expect(ids).not.toContain(gone);
+    }
+  });
+});
+
+// The store parses diagram HTML, and this environment has no DOM.
+(globalThis as { DOMParser?: unknown }).DOMParser = DOMParser;
+
+describe("the diagram commands", () => {
+  afterEach(() => vi.useRealTimers());
+
+  const band =
+    '<nt-diagram h="200"><nt-rect id="a" x="10" y="4" w="100" h="60"></nt-rect>' +
+    '<nt-rect id="b" x="300" y="40" w="100" h="60" locked></nt-rect></nt-diagram>';
+
+  function diagram() {
+    const store = new SceneStore(band, undefined, true);
+    const selection = createSelectionStore(store.getScene());
+    store.subscribe(() => selection.setScene(store.getScene()));
+    const nudge = createNudgeRun(store, selection);
+    const commands = createDiagramCommands({
+      store,
+      selection,
+      nudge,
+      band: () => ({ minX: 0, maxX: 720 }),
+    });
+    return { store, selection, nudge, commands };
+  }
+  const arrow = (key: string) => keyEvent({ key, code: key.replace("arrow", "Arrow") });
+  const at = (store: SceneStore, id: string) => store.getNode(id)!;
+
+  it("nudges a held-down arrow as one undo step", () => {
+    vi.useFakeTimers();
+    const { store, selection, nudge, commands } = diagram();
+    selection.select(["a"]);
+    commands["move.nudge"](arrow("arrowright"));
+    commands["move.nudge"](arrow("arrowright"));
+    commands["move.nudgeFar"](arrow("arrowdown"));
+    expect([at(store, "a").x, at(store, "a").y]).toEqual([12, 14]);
+    nudge.end();
+    store.undo();
+    expect([at(store, "a").x, at(store, "a").y]).toEqual([10, 4]);
   });
 
-  it('shortcutHint("view.fullscreen", true) resolves the Apple chord', () => {
-    expect(shortcutHint("view.fullscreen", true)).toBe("⌘⌃F");
+  it("holds a nudge inside the band: never above the top, never off a side", () => {
+    vi.useFakeTimers();
+    const { store, selection, nudge, commands } = diagram();
+    selection.select(["a"]);
+    commands["move.nudgeFar"](arrow("arrowup"));
+    commands["move.nudgeFar"](arrow("arrowleft"));
+    expect([at(store, "a").x, at(store, "a").y]).toEqual([0, 0]);
+    nudge.end();
+  });
+
+  it("closes an idle run before an undo steps, so the undo takes it whole", () => {
+    vi.useFakeTimers();
+    const { store, selection, commands } = diagram();
+    selection.select(["a"]);
+    commands["move.nudge"](arrow("arrowright"));
+    expect(store.gesturing()).toBe(true);
+    expect(store.undo()).toBe(true);
+    expect(at(store, "a").x).toBe(10);
+  });
+
+  it("writes the page's reading of a lock, not its own", () => {
+    const { store, selection } = diagram();
+    const commands = createDiagramCommands({
+      store,
+      selection,
+      nudge: createNudgeRun(store, selection),
+      band: () => null,
+      flag: () => false,
+    });
+    selection.select(["b"]);
+    commands["toggle.locked"](keyEvent({}));
+    expect(at(store, "b").locked).toBe(false);
+  });
+
+  it("flips the selection in place, one undo step", () => {
+    const { store, selection, commands } = diagram();
+    selection.select(["a"]);
+    expect(commands["arrange.flipV"]()).toBe(true);
+    expect(store.getScene().nodes[0]).toMatchObject({ x: 10, y: 4 });
+    store.undo();
+    expect(commands["arrange.flipH"]()).toBe(true);
+    selection.clear();
+    expect(commands["arrange.flipH"]()).toBe(false);
+  });
+
+  it("distributes only over three or more", () => {
+    const store = new SceneStore(
+      '<nt-diagram h="200">' +
+        '<nt-rect id="a" x="0" y="0" w="100" h="60"></nt-rect>' +
+        '<nt-rect id="b" x="120" y="0" w="100" h="60"></nt-rect>' +
+        '<nt-rect id="c" x="500" y="0" w="100" h="60"></nt-rect></nt-diagram>',
+      undefined,
+      true,
+    );
+    const selection = createSelectionStore(store.getScene());
+    store.subscribe(() => selection.setScene(store.getScene()));
+    const commands = createDiagramCommands({ store, selection, band: () => null });
+    selection.select(["a", "b"]);
+    expect(commands["align.distributeH"]()).toBe(false);
+    selection.select(["a", "b", "c"]);
+    expect(commands["align.distributeH"]()).toBe(true);
+    expect(store.getNode("b")!.x).toBe(250);
+  });
+
+  it("declines an arrow with no nudge run to carry it — a palette's command set", () => {
+    const store = new SceneStore(band, undefined, true);
+    const selection = createSelectionStore(store.getScene());
+    const commands = createDiagramCommands({ store, selection, band: () => null });
+    selection.select(["a"]);
+    expect(commands["move.nudge"](arrow("arrowright"))).toBe(false);
+  });
+
+  it("hands the tool keys to no one when it has no tool of its own", () => {
+    const { commands } = diagram();
+    expect(commands["tool.rect"](keyEvent({ key: "r" }))).toBe(false);
   });
 });

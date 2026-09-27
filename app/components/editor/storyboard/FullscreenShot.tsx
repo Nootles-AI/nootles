@@ -16,7 +16,7 @@ import {
   type BoardApi,
   type CanvasApi,
 } from "../canvas/render/CanvasSurface";
-import { Toolbar } from "../canvas/Toolbar";
+import { FrameToolbar } from "../canvas/Toolbar";
 import { SHOT_W } from "./types";
 
 /**
@@ -24,7 +24,7 @@ import { SHOT_W } from "./types";
  *
  * It is the same shot, not a copy: the surface here edits the very scene the
  * tile behind holds, through the same `setShot`, so every stroke lands in both
- * at once. What is its own is the shell claim (`${blockId}:fs${i}`) and the
+ * at once. What is its own is the frame claim (`${blockId}:fs${i}`) and the
  * api it publishes — the tile keeps a live canvas of the same index, and two
  * surfaces answering for one entry in the board's map would fight.
  *
@@ -33,7 +33,7 @@ import { SHOT_W } from "./types";
  *
  * Read-only, it is the same lightbox with the pen taken away: the picture is
  * the whole point of opening a shot, and looking at one closely is not an
- * edit. What goes is the toolbar and the claim on the shell — there are no
+ * edit. What goes is the toolbar and the claim — there are no
  * tools to speak for.
  */
 export function FullscreenShot({
@@ -50,7 +50,7 @@ export function FullscreenShot({
   board: BoardApi;
   readOnly?: boolean;
   onScene: (scene: string) => void;
-  /** Hands the shell this view's claim; re-called as the api changes. */
+  /** Hands the workspace this view's claim; re-called as the api changes. */
   onClaim: (api: CanvasApi) => void;
   onClose: () => void;
 }) {
@@ -97,7 +97,12 @@ export function FullscreenShot({
   };
 
   return createPortal(
-    <div ref={full} className="nt-sb-full" onPointerDown={onBackdrop}>
+    <div
+      ref={full}
+      className="nt-sb-full"
+      data-editable={(api && !readOnly) || undefined}
+      onPointerDown={onBackdrop}
+    >
       <button
         type="button"
         className="nt-sb-full-close"
@@ -120,13 +125,7 @@ export function FullscreenShot({
       {/* The workspace's bar is under this view, so it brings its own, in
           the same spot. */}
       {api && !readOnly && (
-        <Toolbar
-          store={api.store}
-          viewport={api.viewport}
-          tools={api.tools}
-          screen={api.screen}
-          board={board}
-        />
+        <FrameToolbar store={api.store} tools={api.tools} focus={api.focus} board={board} />
       )}
     </div>,
     document.body,

@@ -47,16 +47,16 @@ export const C22: StagedScript = {
 <tr><td>0x7FF</td><td>Fault</td><td>4</td><td>on event</td><td><code>[node:u8][code:u8][ctx:u16]</code></td><td>any → all</td><td>—</td></tr>
 </table>
 <p>Bus topology, with both terminations:</p>
-<nt-diagram w="1100" h="320">
-  <nt-rect id="icd-bus" x="120" y="150" w="860" h="10" style="background:#33415c;border:1px solid #33415c"></nt-rect>
-  <nt-rect id="icd-t1" x="60" y="128" w="60" h="54" style="background:#f2f4f8;border:1px solid #9aa5b8;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:12px">120 Ω</nt-rect>
-  <nt-rect id="icd-t2" x="980" y="128" w="60" h="54" style="background:#f2f4f8;border:1px solid #9aa5b8;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:12px">120 Ω</nt-rect>
-  <nt-rect id="icd-compute" x="180" y="30" w="180" h="70" style="background:#e8eef7;border:2px solid #3f5d84;border-radius:6px;display:flex;align-items:center;justify-content:center">Compute</nt-rect>
-  <nt-rect id="icd-bms" x="700" y="30" w="180" h="70" style="background:#e8eef7;border:2px solid #3f5d84;border-radius:6px;display:flex;align-items:center;justify-content:center">BMS</nt-rect>
-  <nt-rect id="icd-m1" x="160" y="220" w="140" h="66" style="background:#f6e9d8;border:1px solid #a8702a;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px">MCU FL</nt-rect>
-  <nt-rect id="icd-m2" x="340" y="220" w="140" h="66" style="background:#f6e9d8;border:1px solid #a8702a;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px">MCU FR</nt-rect>
-  <nt-rect id="icd-m3" x="600" y="220" w="140" h="66" style="background:#f6e9d8;border:1px solid #a8702a;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px">MCU RL</nt-rect>
-  <nt-rect id="icd-m4" x="780" y="220" w="140" h="66" style="background:#f6e9d8;border:1px solid #a8702a;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px">MCU RR</nt-rect>
+<nt-diagram h="314" wide>
+  <nt-rect id="icd-bus" x="-70" y="144" w="860" h="10" style="background:#33415c;border:1px solid #33415c"></nt-rect>
+  <nt-rect id="icd-t1" x="-130" y="122" w="60" h="54" style="background:#f2f4f8;border:1px solid #9aa5b8;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:12px">120 Ω</nt-rect>
+  <nt-rect id="icd-t2" x="790" y="122" w="60" h="54" style="background:#f2f4f8;border:1px solid #9aa5b8;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:12px">120 Ω</nt-rect>
+  <nt-rect id="icd-compute" x="-10" y="24" w="180" h="70" style="background:#e8eef7;border:2px solid #3f5d84;border-radius:6px;display:flex;align-items:center;justify-content:center">Compute</nt-rect>
+  <nt-rect id="icd-bms" x="510" y="24" w="180" h="70" style="background:#e8eef7;border:2px solid #3f5d84;border-radius:6px;display:flex;align-items:center;justify-content:center">BMS</nt-rect>
+  <nt-rect id="icd-m1" x="-30" y="214" w="140" h="66" style="background:#f6e9d8;border:1px solid #a8702a;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px">MCU FL</nt-rect>
+  <nt-rect id="icd-m2" x="150" y="214" w="140" h="66" style="background:#f6e9d8;border:1px solid #a8702a;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px">MCU FR</nt-rect>
+  <nt-rect id="icd-m3" x="410" y="214" w="140" h="66" style="background:#f6e9d8;border:1px solid #a8702a;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px">MCU RL</nt-rect>
+  <nt-rect id="icd-m4" x="590" y="214" w="140" h="66" style="background:#f6e9d8;border:1px solid #a8702a;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px">MCU RR</nt-rect>
   <nt-edge id="icd-e1" from="icd-compute" to="icd-bus"></nt-edge>
   <nt-edge id="icd-e2" from="icd-bms" to="icd-bus"></nt-edge>
   <nt-edge id="icd-e3" from="icd-m1" to="icd-bus"></nt-edge>

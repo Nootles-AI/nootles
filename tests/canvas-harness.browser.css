@@ -1,10 +1,10 @@
 /* The harness page's own shell — everything a runner needs that
    `CanvasSurface` itself has no reason to provide.
 
-   `#app` fills the window with a 40px top gutter: several picking probes
-   reset hover by moving the pointer to a point that is provably off the
-   canvas (§3.2.2's between-probes protocol), and (20, 20) only qualifies
-   because the viewport starts below it. */
+   `#app` is the page: it scrolls, with a 40px gutter above it. Several
+   picking probes reset hover by moving the pointer to a point that is provably
+   off the canvas (§3.2.2's between-probes protocol), and (20, 20) only
+   qualifies because the page starts below it. */
 html,
 body {
   margin: 0;
@@ -18,19 +18,14 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  overflow: hidden;
+  overflow: auto;
 }
 
-/* `mount()` asks for an exact width/height regardless of what the mounted
-   fixture would otherwise size itself to — `CanvasSurface` derives its own
-   height from the scene (`sceneBlockHeight`) and its width from 100% of its
-   parent. An `!important` rule is the only way to win against the
-   component's own inline `style={{height}}` without touching its source;
-   the CSS cascade gives a stylesheet's `!important` declaration priority
-   over ANY non-important inline style, so this holds across every re-render. */
-.nt-harness-sized .nt-canvas {
-  width: var(--nt-harness-w) !important;
-  height: var(--nt-harness-h) !important;
-  margin: 0 !important;
-  border-radius: 0 !important;
+/* The text column a band stands in, its origin on the column's left edge.
+   The margin leaves room for a wide band to reach past the column, as it does
+   on a page. `look()` zooms this element. */
+.nt-harness-column {
+  position: relative;
+  width: 720px;
+  margin: 24px 0 24px 280px;
 }

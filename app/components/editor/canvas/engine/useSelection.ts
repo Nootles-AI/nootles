@@ -177,8 +177,13 @@ export interface SelectionStore {
   toggle(id: NodeId): void;
   /** Nothing selected, back at the top level. */
   clear(): void;
-  /** Every unlocked, visible node at the current level — ⌘/Ctrl+A. */
-  selectAll(): void;
+  /**
+   * Every unlocked, visible node at the current level — ⌘/Ctrl+A. False when
+   * that was already the selection, so a second press can reach further.
+   */
+  selectAll(): boolean;
+  /** A thunk putting back what is selected now, outside history — a cancelled marquee. */
+  capture(): () => void;
 
   /**
    * Resolve a click at a scene-space point. Returns the id it selected, or
@@ -648,8 +653,16 @@ export function createSelectionStore(initialScene: SceneLike): SelectionStore {
     selectAll() {
       const { path, nodes } = resolveLevel(scene, snapshot.enteredPath);
       const ids = nodes.filter((n) => !n.locked && !n.hidden).map((n) => n.id);
-      commit(ids, idsOf(path), snapshot.hoverId);
+      const level = idsOf(path);
+      const already =
+        snapshot.edgeIds.length === 0 &&
+        sameIds(orderIds(scene, ids), snapshot.ids) &&
+        sameIds(level, snapshot.enteredPath);
+      commit(ids, level, snapshot.hoverId);
+      return !already;
     },
+
+    capture: () => restoreTo(snapshot),
 
     click,
 
@@ -855,6 +868,20 @@ const NO_BOUNDS: readonly RotatedRect[] = [];
 
 function frameOf(scene: SceneLike, id: NodeId): RotatedRect {
   return { ...absoluteRect(scene, id), rot: absoluteRotation(scene, id) };
+}
+
+/**
+ * The frame the overlay draws around `ids`, in scene px: one node's own box
+ * and rotation, or the unrotated union of several. `null` when none of them is
+ * in the scene.
+ */
+export function selectionFrame(scene: SceneLike, ids: readonly NodeId[]): RotatedRect | null {
+  const live = idsOf(selectedNodes(scene, ids));
+  if (live.length === 0) return null;
+  const laid = laidOutScene(scene);
+  return live.length === 1
+    ? frameOf(laid, live[0])
+    : { ...absoluteSelectionBounds(laid, live), rot: 0 };
 }
 
 export function useSelection(store: SelectionStore, scene: SceneLike): ResolvedSelection {

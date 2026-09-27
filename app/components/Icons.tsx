@@ -289,6 +289,19 @@ export function RotateCcw(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+/** An arrow down and an arrow up into one box: two diagrams, stacked, becoming one. */
+export function Merge(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="9.5" width="18" height="5" rx="1.5" />
+      <path d="M12 2v5" />
+      <path d="m9.5 4.5 2.5 2.5 2.5-2.5" />
+      <path d="M12 22v-5" />
+      <path d="m9.5 19.5 2.5-2.5 2.5 2.5" />
+    </svg>
+  );
+}
+
 export function MediaPlus(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...base} {...props}>
@@ -617,6 +630,82 @@ export function Diagram(props: SVGProps<SVGSVGElement>) {
       <rect x="3" y="3.5" width="8" height="7" rx="2" />
       <rect x="13" y="13.5" width="8" height="7" rx="2" />
       <path d="M7 10.5v4.5a2 2 0 0 0 2 2h4" />
+    </svg>
+  );
+}
+
+/** The diagram's two boxes, with the margins it reaches into ruled either side of them. */
+export function WideDiagram(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="5.5" y="4.5" width="6" height="6" rx="1.5" />
+      <rect x="12.5" y="13.5" width="6" height="6" rx="1.5" />
+      <path d="M8.5 10.5v3a2 2 0 0 0 2 2h2" />
+      <path d="M2 4v16M22 4v16" />
+    </svg>
+  );
+}
+
+/** A step into a decision, and the decision's two ways out: the flowchart preset. */
+export function Flowchart(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="8" y="2" width="8" height="5" rx="1.5" />
+      <path d="M12 7v2M12 9l3.5 3.5-3.5 3.5-3.5-3.5Z" />
+      <path d="M8.5 12.5H6v4M15.5 12.5H18v4" />
+      <rect x="2.5" y="16.5" width="7" height="4.5" rx="2.25" />
+      <rect x="14.5" y="16.5" width="7" height="4.5" rx="2.25" />
+    </svg>
+  );
+}
+
+/** A phone's outline and its notch. */
+export function Phone(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="6.5" y="2" width="11" height="20" rx="2.5" />
+      <path d="M10.5 5h3" />
+    </svg>
+  );
+}
+
+/** A window with its toolbar ruled off and two of its dots. */
+export function Browser(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 9h18M6.5 6.5h.01M9 6.5h.01" />
+    </svg>
+  );
+}
+
+/** A square quartered: the two-by-two. */
+export function Matrix(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M12 3v18M3 12h18" />
+    </svg>
+  );
+}
+
+/** Three milestones strung on a line. */
+export function Timeline(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <circle cx="5" cy="12" r="2" />
+      <circle cx="12" cy="12" r="2" />
+      <circle cx="19" cy="12" r="2" />
+      <path d="M7 12h3M14 12h3" />
+    </svg>
+  );
+}
+
+/** An empty square: a canvas with nothing on it yet. */
+export function Blank(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...base} {...props}>
+      <rect x="4.5" y="4.5" width="15" height="15" rx="2.5" />
     </svg>
   );
 }

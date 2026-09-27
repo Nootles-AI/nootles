@@ -22,6 +22,9 @@ import { PageCommentsProvider } from "../comments/PageComments";
 import { CommentsLayer } from "../comments/CommentsLayer";
 import { Facepile } from "../presence/Facepile";
 import { GoogleButton } from "../signin/GoogleButton";
+import { PagePane } from "../PagePane";
+import { useZoomKeys } from "../useDocumentZoom";
+import { ZoomToolbar } from "../editor/canvas/Toolbar";
 import { GuestChatRail } from "./GuestChatRail";
 import { SharedEditor } from "./SharedEditor";
 import { SignInToEdit, type SignInIntent } from "./SignInToEdit";
@@ -30,6 +33,8 @@ import "@/app/sign-in/signin.css";
 
 /* The sidebar's own step, so a shared tree indents exactly as its owner's does. */
 const INDENT = 12;
+
+const onlyPane = () => "main" as const;
 
 /**
  * One project reached by share link, before any sign-in.
@@ -81,6 +86,8 @@ export function SharedProject({ token }: { token: string }) {
   // mouse at click time — a finger down is usually the start of a scroll,
   // not a reach for the pen, so touch waits for the tap to complete.
   const pressType = useRef("mouse");
+  // One pane here, so every zoom key is its.
+  useZoomKeys(onlyPane);
 
   // Clerk's script can be blocked outright (privacy extensions, corporate
   // proxies). The document itself comes from Convex, so after a grace period
@@ -195,19 +202,14 @@ export function SharedProject({ token }: { token: string }) {
         {!compact && (
           <div className="nt-panel" style={{ width: 256 }} aria-hidden />
         )}
-        <main className="flex min-w-0 flex-1 flex-col overflow-auto">
-          <div
-            className="w-full px-6 py-12 sm:px-14 sm:py-20"
-            style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
-          >
-            <div className="nt-skeleton h-8 w-1/2" />
-            <div className="mt-8 space-y-3">
-              <div className="nt-skeleton h-4 w-full" />
-              <div className="nt-skeleton h-4 w-11/12" />
-              <div className="nt-skeleton h-4 w-2/3" />
-            </div>
+        <PagePane busy>
+          <div className="nt-skeleton h-8 w-1/2" />
+          <div className="mt-8 space-y-3">
+            <div className="nt-skeleton h-4 w-full" />
+            <div className="nt-skeleton h-4 w-11/12" />
+            <div className="nt-skeleton h-4 w-2/3" />
           </div>
-        </main>
+        </PagePane>
       </div>
     </div>
   );
@@ -424,88 +426,87 @@ export function SharedProject({ token }: { token: string }) {
       <div className="flex min-h-0 flex-1">
         {!compact && rail}
 
-        <main className="flex min-w-0 flex-1 flex-col overflow-auto">
-          {current ? (
+        {current ? (
+          <PagePane pane="main" pageId={current._id}>
+            {/* Following a chip somewhere needs a way home — same rule as
+                the workspace: present only once there is a back to mean. */}
+            {main.canGoBack && (
+              <div className="mb-6 flex justify-start">
+                <button
+                  onClick={() => back("main")}
+                  aria-label="Back to previous page"
+                  title="Back to previous page"
+                  className="nt-icon-btn"
+                >
+                  <ArrowLeft />
+                </button>
+              </div>
+            )}
+            {/* A mouse press answers on the way down; a finger waits for
+                the tap, because on touch the same press is how the page is
+                scrolled. */}
             <div
-              className="w-full px-6 py-12 sm:px-14 sm:py-20"
-              style={{ maxWidth: "calc(var(--measure) + 7rem)" }}
+              onPointerDownCapture={
+                editable
+                  ? (e) => {
+                      pressType.current = e.pointerType;
+                      if (e.pointerType !== "touch" && !following(e.target)) {
+                        setAsking("edit");
+                      }
+                    }
+                  : undefined
+              }
+              onClickCapture={
+                editable
+                  ? (e) => {
+                      if (pressType.current === "touch" && !following(e.target)) {
+                        setAsking("edit");
+                      }
+                    }
+                  : undefined
+              }
+              onKeyDownCapture={
+                editable
+                  ? (e) => {
+                      if (writingKey(e) && !following(e.target)) {
+                        setAsking("edit");
+                      }
+                    }
+                  : undefined
+              }
             >
-              {/* Following a chip somewhere needs a way home — same rule as
-                  the workspace: present only once there is a back to mean. */}
-              {main.canGoBack && (
-                <div className="mb-6 flex justify-start">
-                  <button
-                    onClick={() => back("main")}
-                    aria-label="Back to previous page"
-                    title="Back to previous page"
-                    className="nt-icon-btn"
-                  >
-                    <ArrowLeft />
-                  </button>
-                </div>
-              )}
-              {/* A mouse press answers on the way down; a finger waits for
-                  the tap, because on touch the same press is how the page is
-                  scrolled. */}
-              <div
-                onPointerDownCapture={
-                  editable
-                    ? (e) => {
-                        pressType.current = e.pointerType;
-                        if (e.pointerType !== "touch" && !following(e.target)) {
-                          setAsking("edit");
-                        }
-                      }
-                    : undefined
-                }
-                onClickCapture={
-                  editable
-                    ? (e) => {
-                        if (pressType.current === "touch" && !following(e.target)) {
-                          setAsking("edit");
-                        }
-                      }
-                    : undefined
-                }
-                onKeyDownCapture={
-                  editable
-                    ? (e) => {
-                        if (writingKey(e) && !following(e.target)) {
-                          setAsking("edit");
-                        }
-                      }
-                    : undefined
-                }
-              >
-                <h1 className="w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance break-words">
-                  {current.title || "Untitled"}
-                </h1>
-                <div className="mt-8">
-                  <ReadOnlyContext value={true}>
-                    <CommentAccessContext value={commentable ? guestAccess : NO_COMMENT_ACCESS}>
-                      <CurrentPageProvider pageId={current._id}>
-                        <PageCommentsProvider key={current._id} pageId={current._id}>
-                          <CommentsLayer linked>
-                            <SharedEditor key={current.docId} docId={current.docId} />
-                          </CommentsLayer>
-                        </PageCommentsProvider>
-                      </CurrentPageProvider>
-                    </CommentAccessContext>
-                  </ReadOnlyContext>
-                </div>
+              <h1 className="w-full text-[length:var(--text-title)] font-semibold tracking-[-0.02em] text-balance break-words">
+                {current.title || "Untitled"}
+              </h1>
+              <div className="mt-8">
+                <ReadOnlyContext value={true}>
+                  <CommentAccessContext value={commentable ? guestAccess : NO_COMMENT_ACCESS}>
+                    <CurrentPageProvider pageId={current._id}>
+                      <PageCommentsProvider key={current._id} pageId={current._id}>
+                        <CommentsLayer linked>
+                          <SharedEditor key={current.docId} docId={current.docId} />
+                        </CommentsLayer>
+                      </PageCommentsProvider>
+                    </CurrentPageProvider>
+                  </CommentAccessContext>
+                </ReadOnlyContext>
               </div>
             </div>
-          ) : (
+          </PagePane>
+        ) : (
+          <main className="flex min-w-0 flex-1 flex-col overflow-auto">
             <div className="flex flex-1 items-center justify-center text-sm text-muted">
               This project has no pages.
             </div>
-          )}
-        </main>
+          </main>
+        )}
 
         {editable && !compact && (
           <GuestChatRail onIntercept={() => setAsking("edit")} />
         )}
       </div>
+
+      {current && <ZoomToolbar pane="main" />}
 
       {compact && drawer && (
         <LeftDrawer label="Close pages" onClose={() => setDrawer(false)}>

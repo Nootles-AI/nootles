@@ -119,6 +119,20 @@ describe("canonical NML", () => {
     expect(validateDocument(input).map(({ code }) => code)).toEqual(expect.arrayContaining(["unsafe_url", "duplicate_id", "table_width", "dangling_edge"]));
   });
 
+  it("scopes shape and connector ids to their own diagram", () => {
+    const first = allBlocks.blocks[16] as NmlCanvasBlock;
+    const second: NmlCanvasBlock = structuredClone({ ...first, id: "canvas-2", scene: { ...first.scene, id: "canvas-2" } });
+    const input: NmlDocument = { ...allBlocks, blocks: [...allBlocks.blocks, second] };
+    expect(validateDocument(input)).toEqual([]);
+    expect(repairDocument(input).issues).toEqual([]);
+
+    const within = structuredClone(input);
+    (within.blocks[16] as NmlCanvasBlock).scene.nodes[1].id = "shape-1";
+    const issues = validateDocument(within);
+    expect(issues.map(({ code }) => code)).toEqual(["duplicate_id"]);
+    expect(issues[0].path).toEqual(["blocks", 16, "scene", "nodes", 1]);
+  });
+
   it("repairs later duplicate IDs deterministically without mutating input", () => {
     const input = structuredClone(allBlocks);
     input.blocks[1].id = "p-1";

@@ -59,14 +59,9 @@
 /* `height: auto` is the fix for BlockNote's per-block-type heights, which the
    cluster inherits through `bn-side-menu` — kept on it only so the drag menu
    still picks up the item metrics BlockNote hangs off that class. */
-/* A staged canvas covers the page, but the handles are portalled to the body
-   and would float over it: they are the page's, so they go with it. */
-body[data-nt-staged] .nt-side-menu-anchor {
-  visibility: hidden;
-}
 /* The same while a shape is armed on the page: the margin is somewhere to
    draw from, and the handles would take the press. */
-body:has(.nt-well[data-drawing]) .nt-side-menu-anchor {
+body:has(.nt-pane[data-drawing]) .nt-side-menu-anchor {
   visibility: hidden;
 }
 .nt-side-menu-anchor .nt-block-handles {
@@ -448,11 +443,11 @@ body:has(.nt-well[data-drawing]) .nt-side-menu-anchor {
 }
 
 /* ---- Table --------------------------------------------------------------
-   A table takes the document column and then keeps going, like the canvas, the
-   album and the storyboard: none of them carries a width of its own, so a
-   fresh one fits the column and leaves no margin beside it, and none of them is
-   fenced in at that edge, so a widened one runs on into the pane and the pane
-   scrolls after it. BlockNote's is content-sized (`width: auto`, and
+   A table takes the document column and then keeps going, like the album and
+   the storyboard: none of them carries a width of its own, so a fresh one fits
+   the column and leaves no margin beside it, and none of them is fenced in at
+   that edge, so a widened one runs on into the pane and the pane scrolls after
+   it. BlockNote's is content-sized (`width: auto`, and
    `!important`, hence the answer in kind) inside a scroller of its own.
 
    That scroller is what cut a widened table off flat at the column's edge:
@@ -898,21 +893,6 @@ body:has(.nt-well[data-drawing]) .nt-side-menu-anchor {
   border-bottom-color: var(--border);
 }
 
-/* ---- Waiting on the model -------------------------------------------
-   The box the drawing is coming into, while it is still being drawn.
-
-   Solid rather than dashed, and at full strength: dashed-and-faded is how this
-   file draws a thing that is only a proposal, and nothing is being proposed yet
-   — the model is working. `nt-generating` supplies the breathing accent edge,
-   so the border here gets out of its way rather than drawing a second one. */
-.nt-diagram-preview.is-loading {
-  border-color: transparent;
-  background: var(--background);
-  opacity: 1;
-}
-.nt-diagram-preview.is-loading .nt-code-preview-head {
-  border-bottom-color: transparent;
-}
 /* Hosts the real canvas renderer: `.nt-canvas-viewport` is absolute and fills
    its nearest positioned ancestor, which is this. The height is set inline,
    from the same rule the block itself sizes by. */
@@ -921,32 +901,144 @@ body:has(.nt-well[data-drawing]) .nt-side-menu-anchor {
   width: 100%;
 }
 
-/* Waiting for the diagram. Stands in the place the diagram will occupy, so the
-   wait happens where the answer appears.
+/* ---- A suggested diagram, as ghost content on the page -----------------
+   The band it would become, where it would land, and nothing around it: no
+   box, no ground, no head line. It is to a diagram what ghost text is to
+   prose, so it is drawn faded and says its state on the caret line — or,
+   while it plans and has nothing drawn, in the band itself.
 
-   The bars hold still. The box already breathes and the head line already
-   pulses, and both of those say the one thing worth saying — the model is
-   working. A sweep and a per-bar pulse on top of them put four different
-   rhythms in one small box, which reads as a panel of warning lights rather
-   than as something being drawn. */
-.nt-diagram-preview-surface.is-waiting {
+   The dot grid is the band's own — what a diagram shows while you work in it
+   — standing here for the model working in it, breathing while it thinks and
+   draws, and gone once there is an answer to take. */
+.nt-editor .nt-diagram-ghost {
+  pointer-events: none;
+  user-select: none;
+}
+/* The real block's bottom margin collapses into the next block's; this one
+   sits inside the current block's flex column, where nothing collapses, so it
+   would add its margin to the page. */
+.nt-editor .bn-block-outer.nt-diagram-ghost {
+  margin-bottom: 0;
+}
+.nt-diagram-ghost .nt-canvas-block:has(> .nt-diagram-ghost-band[data-wide]) {
   display: flex;
-  flex-direction: column;
+  justify-content: center;
+  contain: inline-size;
+}
+/* Grows as the drawing does rather than stepping at each chunk, and clips
+   what has arrived below the edge it has grown to so far. A wide band clips
+   its sides where the block would (`canvas.css`). */
+.nt-diagram-ghost-band {
+  position: relative;
+  flex: none;
+  clip-path: inset(0 -100vmax);
+  transition: height 420ms var(--ease);
+}
+.nt-diagram-ghost-band[data-wide] {
+  clip-path: inset(0 -8px);
+}
+.nt-diagram-ghost-band > .nt-canvas-viewport {
+  overflow: visible;
+}
+.nt-diagram-ghost .nt-canvas-scene {
+  opacity: 0.5;
+}
+/* Only what a chunk brought: everything already drawn keeps its element. The
+   entrance is the canvas's own (`canvas.css`), which a chosen preset plays too. */
+.nt-diagram-ghost .nt-canvas-scene > [data-id],
+.nt-diagram-ghost .nt-edge,
+.nt-diagram-ghost .nt-edge-label {
+  animation: nt-shape-arrive 520ms var(--ease) both;
+}
+.nt-diagram-ghost-grid {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, oklch(0.25 0.005 90 / 0.16) 1px, transparent 1.2px);
+  background-size: 16px 16px;
+  /* Faded at every edge, so the band reads as a patch of the page rather than
+     a rectangle laid on it. */
+  mask-image:
+    linear-gradient(to right, transparent, #000 10%, #000 90%, transparent),
+    linear-gradient(to bottom, transparent, #000 22%, #000 78%, transparent);
+  mask-composite: intersect;
+  opacity: 0;
+  transition: opacity 600ms var(--ease);
+}
+.nt-diagram-ghost:is([data-phase="thinking"], [data-phase="drawing"]) .nt-diagram-ghost-grid {
+  opacity: 1;
+  animation: nt-ghost-stir 2.4s var(--ease) infinite;
+}
+@keyframes nt-ghost-stir {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* While the model plans, the empty band says so where the shapes will come,
+   in the empty diagram's "Add shapes" voice, its colour easing toward the
+   ghost caret's accent. The first shape fades it out as the shapes fade in. */
+.nt-diagram-ghost-label {
+  position: absolute;
+  inset: 0 0 auto;
+  display: flex;
   align-items: center;
   justify-content: center;
+  font-style: italic;
+  line-height: 26px;
+  white-space: nowrap;
+  color: var(--bn-colors-side-menu, var(--faint));
+  opacity: 0;
+  transition: opacity 360ms var(--ease);
 }
-.nt-skeleton-shape {
-  width: 132px;
-  height: 34px;
-  border-radius: 8px;
-  background: var(--faint);
-  opacity: 0.42;
+.nt-diagram-ghost[data-phase="thinking"] .nt-diagram-ghost-label {
+  opacity: 1;
+  animation: nt-ghost-plan 1.6s ease-in-out infinite;
 }
-.nt-skeleton-link {
-  width: 1.5px;
-  height: 20px;
-  background: var(--faint);
-  opacity: 0.5;
+@keyframes nt-ghost-plan {
+  50% {
+    color: var(--accent);
+  }
+}
+
+/* What the suggestion is doing, on the caret line: the action chip's voice —
+   a muted word, and a key when there is one to press. */
+.nt-ghost-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  margin-left: 7px;
+  color: var(--muted);
+  font-size: 0.8em;
+  font-weight: 500;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+.nt-ghost .nt-ghost-status .nt-key {
+  margin-left: 0;
+}
+.nt-ghost-status .nt-key + .nt-key,
+.nt-ghost-status .nt-key.is-quiet {
+  margin-left: 0.5em;
+}
+/* Escape declines rather than takes, so it is a key without the accent. */
+.nt-key.is-quiet {
+  background: var(--sunken);
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nt-diagram-ghost-band,
+  .nt-diagram-ghost-grid,
+  .nt-diagram-ghost-label {
+    transition: none;
+  }
+  .nt-diagram-ghost .nt-canvas-scene > [data-id],
+  .nt-diagram-ghost .nt-edge,
+  .nt-diagram-ghost .nt-edge-label,
+  .nt-diagram-ghost .nt-diagram-ghost-grid,
+  .nt-diagram-ghost[data-phase] .nt-diagram-ghost-label {
+    animation: none;
+  }
 }
 
 /* Ghost completion inside a code block. */
@@ -1490,15 +1582,10 @@ body:has(.nt-well[data-drawing]) .nt-side-menu-anchor {
   animation: nt-fim-arrive-frame 1.6s var(--ease);
 }
 
-/* A diagram arriving: the surface flashes its outline gold, and each shape
-   shows a gold stroke first — a veil in the page's own paper that the real
-   fills and strokes come up through, the way a drawing appears. The viewport
-   rests at `outline: none`, so the line is declared here. */
-.nt-editor .nt-fim-arrive-canvas .nt-canvas-viewport {
-  outline: 1.5px solid transparent;
-  outline-offset: -1.5px;
-  animation: nt-fim-arrive-frame 1.9s var(--ease);
-}
+/* A diagram arriving: each shape shows a gold stroke first — a veil in the
+   page's own paper that the real fills and strokes come up through, the way a
+   drawing appears. The shapes only: the band is the column's width, and a
+   frame round it would outline the page rather than what arrived. */
 @keyframes nt-shape-veil {
   0%,
   35% {
@@ -1523,8 +1610,7 @@ body:has(.nt-well[data-drawing]) .nt-side-menu-anchor {
   animation: nt-shape-veil 1.9s var(--ease);
 }
 /* The color flashes are already the calm substitute for motion; the veil is
-   a full-surface reveal, so it alone stands down. The outline still marks
-   the arrival. */
+   a full-surface reveal, so it stands down. */
 @media (prefers-reduced-motion: reduce) {
   .nt-editor .nt-fim-arrive-canvas .nt-canvas-viewport [data-id]::after {
     animation: none;

@@ -18,7 +18,7 @@ export const DIALECT = `  <p>, <h1>–<h3>, <ul><li>, <ol start="3"><li>, <block
     ${AI.codeLanguages.join(", ")}; anything else shows as plaintext.
   <nt-math-block><nt-math-line>a = 1</nt-math-line></nt-math-block>
   <img src="https://…" alt="…"> — a picture, as a block of its own, never inside a <p>.
-  <nt-diagram w="600" h="200">…shapes…</nt-diagram> — a canvas. See THE CANVAS below.
+  <nt-diagram h="200">…shapes…</nt-diagram> — a canvas. See THE CANVAS below.
 These are the only blocks there are: any other element (<aside>, <figure>, <dl>, a callout)
 is discarded, and so is text that is not inside one of them.
 A table cell, a <blockquote> and a toggle's <summary> each hold ONE line of inline text — no
@@ -245,12 +245,14 @@ at the shape, by its id from an expanded read:
   get_html — the diagram as standard HTML/CSS, or JSX. Read-only, for handing to a codebase.
   write_nodes — a few shapes, not the board. Send <nt-…> elements: one WITH an id the diagram
     has rewrites that shape (box, style, label, and for a group the children you list — unlisted
-    children stay); one WITHOUT an id is new, placed after the previous element or where "at"
-    says. Delete by naming ids in "removing". An id you write on a new shape is kept, which is how
-    an <nt-edge> can name it.
+    children stay in it, and a new box on a plain or boolean group stretches them with it as a
+    hand resize does, while a flex or grid group re-flows them); one WITHOUT an id is new, placed
+    after the previous element or where "at" says. Delete by naming ids in "removing". An id you
+    write on a new shape is kept, which is how an <nt-edge> can name it.
   update_styles — recolour or restyle many shapes at once: ids and declarations, null to remove
     one. "Make these all blue" is one call.
-  canvas_edit — relabel (set_text), rename, duplicate, move, delete, reorder, group, ungroup.
+  canvas_edit — relabel (set_text), rename, duplicate, move, delete, reorder, group, ungroup,
+    flip (mirror in place, horizontal or vertical).
     Every such change to one diagram is ONE call with a list of ops, applied in order: "relabel
     these three and nudge the logo left" is one canvas_edit with four ops, not four calls.
 Each call is one change the user keeps or discards, as an edit_page is; say what you did. They

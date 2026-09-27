@@ -18,7 +18,7 @@ import type { MultiPolygon, Ring } from "polygon-clipping";
 import { rectCentre, rotateAround } from "./geometry";
 import { mintId } from "./ops";
 import { flattenPath, outlineOf } from "./outline";
-import { scalePath } from "./path";
+import { resizedNode } from "./stretch";
 import {
   findNode,
   isBoolean,
@@ -228,17 +228,16 @@ export type LiveBox = Pick<SceneNode, "id" | "x" | "y" | "w" | "h" | "rot">;
  * live box — what a gesture is about to commit, one frame early. Only the
  * touched nodes and their ancestors are new objects; every other operand is
  * the same object as before, so its region stays cached and a frame costs
- * one clip. A path is stretched with its box, as the `resize` op will do.
+ * one clip. A resized box takes what is inside it along, as the `resize` op
+ * will (`./stretch`).
  */
 export function withFrames(group: GroupNode, frames: ReadonlyMap<NodeId, LiveBox>): GroupNode {
   const place = (node: SceneNode): SceneNode => {
     const live = frames.get(node.id);
     let next = node;
     if (live) {
-      const d = node.kind === "path" && (live.w !== node.w || live.h !== node.h)
-        ? { d: scalePath(node.d, node.w ? live.w / node.w : 1, node.h ? live.h / node.h : 1) }
-        : {};
-      next = { ...node, x: live.x, y: live.y, w: live.w, h: live.h, rot: live.rot, ...d };
+      next = resizedNode(node, live);
+      if (next.rot !== live.rot) next = { ...next, rot: live.rot };
     }
     if (!isGroup(next)) return next;
     let changed = false;
