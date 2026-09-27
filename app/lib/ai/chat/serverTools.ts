@@ -15,6 +15,7 @@ import { findSongs } from "@/app/lib/songs";
 import { configured as placesConfigured, search as findPlaces } from "@/app/lib/places";
 import { searchModel, writerModel } from "./provider";
 import { lookAtOutput } from "./lookAt";
+import { namePhotos } from "./placePhotos";
 import { WRITER } from "./prompt";
 import { CANVAS_TOOLS, noSuchPage, TOOLS, type CanvasToolName } from "./tools";
 import { cleanSection, outlineOf, splitSection } from "./writer";
@@ -342,7 +343,20 @@ export function chatTools(
         }
         const found = await findPlaces(query, near ?? null);
         if ("error" in found) throw new Error(found.error);
-        return "places" in found ? found.places : [];
+        if (!("places" in found)) return [];
+        // The addresses wait in the pen and the model gets names for them (see
+        // `placePhotos`). Written before the model is told a name, so a name it
+        // is given always resolves; content-addressed, like every ref there.
+        const all = found.places.flatMap((place) => place.photos);
+        if (!all.length) return found.places;
+        const ref = `p${createHash("sha256").update(JSON.stringify(all)).digest("hex").slice(0, 10)}`;
+        const { places, urls } = namePhotos(found.places, ref);
+        // A pen that will not take them costs the names, not the search: the
+        // addresses themselves still place, as they always did.
+        const penned = await convex
+          .mutation(api.ai.drawings.put, { ref, data: JSON.stringify(urls) })
+          .then(() => true, () => false);
+        return penned ? places : found.places;
       },
     }),
 

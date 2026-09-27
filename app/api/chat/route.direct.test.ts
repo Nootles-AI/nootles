@@ -453,9 +453,9 @@ describe("a board read in an earlier turn (NT-90)", () => {
     // Within the turn, the step after each read gets the report in full.
     const liveOutputs = ofType(inputOf(3), "function_call_output").map((o) => String(o.output));
     expect(liveOutputs).toHaveLength(3);
-    const liveGeometry = JSON.parse(liveOutputs[0]) as { nodes: unknown[]; edges: unknown[] };
-    expect(liveGeometry.nodes).toHaveLength(120);
-    expect(liveGeometry.edges).toHaveLength(119);
+    const liveGeometry = liveOutputs[0].split("\n");
+    expect(liveGeometry.filter((row) => / rect "/.test(row))).toHaveLength(120);
+    expect(liveGeometry.filter((row) => /^\S+ \S+>\S+ /.test(row))).toHaveLength(119);
     const liveSize = liveOutputs.reduce((n, o) => n + o.length, 0);
 
     // A later question, on the thread as Convex hands it back.
@@ -473,7 +473,7 @@ describe("a board read in an earlier turn (NT-90)", () => {
       expect(output).toMatch(/from an earlier turn, and the diagram has changed since\. Ask for it again/);
       expect(output.length).toBeLessThan(500);
     }
-    expect(staleOutputs[0].startsWith('{"diagram":{"w":4000,"h":3000},"nodes":[{"id":"r0"')).toBe(true);
+    expect(staleOutputs[0].startsWith("diagram 4000×3000.")).toBe(true);
     // The calls themselves still stand, so the model can see it read the board.
     expect(ofType(inputOf(4), "function_call").map((c) => c.name)).toEqual([...REPORTS]);
     const staleSize = staleOutputs.reduce((n, o) => n + o.length, 0);

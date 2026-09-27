@@ -556,7 +556,7 @@ export const TOOLS = {
       "Where everything on a diagram is: every shape's box in canvas pixels " +
       "after layout — x, y, w, h from the top-left, rot in degrees — with its " +
       "kind, name, parent and depth, and the points each connector runs " +
-      "through. This is the one place to learn positions: the x/y in the HTML " +
+      "through, one line each under a header naming the columns. This is the one place to learn positions: the x/y in the HTML " +
       "are relative to the parent, and inside a flex or grid group they are " +
       "not written at all. Ask before you place, align or measure anything.",
     inputSchema: z.object({

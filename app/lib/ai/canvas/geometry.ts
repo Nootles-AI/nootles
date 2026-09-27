@@ -139,3 +139,62 @@ export function geometryReport(
     ...(omitted ? { omitted } : {}),
   };
 }
+
+/**
+ * The report as the model is handed it: one line per shape and per connector.
+ *
+ * The same facts as {@link GeometryReport}, without a key repeated on every
+ * value — keyed JSON spent about twice the characters on an 800-shape board,
+ * and the whole of it rides every later step of the turn (NT-98). A header
+ * names the columns once, so the rows read without the tool's description.
+ */
+export function geometryText(report: GeometryReport): string {
+  const { diagram, nodes, edges, omitted } = report;
+  const lines = [
+    `diagram ${diagram.w}×${diagram.h}. Canvas pixels from its top-left; rot in degrees; parent - is the top level.`,
+    ...(nodes.length ? [SHAPE_COLUMNS, ...shapeRows(nodes)] : ["no shapes"]),
+  ];
+  if (edges.length) {
+    lines.push(EDGE_COLUMNS);
+    for (const edge of edges) {
+      lines.push(
+        [
+          edge.id,
+          `${edge.from}>${edge.to}`,
+          ...(edge.mid ? [`mid=${edge.mid.join(",")}`] : []),
+          ...(edge.label ? [`label=${JSON.stringify(edge.label)}`] : []),
+          edge.points ? `points=${edge.points.map((p) => p.join(",")).join(" ")}` : "unrouted",
+        ].join(" "),
+      );
+    }
+  }
+  if (omitted) {
+    lines.push(`${omitted} more shape${omitted === 1 ? "" : "s"} not listed. Pass ids or depth to see them.`);
+  }
+  return lines.join("\n");
+}
+
+const SHAPE_COLUMNS = 'shapes: id kind "name" parent depth x y w h rot, then layout=, bounds=x,y,w,h (a rotated shape\'s box), hidden, locked where they apply';
+const EDGE_COLUMNS = "connectors: id from>to mid=x,y label=, then the points it runs through";
+
+/** A shape per line, in {@link geometryText}'s columns — also a write tool's tail. */
+export function shapeRows(nodes: readonly NodeGeometry[]): string[] {
+  return nodes.map((node) =>
+    [
+      node.id,
+      node.kind,
+      JSON.stringify(node.name),
+      node.parent ?? "-",
+      node.depth,
+      node.x,
+      node.y,
+      node.w,
+      node.h,
+      node.rot,
+      ...(node.layout ? [`layout=${node.layout}`] : []),
+      ...(node.bounds ? [`bounds=${[node.bounds.x, node.bounds.y, node.bounds.w, node.bounds.h].join(",")}`] : []),
+      ...(node.hidden ? ["hidden"] : []),
+      ...(node.locked ? ["locked"] : []),
+    ].join(" "),
+  );
+}

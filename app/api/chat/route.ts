@@ -26,6 +26,7 @@ import {
   cached,
   foldResearch,
   markCachePoints,
+  shortenStaleMentions,
   shortenStaleReads,
   stripDrawings,
 } from "@/app/lib/ai/chat/transcript";
@@ -148,7 +149,9 @@ export async function POST(req: Request) {
   // otherwise fail every later message in the thread and not just that one.
   //
   // `convertDataPart` is where a mention and an attached text file become
-  // something the model reads; without it they are UI and nothing more.
+  // something the model reads; without it they are UI and nothing more. A page
+  // mentioned in an earlier message is cut to its first line before it gets
+  // there (`shortenStaleMentions`), as an earlier read is.
   // Named explicitly: inference reads `Omit<UI_MESSAGE, "id">` and falls back to
   // the base message, which has no data parts for `convertDataPart` to convert.
   //
@@ -166,7 +169,7 @@ export async function POST(req: Request) {
   );
   const history = stripDrawings(
     shortenStaleReads(
-      await convertToModelMessages<AbMessage>(messages, {
+      await convertToModelMessages<AbMessage>(shortenStaleMentions(messages), {
         ignoreIncompleteToolCalls: true,
         convertDataPart,
         tools,
