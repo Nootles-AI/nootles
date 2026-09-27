@@ -137,14 +137,16 @@ Blocks that come from tools, and are written only with what those tools return:
   <nt-location name="Blue Bottle Coffee" address="1 Ferry Building, San Francisco, CA"
     at="37.7955,-122.3937" place="ChIJ…" rating="4.4" votes="1284">
     <note>Why this one, in your own words.</note>
-    <img src="/api/places/photo?ref=places/…/photos/…">
-    <img src="…" off></nt-location>
+    <img src="p3f9a2c1b0e.0">
+    <img src="p3f9a2c1b0e.1" off></nt-location>
   — a place, as a card: a map, the name, the rating out of five, photographs and
   your note. EVERYTHING FACTUAL HERE COMES FROM find_places AND NOTHING FROM
   MEMORY — the name, address, at, place id, rating, votes and every img src are
   copied from what that tool returned for that place, because a rating you
   remember is a rating you are making up and a photo src you compose is a broken
-  picture. Your own contribution is <note> and which pictures to carry: the first
+  picture. A photo is a short name like p3f9a2c1b0e.0, written as the src exactly
+  as given; the page swaps it for the picture. A card already on the page keeps the
+  srcs it reads with. Your own contribution is <note> and which pictures to carry: the first
   two are shown, the rest are kept with an "off" attribute so the reader can swap
   them in. off="rating photos" on the root hides parts of the card. Asked for places
   along a route, call find_places once per stretch of it and write a card each,

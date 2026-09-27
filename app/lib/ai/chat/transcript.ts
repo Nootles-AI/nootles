@@ -90,8 +90,8 @@ export function shortenStaleReads(messages: ModelMessage[]): ModelMessage[] {
     if (i > turn || message.role !== "tool") return message;
     let shortened = false;
     const content = message.content.map((part) => {
-      if (part.type !== "tool-result" || !PAGE_SNAPSHOTS.has(part.toolName)) return part;
-      const output = clip(part.output);
+      if (part.type !== "tool-result") return part;
+      const output = stale(part.toolName, part.output);
       if (output === part.output) return part;
       shortened = true;
       return { ...part, output };
@@ -131,12 +131,7 @@ export function foldResearch(messages: ModelMessage[]): ModelMessage[] {
     let folded = false;
     const content = message.content.map((part) => {
       if (part.type !== "tool-result") return part;
-      const output =
-        part.toolName === "read_context"
-          ? foldRead(part.output)
-          : PAGE_SNAPSHOTS.has(part.toolName)
-            ? clip(part.output)
-            : part.output;
+      const output = stale(part.toolName, part.output);
       if (output === part.output) return part;
       folded = true;
       return { ...part, output };
@@ -145,19 +140,35 @@ export function foldResearch(messages: ModelMessage[]): ModelMessage[] {
   });
 }
 
+/**
+ * A result from an earlier turn, as the model is sent it: a page copy clipped
+ * to its head, a context read folded to what it is.
+ *
+ * A context read is folded for the reason `search_web` is kept: getting it back
+ * costs one `read_context`, no model call, where a repo file sent whole — up to
+ * 60K characters — was otherwise re-sent with every step of every later turn in
+ * a thread that never called `write` (NT-98).
+ */
+function stale(tool: string, output: ToolResultOutput): ToolResultOutput {
+  if (tool === "read_context") return foldRead(output);
+  if (!PAGE_SNAPSHOTS.has(tool)) return output;
+  // Rows now rather than JSON, but still a report: had again by asking.
+  if (tool === "get_geometry" && output.type === "text") {
+    const value = clipText(output.value, REPORT_MOVED_ON);
+    return value === output.value ? output : { ...output, value };
+  }
+  return clip(output);
+}
+
 /** A context read without its body: what it is, and the way back to the text. */
 function foldRead(output: ToolResultOutput): ToolResultOutput {
   if (output.type !== "json" || !isRecord(output.value)) return output;
   if (!("content" in output.value) && !("text" in output.value)) return output;
   const { content: _content, text: _text, ...kept } = output.value;
-  return {
-    ...output,
-    value: {
-      ...kept,
-      folded: "The text was folded once the sections were written. read_context has it again.",
-    },
-  };
+  return { ...output, value: { ...kept, folded: FOLDED } };
 }
+
+const FOLDED = "The text is not shown here any more. read_context has it again.";
 
 /**
  * Takes the drawings out of what the model reads.
@@ -301,19 +312,28 @@ const MOVED_ON =
 const REPORT_MOVED_ON =
   "… (The rest of this report is not shown: it is from an earlier turn, and the diagram has changed since. Ask for it again for what it says now.)";
 
+/** A page the user mentioned in an earlier message, which the model reads again rather than trusts. */
+const MENTION_MOVED_ON =
+  "<!-- The rest of this page is not shown: it was mentioned in an earlier message, and the page may have changed since. read_page has it as it is now. -->";
+
 function clip(output: ToolResultOutput): ToolResultOutput {
   if (output.type === "json") return clipReport(output);
   if (output.type === "content") return clipMedia(output);
   if (output.type !== "text") return output;
-  const { value } = output;
-  if (value.length <= AI.chat.staleReadChars) return output;
+  const value = clipText(output.value, MOVED_ON);
+  return value === output.value ? output : { ...output, value };
+}
+
+/** The head of a page copy, cut at a line and followed by `notice`. */
+function clipText(value: string, notice: string): string {
+  if (value.length <= AI.chat.staleReadChars) return value;
   // Shortened already — by the browser, before it sent the thread.
-  if (NOTICES.some((notice) => value.endsWith(notice))) return output;
+  if (NOTICES.some((known) => value.endsWith(known))) return value;
   // At a line break, because a page is serialised one block per line: cutting
   // mid-element would leave a half-written tag for the model to make sense of.
   const cut = value.lastIndexOf("\n", AI.chat.staleReadChars);
   const head = value.slice(0, cut > 0 ? cut : AI.chat.staleReadChars).trimEnd();
-  return { ...output, value: `${head}\n${MOVED_ON}` };
+  return `${head}\n${notice}`;
 }
 
 /**
@@ -335,7 +355,34 @@ function clipMedia(output: Extract<ToolResultOutput, { type: "content" }>): Tool
   return output.value.every((part) => part.type === "text") ? output : withoutPictures(output.value);
 }
 
-const NOTICES = [MOVED_ON, REPORT_MOVED_ON, PICTURES_MOVED_ON];
+const NOTICES = [MOVED_ON, REPORT_MOVED_ON, MENTION_MOVED_ON, PICTURES_MOVED_ON];
+
+/**
+ * The pages mentioned in earlier messages, cut to their first line.
+ *
+ * A mention carries the page as it read when the message was sent, and it sits
+ * in a USER message, which {@link shortenStaleReads} never touches — so up to a
+ * page's worth of HTML per mention was re-sent with every step of every later
+ * turn, though the model is told to read a mentioned page again before changing
+ * it (NT-98). The message in flight keeps its mentions whole. Runs on the
+ * thread before it becomes model messages, in the route and in the browser
+ * alike, so the model reads the same words either way.
+ */
+export function shortenStaleMentions(messages: AbMessage[]): AbMessage[] {
+  const turn = lastIndexOf(messages, (message) => message.role === "user");
+  return messages.map((message, i) => {
+    if (i >= turn || message.role !== "user") return message;
+    let shortened = false;
+    const parts = message.parts.map((part) => {
+      if (part.type !== "data-mention" || part.data.kind !== "page") return part;
+      const content = clipText(part.data.content, MENTION_MOVED_ON);
+      if (content === part.data.content) return part;
+      shortened = true;
+      return { ...part, data: { ...part.data, content } };
+    });
+    return shortened ? { ...message, parts } : message;
+  });
+}
 
 /**
  * The same shortening, done by the browser to the thread it is about to send.
@@ -352,7 +399,7 @@ const NOTICES = [MOVED_ON, REPORT_MOVED_ON, PICTURES_MOVED_ON];
  */
 export function shortenStaleParts(messages: AbMessage[]): AbMessage[] {
   const turn = lastIndexOf(messages, (message) => message.role === "user");
-  return messages.map((message, i) => {
+  return shortenStaleMentions(messages).map((message, i) => {
     if (message.role !== "assistant") return message;
     let shortened = false;
     const parts = message.parts.map((part) => {
@@ -365,10 +412,12 @@ export function shortenStaleParts(messages: AbMessage[]): AbMessage[] {
         shortened = true;
         return { ...part, output: rest };
       }
-      if (i > turn || !PAGE_SNAPSHOTS.has(name)) return part;
+      if (i > turn || (name !== "read_context" && !PAGE_SNAPSHOTS.has(name))) return part;
       const output = modelOutput(name, part.output);
-      const clipped = clip(output);
-      if (clipped === output || clipped.type !== "text") return part;
+      const clipped = stale(name, output);
+      if (clipped === output) return part;
+      // Text as the route's clip makes it, or a folded read as JSON is kept.
+      if (clipped.type !== "text" && clipped.type !== "json") return part;
       shortened = true;
       return { ...part, output: clipped.value };
     });

@@ -39,6 +39,7 @@ import { CANVAS_TOOLS, noSuchPage, TOOLS, type CanvasToolName, type ClientToolNa
 import { lastContentBlock } from "@/app/lib/documentTail";
 import { retryableMutationResult } from "./mutationResult";
 import { notWritten } from "./notWritten";
+import { photoRefs, redeemPhotos } from "./placePhotos";
 import { SECTION_REF, splitSection } from "./writer";
 
 /** The surface the agent acts on: the page on screen, and its live editor. */
@@ -137,6 +138,16 @@ export async function redeemSections(
   return {
     html: html.replace(SECTION_REF, (_whole, ref: string) => splitSection(kept[ref]).html),
   };
+}
+
+/** Every place photograph named in the model's HTML, swapped for its address. */
+async function redeemPlacePhotos(
+  ctx: ToolContext,
+  html: string,
+): Promise<{ html: string } | { missing: string[] }> {
+  const refs = photoRefs(html);
+  if (!refs.length) return { html };
+  return redeemPhotos(html, await ctx.convex.query(api.ai.drawings.get, { refs }));
 }
 
 /** One tool's browser-side body: parse `input`, do the work. */
@@ -462,7 +473,17 @@ async function editPage(
       "Use the ref each write call returned, exactly as it came back — or call write again.",
     ].join("\n");
   }
-  const html = sections.html;
+  // Then place photographs, named the same way (see `placePhotos`).
+  const photos = await redeemPlacePhotos(ctx, sections.html);
+  if ("missing" in photos) {
+    return [
+      `That edit was not applied, and nothing on the page changed. There ${
+        photos.missing.length === 1 ? "is no photograph" : "are no photographs"
+      } named ${photos.missing.map((r) => `"${r}"`).join(", ")}.`,
+      "Use the photos find_places returned, exactly as they came back — or call find_places again.",
+    ].join("\n");
+  }
+  const html = photos.html;
   const loose = refsOutsideShots(html);
   if (loose.length) {
     return [
@@ -619,8 +640,78 @@ async function editPage(
         ]
       : []),
     "",
-    pageHtml(editor.document as unknown as AnyBlock[], page.title),
+    editEcho(document, editor.document as unknown as AnyBlock[], page.title, new Set(taggedIds(next))),
   ].join("\n");
+}
+
+/**
+ * What an edit hands back of the page: the blocks it touched, each with the
+ * block either side, and a line for every run it left alone.
+ *
+ * It used to hand back the whole page, up to 24K characters after every edit,
+ * with every diagram collapsed to its stub — so a model at work on a board it
+ * had expanded got the stub back and read the board whole again before its next
+ * change (NT-98). The echo is for the ids an edit minted and for seeing where
+ * it landed; the untouched rest the model has already read.
+ *
+ * `addressed` is every id the model wrote: a touched diagram among them is one
+ * it rewrote by id, so one it had read whole, and it is echoed whole. A diagram
+ * it added new, or the writer drafted, stays a stub.
+ */
+export function editEcho(
+  before: AnyBlock[],
+  after: AnyBlock[],
+  title: string,
+  addressed: ReadonlySet<string>,
+): string {
+  const whole = (block: AnyBlock) => toDocHtml([block]);
+  const was = new Map(before.map((block) => [block.id, whole(block)]));
+  const touched = new Set<number>();
+  after.forEach((block, i) => {
+    if (was.get(block.id) !== whole(block)) touched.add(i);
+  });
+  const kept = new Set(after.map((block) => block.id));
+  const removed = before.filter((block) => !kept.has(block.id)).map((block) => block.id);
+
+  const shown = [...touched].flatMap((i) => [i - 1, i, i + 1]).filter((i) => i >= 0 && i < after.length);
+  const indices = [...new Set(shown)].sort((a, b) => a - b);
+  const expandDrawn = new Set(
+    [...touched].map((i) => after[i].id).filter((id) => addressed.has(id)),
+  );
+  const opts = { collapseDiagrams: true, collapseAlbums: true, expandDrawn };
+
+  const out = [toDocHtml([], { title }).trimEnd()];
+  if (!after.length) out.push("<!-- this page is empty -->");
+  let left = AI.chat.maxPageChars;
+  let from = 0;
+  for (let i = 0; i < indices.length; ) {
+    let end = i;
+    while (end + 1 < indices.length && indices[end + 1] === indices[end] + 1) end++;
+    const start = indices[i];
+    if (start > from) out.push(unchanged(start - from, from === 0 ? "before these" : "between"));
+    const run = after.slice(start, indices[end] + 1);
+    const { html, dropped } = toDocHtmlWithin(run, left, opts);
+    out.push(html);
+    left -= toDocHtml(run.slice(0, run.length - dropped), { ...opts, expandDrawn: undefined }).length;
+    from = indices[end] + 1 - dropped;
+    i = end + 1;
+    if (dropped || (left <= 0 && i < indices.length)) {
+      out.push(`<!-- More of this edit is not shown. Read on with after: "${after[from - 1].id}". -->`);
+      return finish(out);
+    }
+  }
+  if (from < after.length) out.push(unchanged(after.length - from, indices.length ? "after these" : "on the page"));
+  if (removed.length) out.push(`<!-- removed: ${removed.join(", ")} -->`);
+  return finish(out);
+}
+
+function unchanged(n: number, where: string): string {
+  return `<!-- ${n} unchanged block${n === 1 ? "" : "s"} ${where} -->`;
+}
+
+function finish(lines: string[]): string {
+  const html = lines.filter(Boolean).join("\n");
+  return html.includes(' holds="') ? `${html}\n${STUB_NOTE}` : html;
 }
 
 /**
@@ -781,6 +872,9 @@ export async function fetchPage(ctx: ToolContext, pageId: Id<"pages">) {
   return page;
 }
 
+const STUB_NOTE =
+  '<!-- A diagram reads as a stub: at names it, holds says how big it is, text is every word on it. Return it as given to keep it where it is; write new shapes inside it to add them to it; pass its block id in expand to read it whole — every shape, style and path — which is what matching its look, copying its logo or icons, or editing it takes. -->';
+
 /** What a read asks for beyond the page: blocks to read whole, and where to start. */
 type PageReadOptions = { expand?: string[]; after?: string };
 
@@ -829,11 +923,7 @@ export function pageHtml(blocks: AnyBlock[], title: string, read: PageReadOption
       `<!-- read from after block ${after}: the ${start} block${start === 1 ? "" : "s"} before it are not shown -->`,
     );
   }
-  if (html.includes(' holds="')) {
-    notes.push(
-      '<!-- A diagram reads as a stub: at names it, holds says how big it is, text is every word on it. Return it as given to keep it where it is; write new shapes inside it to add them to it; pass its block id in expand to read it whole — every shape, style and path — which is what matching its look, copying its logo or icons, or editing it takes. -->',
-    );
-  }
+  if (html.includes(' holds="')) notes.push(STUB_NOTE);
   if (dropped) {
     const last = shown[shown.length - dropped - 1]?.id;
     notes.push(
