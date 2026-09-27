@@ -45,6 +45,7 @@ import {
   type Preview,
 } from "./ghostText";
 import { canvasPreview, type GhostBlock } from "./previewWidgets";
+import { completionShape } from "./completionShape";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Editor = BlockNoteEditor<any, any, any>;
@@ -1191,13 +1192,14 @@ export function useTabCompletion(
       };
 
       // What this caret can accept, which is what the token budget and the stop
-      // sequences are for. A table cell holds inline content only, so a block
-      // opened inside one is cut on arrival — no reason to buy its tokens.
-      const shape = !limits.allowBlocks
-        ? "complete"
-        : ctx.cell
-          ? "prose"
-          : "structure";
+      // sequences are for. A block opened where only prose fits — a table cell,
+      // or mid-sentence — is cut on arrival, so there is no reason to buy its
+      // tokens (NT-102).
+      const shape = completionShape({
+        allowBlocks: limits.allowBlocks,
+        cell: !!ctx.cell,
+        suffix: ctx.suffix,
+      });
       const contextBefore = ctx.visible.slice(-500);
       /**
        * The projection with a completion spliced in, parsed. Memoised on the
@@ -1340,9 +1342,10 @@ export function useTabCompletion(
             // by a math block flash up and disappear. Keep the prose, drop the
             // block; only a completion that is nothing but a block has nothing
             // left to offer. Same rule the diagram branch below already follows.
-            // A table cell holds inline content only, so inside one every block
-            // the model opens is cut the same way.
-            if ((!limits.allowBlocks || ctx.cell) && isStructural(acc)) {
+            // A table cell holds inline content only, and a block opened
+            // mid-sentence would split the person's paragraph around it, so
+            // wherever only prose was asked for every block is cut the same way.
+            if (shape !== "structure" && isStructural(acc)) {
               const tail = proseTail(acc);
               if (!tail.trim()) return clear();
               acc = tail;
@@ -1426,8 +1429,8 @@ export function useTabCompletion(
       if (mySeq !== seq) return clear();
 
       // The in-loop cut again, for a block that closed within its first chunk —
-      // `firstBlock` breaks the loop before the cell check ever runs then.
-      if (ctx.cell && isStructural(acc)) {
+      // `firstBlock` breaks the loop before the prose check ever runs then.
+      if (shape !== "structure" && isStructural(acc)) {
         const tail = proseTail(acc);
         if (!tail.trim()) return clear();
         acc = tail;
