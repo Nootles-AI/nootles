@@ -511,6 +511,9 @@
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
+.nt-canvas-autoh > .nt-canvas-autoh-go {
+  gap: 4px;
+}
 .nt-canvas-autoh > .nt-canvas-autoh-no {
   padding: 0 4px;
 }

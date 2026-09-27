@@ -54,7 +54,7 @@ import {
   type RefObject,
 } from "react";
 
-import { X } from "@/app/components/Icons";
+import { ArrowDown, ArrowUp, X } from "@/app/components/Icons";
 import { useContextMenu } from "../ContextMenu";
 import { CANVAS_CHROME, type PageCanvas } from "../page/PageCanvas";
 import type { GestureHost } from "../page/pageGesture";
@@ -1814,6 +1814,8 @@ export function CanvasSurface({
   const [declined, setDeclined] = useState<Scene | null>(null);
   if (declined && declined !== scene && !holding) setDeclined(null);
   const offersAuto = !readOnly && !frame && unfitted(scene) && !declined;
+  // Which way Auto height will take the band's bottom edge.
+  const fitGrows = bandFloor(scene) > scene.h;
   /**
    * The offer rides the grip: under the band where the page leaves room for
    * it before what comes next, else just above the grip, inside. Placed on
@@ -2048,7 +2050,8 @@ export function CanvasSurface({
 
       {offersAuto && (
         <div ref={offer} className="nt-canvas-autoh">
-          <button type="button" className="nt-canvas-autoh-go" onClick={fit}>
+          <button type="button" className="nt-canvas-autoh-go" data-dir={fitGrows ? "down" : "up"} onClick={fit}>
+            {fitGrows ? <ArrowDown width={12} height={12} aria-hidden /> : <ArrowUp width={12} height={12} aria-hidden />}
             Auto height
           </button>
           <button

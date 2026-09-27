@@ -492,6 +492,7 @@ const harness = {
       at: (offer as HTMLElement).dataset.at ?? null,
       text: offer.textContent,
       glyphs: offer.querySelectorAll(".nt-canvas-autoh-go svg").length,
+      dir: (offer.querySelector(".nt-canvas-autoh-go") as HTMLElement | null)?.dataset.dir ?? null,
     };
   },
   /** Room between a band and the block after it, in px; null takes it away. */
