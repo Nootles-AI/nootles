@@ -26,6 +26,10 @@ const HARNESSES = [
   // Diagrams on one page: a selection, a drag, a marquee and an undo that
   // reach across two of them.
   "canvas-page",
+  // Resizing and scaling what holds other shapes — groups, auto layout,
+  // booleans, a group in a group — by every handle, against where they landed
+  // before diagrams became bands.
+  "canvas-resize",
   // A diagram made where another was taken away starts as itself, and undoing
   // back to the old one brings it back whole.
   "canvas-rebirth",

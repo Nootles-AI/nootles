@@ -144,6 +144,71 @@ try {
   await frame();
   check("a press on the page's text lets the diagram go", [await at("active"), await at("holding", "top")], [null, false]);
 
+  {
+    // ---- Resizing what holds other shapes, on the page ----------------------
+    // A group, an auto-layout row and a union, and one rect beside them, each
+    // taken by its corner: the container lands on the box the drag asked for,
+    // what is inside it is drawn where the scene says, and one undo puts it
+    // back. Each drag in `canvas-resize` runs on a bare surface; this is the
+    // page's own path to the same gesture.
+    const N = (kind, id, x, y, w, h, extra = {}) => ({ id, kind, x, y, w, h, rot: 0, style: {}, label: "", locked: false, hidden: false, attrs: {}, ...extra });
+    const containers = {
+      group: [
+        N("group", "cg", 230, 30, 160, 100, {
+          children: [N("rect", "cg1", 0, 0, 60, 40, { style: { background: "#e8b4b4" } }), N("rect", "cg2", 100, 60, 60, 40, { style: { background: "#b4c8e8" } })],
+        }),
+        { cg1: [0, 0, 60, 40], cg2: [100, 60, 60, 40] },
+      ],
+      "auto layout": [
+        N("group", "cf", 230, 30, 150, 80, {
+          style: { display: "flex", gap: "10px", padding: "10px", background: "#eeeeec" },
+          children: [N("rect", "cf1", 0, 0, 60, 60, { style: { background: "#e8b4b4" } }), N("rect", "cf2", 0, 0, 60, 60, { style: { background: "#b4c8e8" } })],
+        }),
+        { cf1: [10, 10, 60, 60], cf2: [80, 10, 60, 60] },
+      ],
+      union: [
+        N("group", "cu", 230, 30, 160, 100, {
+          op: "union",
+          style: { background: "#9aa4e8" },
+          children: [N("rect", "cu1", 0, 0, 100, 70), N("ellipse", "cu2", 60, 30, 100, 70)],
+        }),
+        {},
+      ],
+      "lone rect": [N("rect", "cr", 230, 30, 160, 100, { style: { background: "#e8b4b4" } }), {}],
+    };
+    const near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) <= 1);
+    for (const [name, [node, inside]] of Object.entries(containers)) {
+      await at("dispatch", "top", { type: "insert", nodes: [node] });
+      await frame();
+      await at("add", "top", [node.id]);
+      await frame();
+      const outline = await at("frameRect", "top");
+      await drag({ x: outline.left + outline.width, y: outline.top + outline.height }, 14, 18);
+      const o = await at("origin", "top");
+      const drawn = async (id, [x, y, w, h]) => {
+        const b = await at("shape", "top", id);
+        return near([b.left, b.top, b.width, b.height], [o.x + x * o.scale, o.y + y * o.scale, w * o.scale, h * o.scale]);
+      };
+      const box = await at("frameOf", "top", node.id);
+      check(`a ${name} resized by its corner lands on the box the drag asked for`, box, { x: 230, y: 30, w: node.w + 14, h: node.h + 18 });
+      check(`and is drawn there`, await drawn(node.id, [box.x, box.y, box.w, box.h]), true);
+      const off = [];
+      for (const [id, [x, y, w, h]] of Object.entries(inside)) {
+        if (!(await drawn(id, [box.x + x, box.y + y, w, h]))) off.push(id);
+      }
+      check(`what is inside it is drawn where the scene says`, off, []);
+      await at("undo");
+      await frame();
+      check(`one undo puts the ${name} back`, await at("frameOf", "top", node.id), { x: 230, y: 30, w: node.w, h: node.h });
+      await at("clear");
+      await at("dispatch", "top", { type: "remove", ids: [node.id] });
+      await frame();
+    }
+    check("and the diagram is as it was", (await at("nodes", "top")).map((n) => n.id), ["a1", "a2"]);
+    await page.mouse.click(...Object.values(centre(await at("block", "between"))));
+    await frame();
+  }
+
   // A Shift-click selects across diagrams; the frame is drawn once, in the
   // diagram last pressed, and each diagram outlines its own members.
   await page.mouse.click(...Object.values(centre(await at("shape", "top", "a1"))));
