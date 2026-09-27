@@ -5,6 +5,7 @@ import type { LiveEditor } from "@/app/components/editor/EditorRegistry";
 import { forgetTextStep, newestTextStep } from "@/app/lib/history/textDomain";
 import type { CanvasTool } from "../engine/shortcuts";
 import { defaultBox, newNode, type DrawKind } from "../render/newShape";
+import { glideBandHeight } from "../render/bandMotion";
 import { hoverPen } from "../render/PenTool";
 import { SETTLE, SETTLE_MS } from "../render/settle";
 import { BAND, bandFloor, bandLeft, bandWidth, EMPTY_BAND_H, WIDE_MARGIN } from "../scene/band";
@@ -248,10 +249,14 @@ function createPreview(canvas: PageCanvas) {
     outlined = band;
     band?.setAttribute("data-target", "");
   };
-  const showLine = (at: { left: number; top: number; width: number } | null) => {
+  let gap = "";
+  let placed = "";
+  const showLine = (at: { left: number; top: number; width: number; gap: string } | null) => {
     if (!at) {
       line?.remove();
       line = null;
+      gap = "";
+      placed = "";
       return;
     }
     if (!line) {
@@ -259,9 +264,18 @@ function createPreview(canvas: PageCanvas) {
       line.className = "nt-page-insert";
       document.body.append(line);
     }
-    line.style.left = `${at.left}px`;
-    line.style.top = `${at.top}px`;
-    line.style.width = `${at.width}px`;
+    const translate = `${at.left}px ${at.top}px`;
+    const width = `${at.width}px`;
+    // Shown again every frame the pointer moves: untouched, a glide under way
+    // runs on to its end.
+    if (at.gap === gap && `${translate} ${width}` === placed) return;
+    placed = `${translate} ${width}`;
+    // Only a step to another gap glides; the same gap moved by a scroll or a
+    // reflow is where it is now, not somewhere the line is travelling to.
+    line.toggleAttribute("data-glide", gap !== "" && at.gap !== gap);
+    gap = at.gap;
+    line.style.translate = translate;
+    line.style.width = width;
   };
   return {
     /** For a draw at `box` begun at `origin` — the pointer alone, before the press. */
@@ -277,7 +291,12 @@ function createPreview(canvas: PageCanvas) {
       const outer = editor && place ? outerOf(editor, place.ref) : null;
       if (!place || !column || !outer) return showLine(null);
       const r = outer.getBoundingClientRect();
-      showLine({ left: column.left, width: column.width, top: place.where === "after" ? r.bottom : r.top });
+      showLine({
+        left: column.left,
+        width: column.width,
+        top: place.where === "after" ? r.bottom : r.top,
+        gap: `${place.ref}:${place.where}`,
+      });
     },
     clear() {
       outline(null);
@@ -483,6 +502,8 @@ function armShapes(canvas: PageCanvas, pane: HTMLElement, kind: DrawKind): () =>
     tools.settle();
     let blockId: string;
     let nodeId: string;
+    /** For a diagram made here, the height it opens from, in its own px. */
+    let opensFrom: number | null = null;
     try {
       const hit = landingIn(bandBoxes(canvas), drawn, origin);
       const into = hit ? canvas.get(hit.blockId) : undefined;
@@ -504,6 +525,10 @@ function armShapes(canvas: PageCanvas, pane: HTMLElement, kind: DrawKind): () =>
             : { x: (drawn.x - left) / scale, y: 0, w: drawn.w / scale, h: drawn.h / scale },
         );
         nodeId = made.nodeId;
+        // In place of an empty line, from that line's height: the text under
+        // it moves only by what the diagram adds.
+        const line = place.where === "replace" ? outerOf(editor, place.ref)?.getBoundingClientRect().height : 0;
+        opensFrom = (line ?? 0) / scale;
         blockId = insertDiagram(editor, place, serializeScene(made.scene));
       }
     } catch (error) {
@@ -534,6 +559,10 @@ function armShapes(canvas: PageCanvas, pane: HTMLElement, kind: DrawKind): () =>
       select();
       return;
     }
+    // Opened as the shape settles into it, rather than standing there whole
+    // before it lands; found before the band's first paint.
+    const band = shape.closest<HTMLElement>(".nt-canvas");
+    if (band && opensFrom !== null) glideBandHeight(band, opensFrom, parseFloat(band.style.height) || band.offsetHeight);
     shape.style.visibility = "hidden";
     await frames(2);
     const to = shape.getBoundingClientRect();
@@ -741,7 +770,9 @@ async function handPen(
   };
   if (!entry) {
     // Made beside the line it was pressed on rather than in its place: a
-    // diagram given up with its path must leave the page as it found it.
+    // diagram given up with its path must leave the page as it found it. It
+    // does not open like a drawn shape's band: the press places its first
+    // point from the band's rect, which has to be the settled one.
     const place = editor && placeNew(blockBoxes(editor), origin.y, (id) => isEmptyLine(editor, id), { replace: false });
     if (!editor || !place) return;
     const blockId = insertDiagram(editor, place, serializeScene({ ...emptyScene(), h: EMPTY_BAND_H }));

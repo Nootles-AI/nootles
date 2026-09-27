@@ -171,7 +171,8 @@ try {
   check("brings it back wide, with its shapes", await at("scene", first), { wide: "pinned", nodes: ["w2"] });
 
   // ---- The presets a new diagram offers ----------------------------------
-  const bar = (id) => page.locator(`[data-id="${id}"] .nt-canvas-presets`);
+  // Not the copy a closed bar leaves fading for a moment (`leaveAsCopy`).
+  const bar = (id) => page.locator(`[data-id="${id}"] .nt-canvas-presets:not(.is-leaving)`);
   const barShown = async (id) => (await bar(id).count()) === 1;
   const kinds = (shapes) => shapes.map((shape) => shape.kind);
 

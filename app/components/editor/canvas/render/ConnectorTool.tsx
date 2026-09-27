@@ -57,6 +57,7 @@ import {
   type Scene,
   type SceneNode,
 } from "../scene/types";
+import { leaveAsCopy } from "./leaveAsCopy";
 import "./connector.css";
 
 /** How close the pointer must come to a plug to take that exact one, in screen
@@ -147,6 +148,18 @@ export function ConnectorTool({ store, viewport, selection, onLanded }: Connecto
     place();
     return viewport.subscribe(place);
   }, [viewport]);
+
+  // Put down, the tool's plugs fade rather than vanish. Its copy goes on the
+  // viewport, beside where the tool's own layer was.
+  useLayoutEffect(() => {
+    const svg = layer.current?.ownerSVGElement;
+    const host = svg?.parentElement?.parentElement;
+    if (!svg || !host) return;
+    return () =>
+      leaveAsCopy(svg, host, (copy) =>
+        copy.querySelectorAll(".nt-connector-target, .nt-connector-preview").forEach((el) => el.remove()),
+      );
+  }, []);
 
   const nodes = candidates(scene, entered);
   const boxes = new Map<NodeId, Rect>(
@@ -260,10 +273,11 @@ export function ConnectorTool({ store, viewport, selection, onLanded }: Connecto
       target.style.display = "none";
       return;
     }
-    target.setAttribute("x", String(box.x));
-    target.setAttribute("y", String(box.y));
-    target.setAttribute("width", String(box.w));
-    target.setAttribute("height", String(box.h));
+    // As CSS geometry, so a step from one box to the next can glide.
+    target.style.setProperty("x", `${box.x}px`);
+    target.style.setProperty("y", `${box.y}px`);
+    target.style.setProperty("width", `${box.w}px`);
+    target.style.setProperty("height", `${box.h}px`);
     target.style.display = "";
   };
 

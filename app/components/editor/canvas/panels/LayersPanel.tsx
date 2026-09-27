@@ -3,6 +3,7 @@
 import {
   memo,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -184,9 +185,16 @@ export function LayersPanel({
   selection,
   page,
   blockId,
+  arrive = true,
 }: {
   store: SceneStore;
   selection: SelectionStore;
+  /**
+   * Whether the list arrives as a list, row by row. Not when the panel is up
+   * already and has only turned to another diagram: then what it says changes
+   * in one short fade, and rows new after that still arrive as ever.
+   */
+  arrive?: boolean;
   /**
    * The page the diagram is on, and which block it is: a Shift-range keeps
    * the other diagrams' selections, and ⌫ deletes what is selected in all of
@@ -222,6 +230,15 @@ export function LayersPanel({
     const next = withAncestors(expanded, scene, snapshot.ids);
     if (next !== expanded) setExpanded(next);
   }
+
+  const rootRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (arrive || !el?.getAnimations) return;
+    for (const running of el.getAnimations({ subtree: true })) {
+      if (running instanceof CSSAnimation && running.animationName === "nt-lyr-in") running.finish();
+    }
+  }, [arrive]);
 
   const listRef = useRef<HTMLDivElement>(null);
   const anchorRef = useRef<NodeId | null>(null);
@@ -384,7 +401,7 @@ export function LayersPanel({
   };
 
   return (
-    <div className="nt-lyr" aria-label="Layers" onKeyDown={onKeyDown}>
+    <div ref={rootRef} className={arrive ? "nt-lyr" : "nt-lyr is-turn"} aria-label="Layers" onKeyDown={onKeyDown}>
       <div className="nt-section-label">
         <span>Layers</span>
         <span className="nt-meta">{countNodes(scene.nodes)}</span>

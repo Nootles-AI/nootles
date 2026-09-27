@@ -195,7 +195,7 @@ export function StylePanel({ targets, focused, batch = identity }: StylePanelPro
       <aside className="nt-style-panel" aria-label="Design" {...undoScope}>
         {/* The layers rail says what it is; this one used to say nothing, which
           left the two halves of the same shell looking unrelated. */}
-        <div className="nt-section-label nt-style-panel-head">
+        <div className="nt-section-label nt-style-panel-head" data-turn={shown.turn ? "b" : "a"}>
           <span>{nodes.length === 0 ? "Canvas" : "Design"}</span>
           {nodes.length > 1 && (
             <span className="nt-meta">{nodes.length} selected</span>
@@ -472,7 +472,8 @@ function useHistoryBracket(
         // The last styling a shape was given is what the next one is drawn with.
         for (const op of ops) if (op.type === "setStyle") rememberStyle(op.decls);
         enter(store);
-        store.dispatch([...ops]);
+        // Typed, not scrubbed: a value that lands, so the surface shows it landing.
+        store.dispatch([...ops], { motion: held.current > 0 ? null : "command" });
       }
       // Held: the gesture closes it. Otherwise only quiet can.
       if (held.current > 0) return;

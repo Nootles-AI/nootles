@@ -125,7 +125,9 @@ import {
 import { BAND, bandFloor, contentBottom, operationHeight, unfitted, WIDE_MARGIN, wideOps, type Fold } from "../scene/band";
 import { sceneBlockHeight } from "../types";
 import { defaultBox, newNode, type DrawKind } from "./newShape";
+import { glideBandHeight, glideBandWidth, motionToken, reducedMotion, stopBandGlide, toMs } from "./bandMotion";
 import { Overlay, type OverlayApi } from "./Overlay";
+import { useShapeGlide } from "./glide";
 import { shapeWriter, type ShapeWriter } from "./svgShape";
 import { PenTool, tintMargins } from "./PenTool";
 import { useSceneFonts } from "./fonts";
@@ -251,9 +253,6 @@ function withinSelectionBounds(point: Point, box: RotatedRect): boolean {
   const local = toLocal(point, box);
   return local.x >= 0 && local.x <= box.w && local.y >= 0 && local.y <= box.h;
 }
-
-/** How long a band takes to grow or shrink its drawing when it is folded into the column, or out. */
-const FOLD_MS = 200;
 
 /** A map of scene points from where they are drawn now back to where they were: `old = a·new + b`. */
 type Placement = { a: number; b: Point };
@@ -413,11 +412,11 @@ export interface PenState {
 }
 
 export interface LiveDrawing {
-  /** Called after each gesture frame's DOM writes, and as a gesture ends. */
+  /** Called after each gesture or glide frame's DOM writes, and as either ends. */
   subscribe(listener: () => void): () => void;
   /**
    * A node's box as drawn this frame, in scene px with its scene rotation;
-   * `null` when no running gesture is moving it.
+   * `null` when no running gesture or glide is moving it.
    */
   box(id: NodeId): RotatedRect | null;
 }
@@ -565,6 +564,17 @@ export function CanvasSurface({
     }
     return followWide(el, (margin) => viewport.set({ x: margin, y: 0, zoom: 1 }));
   }, [viewport, scale, inFrame, wide]);
+  // Nothing drawn moves when a band goes wide or back, so its width is shown
+  // by its grid rather than a transition on the width `followWide` measures.
+  const drawnWide = useRef<boolean | null>(null);
+  useLayoutEffect(() => {
+    const was = drawnWide.current;
+    drawnWide.current = wide;
+    const el = wrap.current;
+    const grid = viewport.gridRef.current;
+    if (was === null || was === wide || inFrame || !el || !grid) return;
+    glideBandWidth(grid, wideMarginOf(el), wide);
+  }, [viewport, inFrame, wide]);
   // The scene store is what puts a selection back on undo; without it a
   // selection change is simply not in the history.
   const ownSelection = useSelectionStore(scene, store);
@@ -634,6 +644,14 @@ export function CanvasSurface({
   useEffect(() => () => modes.exit("unmounted"), [modes]);
 
   const overlay = useRef<OverlayApi>(null);
+  const glide = useShapeGlide({
+    store,
+    scene,
+    sceneRef,
+    viewport,
+    overlay,
+    frameIds: () => (spanning ? null : ownSelection.getSnapshot().ids),
+  });
 
   /**
    * The connector under the pointer. Local rather than in the selection store:
@@ -779,27 +797,48 @@ export function CanvasSurface({
     const f = flip.current;
     const el = sceneRef.current;
     flip.current = null;
-    if (!f || !el || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (!f || !el || reducedMotion()) return;
     const to = viewport.sceneToClient({ x: 0, y: 0 });
     const z = viewport.screenScale();
     const k = (f.s * f.a) / z;
     const tx = (f.from.x + f.s * f.b.x - to.x) / z;
     const ty = (f.from.y + f.s * f.b.y - to.y) / z;
-    const easing = getComputedStyle(el).getPropertyValue("--ease").trim() || "ease-out";
+    // The band's height glide's own clock, so a fold that changes both lands as one move.
     el.animate([{ transform: `matrix(${k}, 0, 0, ${k}, ${tx}, ${ty})` }, { transform: "scale(1)" }], {
-      duration: FOLD_MS,
-      easing,
+      duration: toMs(motionToken("--dur-slow", "270ms")),
+      easing: motionToken("--ease", "ease-out"),
       composite: "add",
     });
   }, [scene, viewport, sceneRef]);
+
+  /**
+   * The height the band shows at rest, as last written — by a render or by a
+   * gesture's own write. A commit glides from here; a commit landing what a
+   * gesture already showed finds nothing to glide.
+   */
+  const shownH = useRef<number | null>(null);
+  /** A gesture's height, straight onto the band, over any glide. */
+  const writeHeight = useCallback((el: HTMLElement, h: number) => {
+    stopBandGlide(el);
+    shownH.current = h;
+    const px = `${h}px`;
+    if (el.style.height !== px) el.style.height = px;
+  }, []);
+  /** A height no hand is holding, glided to from what shows. */
+  const settleTo = useCallback((el: HTMLElement, h: number) => {
+    const from = shownH.current;
+    shownH.current = h;
+    el.style.height = `${h}px`;
+    if (from !== null) glideBandHeight(el, from, h);
+  }, []);
 
   const previewSize = useCallback(
     (h: number) => {
       const el = wrap.current;
       if (!el || inFrame) return;
-      el.style.height = `${Math.max(contentBottom(store.getScene()), h)}px`;
+      writeHeight(el, Math.max(contentBottom(store.getScene()), h));
     },
-    [store, inFrame],
+    [store, inFrame, writeHeight],
   );
 
   const previewStyle = useCallback(
@@ -859,10 +898,9 @@ export function CanvasSurface({
       if (inFrame || !el) return;
       const op = (opHeight.current ??= { start: sceneBlockHeight(store.getScene()), need: -Infinity });
       op.need = Number.isFinite(bottom) ? bottom + BAND : -Infinity;
-      const px = `${operationHeight(op.start, op.need)}px`;
-      if (el.style.height !== px) el.style.height = px;
+      writeHeight(el, operationHeight(op.start, op.need));
     },
-    [store, inFrame],
+    [store, inFrame, writeHeight],
   );
   /**
    * The height the gesture ends at, kept by the entry it lands as — none
@@ -878,14 +916,15 @@ export function CanvasSurface({
   }, [store]);
   /**
    * The band at the height its scene says, once a gesture is over. A cancel
-   * changes no scene, so nothing re-renders to take the growth back.
+   * changes no scene, so nothing re-renders to take the growth back — it
+   * glides back here instead.
    */
   const settleHeight = useCallback(() => {
     const el = wrap.current;
     if (!opHeight.current) return;
     opHeight.current = null;
-    if (el) el.style.height = `${sceneBlockHeight(store.getScene())}px`;
-  }, [store]);
+    if (el) settleTo(el, sceneBlockHeight(store.getScene()));
+  }, [store, settleTo]);
 
   /** The column band's two margins, washed in while a drag is held at its side. */
   const pushing = useCallback((wash: MarginWash) => tintMargins(wrap.current, wash), []);
@@ -916,6 +955,9 @@ export function CanvasSurface({
   const tellLive = useCallback(() => {
     for (const listener of liveListeners.current) listener();
   }, []);
+  // A glide draws shapes and connectors where the scene does not hold them; a
+  // reader of them hears on every frame, and once more as they land.
+  useEffect(() => glide.onDraw(tellLive), [glide, tellLive]);
 
   const getElement = useCallback(
     (id: NodeId) => {
@@ -1048,6 +1090,7 @@ export function CanvasSurface({
     // stale write it has no reason to overwrite.
     onActiveChange: (active) => {
       if (active) {
+        glide.cancel();
         moveDidDrag.current = true;
         beginHeight();
         const moving = movingSubtrees();
@@ -1087,7 +1130,8 @@ export function CanvasSurface({
         return () => void liveListeners.current.delete(listener);
       },
       box: (id) => {
-        if (!held.current?.moving.has(id) || gesture.duplicating()) return null;
+        if (!held.current) return glide.box(id);
+        if (!held.current.moving.has(id) || gesture.duplicating()) return null;
         const bound = drawnRect(id);
         if (!bound) return null;
         const scene = laidOutScene(store.getScene());
@@ -1105,7 +1149,7 @@ export function CanvasSurface({
         );
       },
     }),
-    [gesture, drawnRect, store],
+    [gesture, drawnRect, store, glide],
   );
 
   /**
@@ -1784,10 +1828,35 @@ export function CanvasSurface({
     el.dataset.at = roomBelow(band) >= (el.offsetHeight + 8) * k ? "below" : "above";
   }, [offersAuto, height]);
 
+  // A committed height glides from what was on screen — after the offer has
+  // measured the band at the height it lands at. Not while a hand or a caret
+  // is making it: a gesture writes its own, the pen keeps the band's height
+  // in step with its scroll by the frame, and a step the store lands crisp —
+  // a held nudge's repeats — lands the band crisp with it. The store only
+  // says so while it is telling its listeners, so it is heard there.
+  const penUp = tool === "pen" || editPath !== null;
+  const crisp = useRef(false);
+  useEffect(
+    () =>
+      store.subscribe(() => {
+        crisp.current = store.gesturing() && !store.motion();
+      }),
+    [store],
+  );
+  useLayoutEffect(() => {
+    const el = wrap.current;
+    const from = shownH.current;
+    shownH.current = height;
+    if (!el || inFrame || from === null || from === height) return;
+    if (opHeight.current || editing || penUp || crisp.current) stopBandGlide(el);
+    else glideBandHeight(el, from, height);
+  }, [height, inFrame, editing, penUp]);
+
   const onGripDown = (event: ReactPointerEvent) => {
     const el = wrap.current;
     if (event.button !== 0 || !el) return;
     event.preventDefault();
+    stopBandGlide(el);
     const startY = event.clientY;
     const startH = el.offsetHeight;
     const scale = effectiveScale(el);
@@ -1799,15 +1868,13 @@ export function CanvasSurface({
         next = Math.max(floor, Math.round(startH + (move.clientY - startY) / scale));
         // Written straight to the element; React learns the number once, from
         // the source this commits.
-        el.style.height = `${next}px`;
+        writeHeight(el, next);
       },
       () => {
         setDiagram({ h: next });
         setDeclined(null);
       },
-      () => {
-        el.style.height = `${startH}px`;
-      },
+      () => settleTo(el, startH),
     );
   };
 
@@ -1850,8 +1917,10 @@ export function CanvasSurface({
             { width: wide ? undefined : COLUMN_WIDTH, height }
       }
     >
-      {/* Under the viewport: a shape dragged into a margin is drawn over its wash. */}
-      {!readOnly && !frame && !wide && (
+      {/* Under the viewport: a shape dragged into a margin is drawn over its
+          wash. Kept on a wide band, unwashed, so the wash a drag took the band
+          wide through fades out where it was rather than vanishing. */}
+      {!readOnly && !frame && (
         <div className="nt-canvas-margins" aria-hidden>
           <span data-side="left" />
           <span data-side="right" />

@@ -1072,6 +1072,18 @@ body[data-resizing] .nt-rail-face {
     transform: translateY(4px) scale(0.98);
   }
 }
+/* Still a fade each way — never nothing: the menu's removal waits on its
+   exit's `animationend`. */
+@media (prefers-reduced-motion: reduce) {
+  .nt-menu,
+  .nt-menu.nt-slash,
+  .nt-menu.nt-mention-menu {
+    animation: nt-fade-in var(--dur-fast) var(--ease);
+  }
+  .nt-menu.is-closing {
+    animation: nt-fade-out var(--dur-fast) var(--ease) forwards;
+  }
+}
 .nt-menu-item {
   display: flex;
   align-items: center;

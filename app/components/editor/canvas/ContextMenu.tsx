@@ -443,6 +443,8 @@ function SelectLayerSubmenu({
   rows,
   anchorRef,
   at,
+  closing = false,
+  onLeft,
   onPick,
   onHover,
   onClose,
@@ -451,6 +453,10 @@ function SelectLayerSubmenu({
   rows: readonly LayerRow[];
   anchorRef: React.RefObject<HTMLElement | null> | null;
   at: Point;
+  /** On its way out: drawn, but no longer a menu to anyone. */
+  closing?: boolean;
+  /** Its exit has finished playing. */
+  onLeft?: () => void;
   onPick: (id: NodeId) => void;
   onHover: (id: NodeId | null) => void;
   onClose: () => void;
@@ -474,8 +480,8 @@ function SelectLayerSubmenu({
       el.style.left = `${clampLeft(at.x)}px`;
       el.style.top = `${clampTop(at.y)}px`;
     }
-    el.querySelector<HTMLButtonElement>("[role='menuitem']")?.focus();
-  }, [anchorRef, at]);
+    if (!closing) el.querySelector<HTMLButtonElement>("[role='menuitem']")?.focus();
+  }, [anchorRef, at, closing]);
 
   const rove = (step: 1 | -1 | "home" | "end") => {
     const items = Array.from(
@@ -514,18 +520,22 @@ function SelectLayerSubmenu({
   return (
     <div
       ref={ref}
-      role="menu"
+      role={closing ? undefined : "menu"}
       aria-label="Select layer"
       tabIndex={-1}
-      className="nt-ctx nt-menu nt-ctx-sub fixed"
+      inert={closing}
+      className={`nt-ctx nt-menu nt-ctx-sub fixed${closing ? " is-closing" : ""}`}
       style={{ zIndex: MENU_Z }}
       onKeyDown={onKeyDown}
       onPointerLeave={() => onHover(null)}
+      onAnimationEnd={(e) => {
+        if (closing && e.target === e.currentTarget) onLeft?.();
+      }}
     >
       {rows.map((row) => (
         <button
           key={row.id}
-          role="menuitem"
+          role={closing ? undefined : "menuitem"}
           data-layer-id={row.id}
           aria-current={row.selected || undefined}
           className="nt-menu-item nt-ctx-sub-row"
@@ -560,6 +570,8 @@ export function ContextMenu({
   actions,
   layers = [],
   layersOnly = false,
+  closing = false,
+  onLeft,
   onHoverLayer,
   onPickLayer,
   onClose,
@@ -568,13 +580,24 @@ export function ContextMenu({
   actions: MenuActions;
   layers?: readonly LayerRow[];
   layersOnly?: boolean;
+  /**
+   * Closed, and playing the menus' exit (`.nt-menu.is-closing`): no shield,
+   * no focus, no role — a menu on its way out is already gone to everything
+   * but the eye.
+   */
+  closing?: boolean;
+  /** The exit has finished; the host can let it go. */
+  onLeft?: () => void;
   onHoverLayer: (id: NodeId | null) => void;
   onPickLayer: (id: NodeId) => void;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const layerRowRef = useRef<HTMLButtonElement | null>(null);
-  const [subOpen, setSubOpen] = useState(false);
+  /** The submenu's own life: open, or playing its exit. */
+  const [sub, setSub] = useState<"open" | "leaving" | null>(null);
+  const openSub = () => setSub("open");
+  const closeSub = () => setSub((was) => (was === "open" ? "leaving" : was));
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -582,13 +605,19 @@ export function ContextMenu({
     const clamp = (v: number, limit: number) => Math.max(8, Math.min(v, limit));
     el.style.left = `${clamp(at.x, window.innerWidth - el.offsetWidth - 8)}px`;
     el.style.top = `${clamp(at.y, window.innerHeight - el.offsetHeight - 8)}px`;
-    // The canvas keymap follows focus, so the menu borrows it and gives it back.
+  }, [at]);
+
+  // The canvas keymap follows focus, so the menu borrows it and gives it back
+  // as it closes — not once its exit has played out.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || closing) return;
     const previous = document.activeElement;
     el.focus();
     return () => {
       if (previous instanceof HTMLElement) previous.focus();
     };
-  }, [at]);
+  }, [closing]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape" || e.key === "Tab") {
@@ -598,7 +627,7 @@ export function ContextMenu({
     }
     if (e.key === "ArrowRight" && document.activeElement === layerRowRef.current) {
       e.preventDefault();
-      setSubOpen(true);
+      openSub();
       return;
     }
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
@@ -618,19 +647,23 @@ export function ContextMenu({
   if (layersOnly) {
     return (
       <>
-        <div
-          className="nt-ctx fixed inset-0"
-          style={{ zIndex: MENU_Z }}
-          onPointerDown={onClose}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            onClose();
-          }}
-        />
+        {!closing && (
+          <div
+            className="nt-ctx fixed inset-0"
+            style={{ zIndex: MENU_Z }}
+            onPointerDown={onClose}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              onClose();
+            }}
+          />
+        )}
         <SelectLayerSubmenu
           rows={layers}
           anchorRef={null}
           at={at}
+          closing={closing}
+          onLeft={onLeft}
           onPick={onPickLayer}
           onHover={onHoverLayer}
           onClose={onClose}
@@ -644,23 +677,29 @@ export function ContextMenu({
     <>
       {/* Marked `nt-ctx` so the canvas does not read dismissing this as a
           press outside itself. */}
-      <div
-        className="nt-ctx fixed inset-0"
-        style={{ zIndex: MENU_Z }}
-        onPointerDown={onClose}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          onClose();
-        }}
-      />
+      {!closing && (
+        <div
+          className="nt-ctx fixed inset-0"
+          style={{ zIndex: MENU_Z }}
+          onPointerDown={onClose}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            onClose();
+          }}
+        />
+      )}
       <div
         ref={ref}
-        role="menu"
+        role={closing ? undefined : "menu"}
         aria-label="Canvas actions"
         tabIndex={-1}
-        className="nt-ctx nt-menu fixed"
+        inert={closing}
+        className={`nt-ctx nt-menu fixed${closing ? " is-closing" : ""}`}
         style={{ top: at.y, left: at.x, zIndex: MENU_Z }}
         onKeyDown={onKeyDown}
+        onAnimationEnd={(e) => {
+          if (closing && e.target === e.currentTarget) onLeft?.();
+        }}
       >
         {actions.map((group, i) => (
           <Fragment key={i}>
@@ -672,14 +711,14 @@ export function ContextMenu({
                   ref={layerRowRef}
                   role="menuitem"
                   aria-haspopup="menu"
-                  aria-expanded={subOpen}
+                  aria-expanded={sub === "open"}
                   className="nt-menu-item"
-                  onPointerEnter={() => setSubOpen(true)}
-                  onClick={() => setSubOpen(true)}
+                  onPointerEnter={openSub}
+                  onClick={openSub}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      setSubOpen(true);
+                      openSub();
                     }
                   }}
                 >
@@ -692,10 +731,10 @@ export function ContextMenu({
                   role="menuitem"
                   disabled={action.disabled}
                   className={`nt-menu-item${action.danger ? " is-danger" : ""}`}
-                  onPointerEnter={() => setSubOpen(false)}
+                  onPointerEnter={closeSub}
                   onClick={() => {
-                    action.run();
                     onClose();
+                    action.run();
                   }}
                 >
                   {action.label}
@@ -708,16 +747,18 @@ export function ContextMenu({
           </Fragment>
         ))}
       </div>
-      {subOpen && (
+      {sub && (
         <SelectLayerSubmenu
           rows={layers}
           anchorRef={layerRowRef}
           at={at}
+          closing={closing || sub === "leaving"}
+          onLeft={() => setSub((was) => (was === "leaving" ? null : was))}
           onPick={onPickLayer}
           onHover={onHoverLayer}
           onClose={onClose}
           onBack={() => {
-            setSubOpen(false);
+            closeSub();
             layerRowRef.current?.focus();
           }}
         />
@@ -744,13 +785,26 @@ export function menuTargets(
   }));
 }
 
+type Opened = {
+  id: number;
+  at: Point;
+  layers: readonly LayerRow[];
+  layersOnly: boolean;
+  /** Its rows as they were when it closed, so the exit shows what was chosen from. */
+  actions?: MenuActions;
+};
+
+const NOTHING_OPEN = { open: null, leaving: null };
+
 /** The menu, its state and the handler that opens it — one call per host. */
 export function useContextMenu(store: SceneStore, selection: SelectionStore, page?: PageCanvas) {
+  // The menu outlives its closing by its exit: `leaving` is the one on its way
+  // out, drawn until the exit has played. `id` makes a menu opened meanwhile a
+  // fresh one rather than the leaving one turned back.
   const [state, setState] = useState<{
-    at: Point;
-    layers: readonly LayerRow[];
-    layersOnly: boolean;
-  } | null>(null);
+    open: Opened | null;
+    leaving: Opened | null;
+  }>(NOTHING_OPEN);
 
   // Rows are computed once, here, at open time — not recomputed per render,
   // so the menu's own list is static while it is open even if a hover or a
@@ -763,32 +817,47 @@ export function useContextMenu(store: SceneStore, selection: SelectionStore, pag
       const rows = opts?.layers
         ? layerRows(store.getScene(), opts.layers, selection.getSnapshot().selected)
         : [];
-      setState({
-        at: { x: event.clientX, y: event.clientY },
-        layers: rows,
-        layersOnly: opts?.layersOnly ?? false,
-      });
+      setState((was) => ({
+        open: {
+          id: ((was.open ?? was.leaving)?.id ?? 0) + 1,
+          at: { x: event.clientX, y: event.clientY },
+          layers: rows,
+          layersOnly: opts?.layersOnly ?? false,
+        },
+        leaving: null,
+      }));
     },
     [store, selection],
   );
+  // Called before the chosen action runs, which is what its rows are read
+  // against: after it, "Lock" would already say "Unlock" on the way out.
+  const shut = state.open;
   const close = useCallback(() => {
     selection.hoverNode(null);
-    setState(null);
-  }, [selection]);
+    if (!shut) return;
+    const actions = buildActions(menuTargets(store, selection, page), page?.batch ?? identity, shut.layers);
+    setState((was) => (was.open?.id === shut.id ? { open: null, leaving: { ...shut, actions } } : was));
+  }, [store, selection, page, shut]);
+  const shown = state.open ?? state.leaving;
   return {
     open,
     // On the body: the menu is fixed at the pointer, and inside a zoomed page
     // a fixed box's offsets are zoomed with it.
-    menu: state && createPortal(
+    menu: shown && createPortal(
       <ContextMenu
-        at={state.at}
-        actions={buildActions(menuTargets(store, selection, page), page?.batch ?? identity, state.layers)}
-        layers={state.layers}
-        layersOnly={state.layersOnly}
+        key={shown.id}
+        at={shown.at}
+        actions={
+          shown.actions ?? buildActions(menuTargets(store, selection, page), page?.batch ?? identity, shown.layers)
+        }
+        layers={shown.layers}
+        layersOnly={shown.layersOnly}
+        closing={!state.open}
+        onLeft={() => setState((was) => (was.leaving?.id === shown.id ? { ...was, leaving: null } : was))}
         onHoverLayer={(id) => selection.hoverNode(id)}
         onPickLayer={(id) => {
-          selection.select([id]);
           close();
+          selection.select([id]);
         }}
         onClose={close}
       />,

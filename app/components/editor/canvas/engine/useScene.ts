@@ -126,6 +126,36 @@ export function frameReader(frame: { w: number; h: number }): SceneReader {
 
 const NARROW: SceneOp = { type: "setDiagram", wide: false };
 
+/**
+ * Why the scene listeners are hearing about changed, when it is a change a
+ * surface should show landing rather than teleport — see {@link SceneStore.motion}.
+ * `null`, the default, is everything the hand is doing: a gesture, a scrub, a
+ * nudge key held down, a measurement nobody made.
+ */
+export type CommitMotion =
+  /** Undo or redo. */
+  | "history"
+  /** A discrete command: align, flip, paste, delete, a value typed into a panel. */
+  | "command"
+  /** One arrow press — a key held down repeats unflagged. */
+  | "nudge"
+  /** A collaborator's merge, an external write, or the model's. */
+  | "remote";
+
+/**
+ * The motion an unflagged dispatch carries anyway. Align, distribute and flip
+ * are commands wherever they come from — no gesture emits them — and a remove
+ * outside any bracket is a delete someone asked for.
+ */
+export function inherentMotion(ops: readonly SceneOp[], bracketed: boolean): CommitMotion | null {
+  if (isApplyingAi()) return "remote";
+  for (const op of ops) {
+    if (op.type === "align" || op.type === "distribute" || op.type === "flip") return "command";
+    if (op.type === "remove" && !bracketed) return "command";
+  }
+  return null;
+}
+
 export class SceneStore {
   private scene: Scene;
   /** Id → node for the current scene, built on demand and dropped on change. */
@@ -232,6 +262,16 @@ export class SceneStore {
    */
   arriving = (): boolean => this.adopting;
 
+  private moving: CommitMotion | null = null;
+
+  /**
+   * Why the scene listeners are hearing about changed, if it is a change to
+   * show landing — valid only while they are being told, like
+   * {@link arriving}. A surface glides what a flagged change moved; nothing
+   * unflagged is ever eased, since that is what follows a hand.
+   */
+  motion = (): CommitMotion | null => this.moving;
+
   private historyListeners = new Set<(event: SceneHistoryEvent) => void>();
   /** Every change to the history ledger, as it happens. */
   onHistory = (fn: (event: SceneHistoryEvent) => void): (() => void) => {
@@ -318,9 +358,13 @@ export class SceneStore {
    * taking back what it put in itself — the pen's path that never became one,
    * in a diagram that was empty before the pen began.
    */
-  dispatch = (op: SceneOp | readonly SceneOp[], { guard = true }: { guard?: boolean } = {}): void => {
+  dispatch = (
+    op: SceneOp | readonly SceneOp[],
+    { guard = true, motion }: { guard?: boolean; motion?: CommitMotion | null } = {},
+  ): void => {
     let ops: readonly SceneOp[] = Array.isArray(op) ? op : [op];
     if (ops.length === 0) return;
+    const moving = motion === undefined ? inherentMotion(ops, this.depth > 0) : motion;
     const before = this.scene;
     let next = applyOps(before, ops);
     if (next === before) return;
@@ -367,7 +411,7 @@ export class SceneStore {
     if (this.depth === 0) this.record(before, this.captureSelection());
     this.recordOps(ops);
     this.future = [];
-    this.setScene(next, true);
+    this.setScene(next, true, true, moving);
     for (const o of ops) {
       if (o.type === "insert") {
         for (const node of o.nodes) {
@@ -602,7 +646,7 @@ export class SceneStore {
     this.past = [];
     this.future = [];
     this.emitHistory({ type: "clear" });
-    this.setScene(this.read(source), false);
+    this.setScene(this.read(source), false, true, "remote");
   };
 
   /**
@@ -691,12 +735,12 @@ export class SceneStore {
     });
     // A selection-only entry leaves the scene alone; it still notifies, since
     // `canUndo` and `canRedo` have moved.
-    this.setScene(entry.scene, entry.scene !== this.scene);
+    this.setScene(entry.scene, entry.scene !== this.scene, true, "history");
     entry.selection?.();
     return true;
   }
 
-  private setScene(scene: Scene, persist: boolean, edit = true): void {
+  private setScene(scene: Scene, persist: boolean, edit = true, motion: CommitMotion | null = null): void {
     this.scene = scene;
     this.index = null;
     if (persist) {
@@ -707,11 +751,14 @@ export class SceneStore {
     }
     // Restored, not cleared: a listener's own edit notifies inside this one.
     const outer = this.adopting;
+    const outerMotion = this.moving;
     this.adopting = !persist;
+    this.moving = motion;
     try {
       this.notify();
     } finally {
       this.adopting = outer;
+      this.moving = outerMotion;
     }
   }
 
@@ -727,7 +774,7 @@ export class SceneStore {
     this.dirty = false;
     this.record(this.scene, this.captureSelection());
     this.future = [];
-    this.setScene(this.read(source), false);
+    this.setScene(this.read(source), false, true, "remote");
   }
 
   private captureSelection(): RestoreSelection | null {

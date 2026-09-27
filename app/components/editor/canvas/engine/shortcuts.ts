@@ -76,7 +76,7 @@ import {
   type BooleanOp,
 } from "../scene/types";
 import { clipboardHtml, copiesInto, isCanvasHtml, lastCopy, rememberCopy } from "./clipboard";
-import type { SceneStore } from "./useScene";
+import type { CommitMotion, SceneStore } from "./useScene";
 import type { SelectionStore } from "./useSelection";
 import type { ViewportController } from "./useViewport";
 
@@ -756,7 +756,8 @@ export type NudgeRange = { minX: number; maxX: number };
  */
 export interface NudgeRun {
   /** Moves `ids` by the step, opening the bracket if it is not open. */
-  move(ids: NodeId[], dx: number, dy: number): void;
+  /** `motion` is the one press's; a repeat passes none and lands crisp. */
+  move(ids: NodeId[], dx: number, dy: number, motion?: CommitMotion | null): void;
   end(): void;
   /** Ends the run and stops listening. */
   dispose(): void;
@@ -791,7 +792,7 @@ export function createNudgeRun(
     if (idle !== null) done();
   });
   return {
-    move: (ids, dx, dy) => {
+    move: (ids, dx, dy, motion) => {
       if (idle === null) {
         held = selection.getSnapshot().ids;
         store.begin();
@@ -799,7 +800,7 @@ export function createNudgeRun(
         clearTimeout(idle);
       }
       idle = setTimeout(done, NUDGE_RUN_MS);
-      if (dx || dy) store.dispatch({ type: "move", ids, dx, dy });
+      if (dx || dy) store.dispatch({ type: "move", ids, dx, dy }, { motion });
     },
     end,
     dispose: () => {
@@ -867,7 +868,7 @@ export function createDiagramCommands(
 ): Record<ShortcutId, (e?: KeyboardEvent) => boolean> {
   const { store, selection } = ctx;
   const scene = () => store.getScene();
-  const dispatch = (ops: SceneOp | SceneOp[]) => store.dispatch(ops);
+  const dispatch = (ops: SceneOp | SceneOp[]) => store.dispatch(ops, { motion: "command" });
 
   /** The addressable selection: live, top-most, in document order. */
   const targets = () => topSelection(scene(), selection.getSnapshot().ids);
@@ -894,7 +895,7 @@ export function createDiagramCommands(
     const { x, y } = ctx.holdNudge
       ? ctx.holdNudge(delta.x * step, delta.y * step)
       : clampNudge(scene(), ids, delta.x * step, delta.y * step, ctx.band());
-    ctx.nudge.move(ids, x, y);
+    ctx.nudge.move(ids, x, y, e?.repeat ? null : "nudge");
     return true;
   };
 
@@ -1281,6 +1282,7 @@ export function useCanvasShortcuts({
               { type: "addEdge", edges },
             ]
           : { type: "insert", nodes: copies, parentId },
+        { motion: "command" },
       );
       latest.current.selection.select(copies.map((node) => node.id));
     };

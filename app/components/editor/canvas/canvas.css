@@ -143,6 +143,12 @@
 .nt-canvas[data-edge] > .nt-canvas-margins {
   opacity: 1;
 }
+/* A wide band is never washed; the wash a drag took it wide through fades out
+   over the margins it now has, from the column's edges where it was drawn. */
+.nt-canvas[data-wide] > .nt-canvas-margins {
+  inset-inline: var(--nt-margin, 0);
+  opacity: 0;
+}
 
 /* Turned off in the toolbar's settings (engine/dotGrid.ts). */
 :root[data-nt-grid="off"] .nt-canvas-grid {
@@ -335,6 +341,7 @@
   line-height: 26px;
   color: var(--bn-colors-side-menu, var(--faint));
   cursor: pointer;
+  animation: nt-fade-in var(--dur) var(--ease);
 }
 
 /* A diagram the slash menu just made offers somewhere to start, where its
@@ -351,6 +358,12 @@
   font-size: var(--text-meta-lg);
   color: var(--muted);
   white-space: nowrap;
+  animation: nt-fade-in var(--dur) var(--ease);
+}
+/* The copy a closed bar leaves behind (`leaveAsCopy`), going faster than it came. */
+.nt-canvas-presets.is-leaving {
+  pointer-events: none;
+  animation: nt-fade-out var(--dur-fast) var(--ease) forwards;
 }
 .nt-canvas-presets > button {
   display: inline-flex;
@@ -376,9 +389,10 @@
   outline: none;
 }
 
-/* A chosen preset arrives (`presetArrival.ts`): the band slides open from its
-   empty height under a clip on its growing edge alone — above and to the sides
-   it draws past itself as ever — and what the preset brought comes in from a blur, piece by piece.
+/* A chosen preset arrives (`presetArrival.ts`): the band glides open from its
+   empty height (`bandMotion.ts`, as every committed height does) under a clip
+   on its growing edge alone — above and to the sides it draws past itself as
+   ever — and what the preset brought comes in from a blur, piece by piece.
    A suggested diagram's shapes arrive the same way (`editor.css`). */
 @keyframes nt-shape-arrive {
   from {
@@ -386,20 +400,13 @@
     filter: blur(4px);
   }
 }
-@keyframes nt-band-open {
-  from {
-    height: var(--nt-open-from);
-  }
-}
 .nt-canvas[data-opening] {
   clip-path: inset(-100vmax -100vmax 0);
-  animation: nt-band-open 240ms var(--ease);
 }
 .nt-canvas-scene [data-arriving] {
   animation: nt-shape-arrive 200ms var(--ease) var(--nt-arrive-delay, 0ms) both;
 }
 @media (prefers-reduced-motion: reduce) {
-  .nt-canvas[data-opening],
   .nt-canvas-scene [data-arriving] {
     animation: none;
   }
@@ -414,12 +421,21 @@
   bottom: -3px;
   left: calc(100% + 8px);
   z-index: 3;
-  display: none;
+  display: flex;
   align-items: center;
   gap: 1px;
   transform: translateY(50%);
   font-size: var(--text-meta-lg);
   color: var(--muted);
+  /* Laid out always and shown by fading, so it can leave as well as arrive —
+     faster out than in. `visibility` keeps the hidden offer out of the tab
+     order and the pointer's way; `pointer-events` does so while it fades. */
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    visibility 0s linear var(--dur-fast);
 }
 .bn-block-outer:not(:has(> .bn-block > .bn-block-group)):has(
     + .bn-block-outer > .bn-block > .react-renderer > .bn-block-content[data-content-type="canvas"]
@@ -428,7 +444,12 @@
   > .react-renderer
   > .bn-block-content[data-content-type="canvas"]
   .nt-canvas-merge:not([data-dismissed]) {
-  display: flex;
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  transition:
+    opacity var(--dur) var(--ease),
+    visibility 0s;
 }
 /* No margin to stand in, or a wide band already in it: on the column's edge,
    over the two bands' empty margins at the seam. */
@@ -473,6 +494,7 @@
   transform: translateX(-50%);
   font-size: var(--text-meta-lg);
   color: var(--muted);
+  animation: nt-fade-in var(--dur) var(--ease);
 }
 .nt-canvas-autoh[data-at="below"] {
   top: calc(100% + 2px);
@@ -537,6 +559,13 @@
   opacity: 1;
   background: var(--muted);
   transform: scaleX(1.4);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-canvas-grip::after {
+    transition:
+      opacity var(--dur) var(--ease),
+      background var(--dur-fast) var(--ease);
+  }
 }
 
 /* ===== Context menu ======================================================
@@ -639,7 +668,19 @@
     0 0 0 1px oklch(0.25 0.005 90 / 0.06),
     0 4px 12px oklch(0.25 0.005 90 / 0.07),
     0 16px 40px oklch(0.25 0.005 90 / 0.1);
-  animation: nt-toolbar-in 440ms var(--spring);
+  /* Longer than any step on the scale: the one authored entrance on the page,
+     played once a session (`useArrival` in Toolbar.tsx). */
+  --nt-toolbar-arrive: 440ms;
+  animation: nt-toolbar-in var(--nt-toolbar-arrive) var(--spring);
+}
+/* One bar standing in for another — the page's for a shot's, a writer's for a
+   reader's — is a turn, not an arrival: the new one comes up in place. The
+   same bar again, for the next shot, just stays. */
+.nt-toolbar[data-arrival="swap"] {
+  animation: nt-fade-in var(--dur) var(--ease);
+}
+.nt-toolbar[data-arrival="still"] {
+  animation: none;
 }
 
 /* Rises into place, in the direction it came from, and comes into focus as it
@@ -654,7 +695,7 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .nt-toolbar {
+  .nt-toolbar:not([data-arrival="still"]) {
     animation: nt-fade-in var(--dur-fast) var(--ease);
   }
 }
@@ -670,7 +711,13 @@
   transition:
     background var(--dur-fast) var(--ease),
     color var(--dur) var(--ease),
+    opacity var(--dur) var(--ease),
     transform var(--dur) var(--ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-toolbar-btn:active:not(:disabled) {
+    transform: none;
+  }
 }
 .nt-toolbar-btn:hover:not(:disabled) {
   background: var(--hover);
@@ -702,7 +749,7 @@
 }
 
 /* The tools, and the one mark that says which is in hand. It travels on the
-   spring to the pressed button's measured place (`--mark-x`, `--mark-w`, set by
+   spring to the pressed button's measured place (`--mark-x` and the rest, set by
    the toolbar), in the ink of the app's one filled control — neutral, so
    `--nt-select` stays the canvas's only accent. Measured because the row is
    not all squares: the shape tools' slot is a button and its caret. */
@@ -712,21 +759,52 @@
   align-items: center;
   gap: 2px;
 }
+/* Stretched without a width: a square cap where the slot starts, the same cap
+   slid to where it ends (`--mark-d`, the slot's width past its height), and
+   between their centres a flat strip scaled to span them (`--mark-s`, the same
+   distance as a bare number). Every move is a transform, and the corners never
+   scale — a pill scaled whole would squash them on the wider slot. */
 .nt-toolbar-mark {
   position: absolute;
   top: 50%;
   left: 0;
-  width: var(--mark-w, 32px);
+  width: var(--mark-h, 32px);
   height: var(--mark-h, 32px);
   margin-top: calc(var(--mark-h, 32px) / -2);
   border-radius: 9px;
   background: var(--foreground);
   opacity: 0;
   transform: translateX(var(--mark-x, 0px));
+}
+.nt-toolbar-mark::before,
+.nt-toolbar-mark::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  background: inherit;
+}
+/* Only once the mark has its first place (`data-placed`), so a bar that mounts
+   doesn't sweep it in from the row's edge. */
+.nt-toolbar-tools[data-placed] > .nt-toolbar-mark {
   transition:
-    transform 240ms var(--spring),
-    width 240ms var(--spring),
+    transform var(--dur-slow) var(--spring),
     opacity var(--dur-fast) var(--ease);
+}
+.nt-toolbar-tools[data-placed] > .nt-toolbar-mark::before,
+.nt-toolbar-tools[data-placed] > .nt-toolbar-mark::after {
+  transition: transform var(--dur-slow) var(--spring);
+}
+.nt-toolbar-mark::before {
+  left: calc(var(--mark-h, 32px) / 2);
+  width: 1px;
+  transform-origin: left;
+  transform: scaleX(var(--mark-s, 0));
+}
+.nt-toolbar-mark::after {
+  width: 100%;
+  border-radius: inherit;
+  transform: translateX(var(--mark-d, 0px));
 }
 .nt-toolbar-tools[data-marked="true"] > .nt-toolbar-mark {
   opacity: 1;
@@ -740,8 +818,9 @@
   color: var(--background);
 }
 /* A tool kept in hand past one use — a double-click — wears a dot under its
-   glyph, in the button's own ink. */
-.nt-toolbar-btn[data-locked]::after {
+   glyph, in the button's own ink. Drawn on every tool and grown on the locked
+   one, so it can go as well as come. */
+.nt-toolbar-tools .nt-toolbar-btn::after {
   content: "";
   position: absolute;
   bottom: 3px;
@@ -751,10 +830,27 @@
   margin-left: -1.5px;
   border-radius: 50%;
   background: currentColor;
+  opacity: 0;
+  transform: scale(0);
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+.nt-toolbar-tools .nt-toolbar-btn[data-locked]::after {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity var(--dur) var(--ease),
+    transform var(--dur-slow) var(--spring);
 }
 @media (prefers-reduced-motion: reduce) {
-  .nt-toolbar-mark {
+  .nt-toolbar-tools[data-placed] > .nt-toolbar-mark,
+  .nt-toolbar-tools[data-placed] > .nt-toolbar-mark::before,
+  .nt-toolbar-tools[data-placed] > .nt-toolbar-mark::after {
     transition: none;
+  }
+  .nt-toolbar-tools .nt-toolbar-btn::after {
+    transform: none;
   }
 }
 
@@ -815,6 +911,17 @@
 .nt-toolbar-caret[aria-expanded="true"] > svg {
   transform: rotate(180deg);
 }
+@media (prefers-reduced-motion: reduce) {
+  .nt-toolbar-caret > svg {
+    transition: none;
+  }
+  .nt-toolbar-caret:hover > svg {
+    transform: none;
+  }
+  .nt-toolbar-caret[aria-expanded="true"] > svg {
+    transform: rotate(180deg);
+  }
+}
 
 /* The list it opens is a piece of the bar, not a document menu: ink, like the
    mark and the tooltips, with the tools in paper. Check, glyph, name, and the
@@ -871,6 +978,12 @@
 .nt-tool-flyout-check[data-on] {
   opacity: 1;
   transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-tool-flyout-check {
+    transform: none;
+    transition: opacity var(--dur-fast) var(--ease);
+  }
 }
 .nt-tool-flyout-icon {
   display: grid;
@@ -956,6 +1069,47 @@
   background: var(--hover);
   color: var(--foreground);
 }
+/* The readout's digits, which roll a step toward the way the zoom went. */
+.nt-toolbar-zoom-digits {
+  display: inline-block;
+}
+
+/* The way back from a zoom, in a slot that opens beside the readout rather
+   than appearing in it: the bar is centred, so a button that simply arrived
+   would shove everything by half its width in one frame. Collapsed, the slot
+   also gives back the bar's gap. The item is padded out and pulled back in by
+   the same amount so its clip leaves room for the focus ring. */
+.nt-toolbar-reset {
+  display: grid;
+  grid-template-columns: 0fr;
+  margin-left: -2px;
+  opacity: 0;
+  transition:
+    grid-template-columns var(--dur-fast) var(--ease),
+    margin var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease);
+}
+.nt-toolbar-reset > * {
+  min-width: 0;
+  margin: -3px;
+  padding: 3px;
+  overflow: hidden;
+}
+.nt-toolbar-reset[data-on] {
+  grid-template-columns: 1fr;
+  margin-left: 0;
+  opacity: 1;
+  transition:
+    grid-template-columns var(--dur) var(--ease),
+    margin var(--dur) var(--ease),
+    opacity var(--dur) var(--ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-toolbar-reset,
+  .nt-toolbar-reset[data-on] {
+    transition: opacity var(--dur-fast) var(--ease);
+  }
+}
 
 /* ---- Co-presence ---------------------------------------------------------
    Other people on this diagram, Figma-grammar: name leaves stacking from the
@@ -1020,11 +1174,15 @@
   pointer-events: none;
   animation: nt-fade-in var(--dur-fast) var(--ease);
   /* A hair over the awareness transport's 200ms throttle, so each glide is
-     still running when the next sample lands and the motion stays unbroken. */
+     still running when the next sample lands and the motion stays unbroken.
+     Linear, and off the motion scale, because it is interpolating samples, not
+     easing a change. The size glides as a size: scaled instead, the outline
+     and its corner — counter-scaled by `--k` — would stretch with it. */
+  --nt-copresence-glide: 240ms;
   transition:
-    transform 240ms linear,
-    width 240ms linear,
-    height 240ms linear;
+    transform var(--nt-copresence-glide) linear,
+    width var(--nt-copresence-glide) linear,
+    height var(--nt-copresence-glide) linear;
 }
 
 /* Their selected connectors: a soft halo along the line itself — recolouring
@@ -1067,7 +1225,7 @@
   border-radius: calc(1px * var(--k, 1));
   pointer-events: none;
   animation: nt-fade-in var(--dur-fast) var(--ease);
-  transition: transform 70ms var(--ease);
+  transition: transform var(--dur-fast) var(--ease);
 }
 .nt-copresence-caret-name {
   position: absolute;
@@ -1132,12 +1290,25 @@
    Where, not an answer — so the page's hairline, never the accent. */
 .nt-page-insert {
   position: fixed;
+  top: 0;
+  left: 0;
   z-index: var(--z-overlay);
   height: 2px;
   margin-top: -1px;
   border-radius: 1px;
   background: var(--border-strong);
   pointer-events: none;
+  animation: nt-fade-in var(--dur-fast) var(--ease);
+}
+/* Stepping to another gap, it glides there; following its own gap through a
+   scroll, it is written flat (`pageDraw.ts`). */
+.nt-page-insert[data-glide] {
+  transition: translate var(--dur) var(--ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-page-insert[data-glide] {
+    transition: none;
+  }
 }
 
 /* The shape as it is drawn: the canvas's own new-shape grey, framed in the

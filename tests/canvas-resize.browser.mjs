@@ -256,6 +256,13 @@ async function styleOf(page, id) {
   }, id);
 }
 
+/** An undo glides the shapes it moves (`render/glide.ts`); the pixels are compared once they have landed. */
+async function landed(page) {
+  await page.evaluate(() => window.canvasHarness.nextFrame());
+  await page.waitForFunction(() => !document.getAnimations().some((a) => a.id === "nt-glide"));
+  await page.evaluate(() => window.canvasHarness.nextFrame());
+}
+
 async function runDrag(page, name, spec, dragName, drag) {
   await page.evaluate((html) => window.canvasHarness.mount({ html }), spec.html);
   const id = spec.ids[0];
@@ -317,8 +324,7 @@ async function runDrag(page, name, spec, dragName, drag) {
   const paint = await paints(page, spec.ids);
   const pushes = await page.evaluate(() => window.canvasHarness.counters().historyPushes);
   await page.evaluate(() => window.canvasHarness.api().store.undo());
-  await page.evaluate(() => window.canvasHarness.nextFrame());
-  await page.evaluate(() => window.canvasHarness.nextFrame());
+  await landed(page);
   const undone = await page.evaluate(() => JSON.stringify(window.canvasHarness.api().store.getScene()));
   const domUndone = await boxes(page, spec.ids, "domRect");
   const laidUndone = await boxes(page, spec.ids, "laidRect");

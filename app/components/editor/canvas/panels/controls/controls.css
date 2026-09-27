@@ -127,7 +127,7 @@
    fill-mode: once it has landed the row carries no transform, which a picker
    opened from inside it (fixed, and not portaled) depends on. */
 .nt-ctl-group {
-  animation: nt-ctl-rise 200ms var(--ease);
+  animation: nt-ctl-rise var(--dur-slow) var(--ease);
 }
 .nt-ctl-group + .nt-ctl-group {
   margin-top: 8px;
@@ -343,7 +343,7 @@
 }
 /* The tick lands on the value that is already chosen as the list opens. */
 .nt-ctl-check > svg {
-  animation: nt-ctl-tick var(--dur-slow) var(--spring) 100ms backwards;
+  animation: nt-ctl-tick var(--dur-slow) var(--spring) var(--dur-fast) backwards;
 }
 @keyframes nt-ctl-tick {
   from {
@@ -351,19 +351,18 @@
     transform: scale(0.4);
   }
 }
-/* A select's list arrives as a list, top first. Scoped by the tick column,
-   which only a select's items have, so no other menu in the app is touched. */
+/* A select's list arrives as a list, top first, the whole stagger inside
+   60ms. Scoped by the tick column, which only a select's items have, so no
+   other menu in the app is touched. */
 .nt-menu:has(.nt-ctl-check) > .nt-menu-item {
-  animation: nt-ctl-rise 220ms var(--ease) backwards;
+  animation: nt-ctl-rise var(--dur-slow) var(--ease) backwards;
 }
-.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(2) { animation-delay: 14ms; }
-.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(3) { animation-delay: 27ms; }
-.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(4) { animation-delay: 40ms; }
-.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(5) { animation-delay: 55ms; }
-.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(6) { animation-delay: 70ms; }
-.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(7) { animation-delay: 80ms; }
-.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(8) { animation-delay: 100ms; }
-.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(n + 9) { animation-delay: 110ms; }
+.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(2) { animation-delay: 10ms; }
+.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(3) { animation-delay: 20ms; }
+.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(4) { animation-delay: 30ms; }
+.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(5) { animation-delay: 40ms; }
+.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(6) { animation-delay: 50ms; }
+.nt-menu:has(.nt-ctl-check) > .nt-menu-item:nth-child(n + 7) { animation-delay: 60ms; }
 @keyframes nt-ctl-rise {
   from {
     opacity: 0;

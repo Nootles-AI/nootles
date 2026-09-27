@@ -195,7 +195,14 @@ try {
   const canUndo = () => h(() => window.canvasTools.canUndo());
   const watchHistory = () => h(() => window.canvasTools.watchHistory());
   const pushCount = () => h(() => window.canvasTools.pushCount());
-  const domRect = (id) => h(({ id }) => window.canvasTools.domRect(id), { id });
+  // A committed move glides (`render/glide.ts`): the pixels are read once it has landed.
+  const domRect = async (id) => {
+    const frame = () => h(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    await frame();
+    await page.waitForFunction(() => !document.getAnimations().some((a) => a.id === "nt-glide"));
+    await frame();
+    return h(({ id }) => window.canvasTools.domRect(id), { id });
+  };
   const shapeIds = () => h(() => Object.keys(window.canvasTools.shapeDom()));
 
   const chord = async (...keys) => {

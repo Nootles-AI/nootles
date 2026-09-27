@@ -820,7 +820,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
           )}
           {designHeld && lastCanvas && (
             <div className="nt-rail-face is-right" data-on={designOn} inert={!designOn} style={railWidth(rightWidth)}>
-              <CanvasStylePanel key={lastCanvas.id} api={lastCanvas.api} page={lastCanvas.page} />
+              <CanvasStylePanel api={lastCanvas.api} page={lastCanvas.page} />
             </div>
           )}
           {placeHeld && lastPlace && (
@@ -846,7 +846,7 @@ function WorkspaceInner({ projectId }: { projectId: Id<"projects"> }) {
             inert={!designFloat}
             style={railWidth(rightWidth)}
           >
-            <CanvasStylePanel key={lastCanvas.id} api={lastCanvas.api} page={lastCanvas.page} />
+            <CanvasStylePanel api={lastCanvas.api} page={lastCanvas.page} />
           </div>
         )}
 
@@ -946,6 +946,11 @@ type CanvasPanelTarget = {
 
 /** The layers of the diagram the panels speak for, in a rail's face or floating in its place. */
 function CanvasLayers({ target }: { target: CanvasPanelTarget }) {
+  // Keyed per diagram — its folds, a rename, a drag are all by node id, and
+  // ids repeat from one diagram to the next — but only the panel's first
+  // diagram arrives as a list; a turn to the next is a fade.
+  const [shown, setShown] = useState({ id: target.id, turned: false });
+  if (shown.id !== target.id) setShown({ id: target.id, turned: true });
   return (
     <aside className="nt-panel" style={{ width: FILL }} aria-label="Layers" {...undoScope}>
       <LayersPanel
@@ -954,6 +959,7 @@ function CanvasLayers({ target }: { target: CanvasPanelTarget }) {
         selection={target.api.selection}
         page={target.page}
         blockId={target.blockId}
+        arrive={!shown.turned}
       />
     </aside>
   );

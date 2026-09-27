@@ -1,5 +1,6 @@
 import {
   drawnEdges,
+  edgePoints,
   elbowPoints,
   obstaclesFor,
   pointsToPath,
@@ -240,12 +241,40 @@ export function reflowEdges(
  */
 export function settleEdges(root: ParentNode | null, scene: Scene): void {
   if (!root || scene.edges.length === 0) return;
-  for (const { edge, d, at } of drawnEdges(scene)) {
-    const { paths, label } = elementsFor(root, edge.id, null);
-    for (const path of paths) if (path.getAttribute("d") !== d) path.setAttribute("d", d);
-    if (label) {
-      label.style.left = `${at.x}px`;
-      label.style.top = `${at.y}px`;
-    }
+  for (const { edge, d, at } of drawnEdges(scene)) writeEdge(root, edge.id, d, at, null);
+}
+
+/**
+ * Only the connectors in `ids`, routed in `scene` — a glide's frame, which
+ * draws the scene it is passing through. The rest are left as the render drew
+ * them: a frame re-routing every connector would cost a render's worth of
+ * routing sixty times a second, for lines whose ends are not moving.
+ */
+export function glideEdges(
+  root: ParentNode | null,
+  scene: Scene,
+  ids: ReadonlySet<EdgeId>,
+  cache: EdgeElements,
+): void {
+  if (!root || ids.size === 0) return;
+  for (const edge of scene.edges) {
+    if (!ids.has(edge.id)) continue;
+    const points = edgePoints(scene, edge);
+    if (points) writeEdge(root, edge.id, pointsToPath(points), polylineMidpoint(points), cache);
+  }
+}
+
+function writeEdge(
+  root: ParentNode,
+  id: EdgeId,
+  d: string,
+  at: { x: number; y: number },
+  cache: EdgeElements | null,
+): void {
+  const { paths, label } = elementsFor(root, id, cache);
+  for (const path of paths) if (path.getAttribute("d") !== d) path.setAttribute("d", d);
+  if (label) {
+    label.style.left = `${at.x}px`;
+    label.style.top = `${at.y}px`;
   }
 }
