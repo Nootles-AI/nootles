@@ -4,7 +4,7 @@ import { AI } from "../aiConfig";
 import { runCanvasTool } from "../canvas/execute";
 import { parse } from "../canvas/fixtures";
 import type { CanvasHost, CanvasRead } from "../canvas/host";
-import { foldResearch, markCachePoints, shortenStaleReads } from "./transcript";
+import { foldResearch, markCachePoints, shortenStaleReads, withoutTurnContext } from "./transcript";
 import type { AbMessage } from "./types";
 
 const marked = (o: unknown) =>
@@ -262,5 +262,29 @@ describe("shortenStaleReads on page reads", () => {
     const out = shortenStaleReads(turn(toolName));
     expect(head(out).value.length).toBeLessThan(AI.chat.staleReadChars + 200);
     expect(head(out).value).toMatch(/^<title>Overview<\/title>/);
+  });
+});
+
+describe("withoutTurnContext (NT-97)", () => {
+  const answer: AbMessage = {
+    id: "a1",
+    role: "assistant",
+    metadata: {
+      commentsGate: { pageId: "k57abcdefghijklmnopqrstu", include: true },
+      turnContext: { pageId: "k57abcdefghijklmnopqrstu", text: "[Attached by Nootles…] Wiring: The power path." },
+    },
+    parts: [{ type: "text", text: "Done." }],
+  };
+
+  test("drops the turn's context and keeps the rest of the metadata", () => {
+    const kept = withoutTurnContext(answer);
+    expect(kept.metadata).toEqual({ commentsGate: { pageId: "k57abcdefghijklmnopqrstu", include: true } });
+    expect(kept.parts).toBe(answer.parts);
+    expect(answer.metadata?.turnContext).toBeDefined();
+  });
+
+  test("a message without one is returned as it is", () => {
+    const plain: AbMessage = { id: "u1", role: "user", parts: [{ type: "text", text: "Hi" }] };
+    expect(withoutTurnContext(plain)).toBe(plain);
   });
 });

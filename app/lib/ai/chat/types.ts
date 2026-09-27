@@ -21,7 +21,16 @@ export type AbMetadata = {
    * turn, so one turn asks the gate once per page it works on.
    */
   commentsGate?: { pageId: string; include: boolean };
+  /**
+   * On an answer: the context its question was asked beside, as the route
+   * wrote it on the turn's first request and sends again on every request
+   * that resumes it. Never persisted — see `turnContext.ts`.
+   */
+  turnContext?: TurnContext;
 };
+
+/** The page a question was asked from, and the context attached ahead of it. */
+export type TurnContext = { pageId?: string; text: string };
 
 export type AbMessage = UIMessage<AbMetadata, AbDataParts>;
 

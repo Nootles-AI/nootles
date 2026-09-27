@@ -376,6 +376,17 @@ export function shortenStaleParts(messages: AbMessage[]): AbMessage[] {
   });
 }
 
+/**
+ * The thread as the browser sends and keeps it: the context stays on the turn
+ * in flight, the only one it is read from, and is written to the database for
+ * none. See `turnContext.ts`.
+ */
+export function withoutTurnContext(message: AbMessage): AbMessage {
+  if (!message.metadata?.turnContext) return message;
+  const { turnContext: _drop, ...metadata } = message.metadata;
+  return { ...message, metadata };
+}
+
 /** What the route's conversion makes of a browser's answer. */
 function modelOutput(tool: string, output: unknown): ToolResultOutput {
   if (tool === "look_at") return lookAtOutput(output);

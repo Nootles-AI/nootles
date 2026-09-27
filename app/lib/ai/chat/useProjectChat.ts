@@ -38,7 +38,7 @@ import type { MentionData } from "./parts";
 import { isClientTool } from "./tools";
 import type { AbMessage, ChatDraft, QueuedDraft } from "./types";
 import { forStorage } from "./storedParts";
-import { shortenStaleParts } from "./transcript";
+import { shortenStaleParts, withoutTurnContext } from "./transcript";
 
 const EMPTY = {
   messages: [] as AbMessage[],
@@ -186,7 +186,9 @@ export function useProjectChat({
         uiId: message.id,
         role: "assistant",
         parts: forStorage(parts),
-        metadata: message.metadata,
+        // Without the turn's context, which is for the requests of this turn
+        // only (see `turnContext.ts`).
+        metadata: withoutTurnContext(message).metadata,
       });
     };
 
@@ -205,7 +207,11 @@ export function useProjectChat({
             body: {
               // Earlier turns as the model will read them, not as the panel
               // shows them: the whole thread goes with every request.
-              messages: shortenStaleParts(messages),
+              // An earlier answer's context is not sent: only the turn in
+              // flight is read for one.
+              messages: shortenStaleParts(
+                messages.map((message, i) => (i === messages.length - 1 ? message : withoutTurnContext(message))),
+              ),
               projectId: latest.current.projectId,
               pageId: page,
               // What the conversation is charged against. Bound like `persist`'s
