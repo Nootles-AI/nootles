@@ -216,7 +216,7 @@ function panel(initial: AbMessage[] = []) {
     // The page is the browser's to read; the editor that would is not here, so
     // it answers with what the editor would have serialised.
     onToolCall: async ({ toolCall }) => {
-      const run = toolCall.toolName === "read_open_page" ? async () => PAGE_HTML : browserTools[toolCall.toolName];
+      const run = toolCall.toolName === "read_page" ? async () => PAGE_HTML : browserTools[toolCall.toolName];
       if (!run) return;
       answered.push(toolCall.toolCallId);
       void chat.addToolOutput({
@@ -276,7 +276,7 @@ describe("USE_OPENROUTER off: the chat answers on OpenAI's own API", () => {
   test("a turn that searches, reads the open page and answers, then a later turn on the reloaded thread", async () => {
     script = [
       { thought: "Finding the launch plan.", call: { name: "search_context", args: { query: "launch" } } },
-      { thought: "It is the open page; reading it.", call: { name: "read_open_page", args: {} } },
+      { thought: "It is the open page; reading it.", call: { name: "read_page", args: {} } },
       { thought: "The date is on the page.", text: "The rover launches on Friday." },
     ];
 
@@ -298,7 +298,7 @@ describe("USE_OPENROUTER off: the chat answers on OpenAI's own API", () => {
     ]);
     expect(parts.filter((p) => p.type.startsWith("tool-")).map((p) => [p.type, "state" in p && p.state])).toEqual([
       ["tool-search_context", "output-available"],
-      ["tool-read_open_page", "output-available"],
+      ["tool-read_page", "output-available"],
     ]);
     expect(parts.filter((p) => p.type === "text").map((p) => p.text)).toEqual([
       "The rover launches on Friday.",
@@ -318,7 +318,9 @@ describe("USE_OPENROUTER off: the chat answers on OpenAI's own API", () => {
       });
       expect(body.include).toContain("reasoning.encrypted_content");
       const tools = (body.tools as { name?: string }[]).map((t) => t.name);
-      expect(tools).toEqual(expect.arrayContaining(["search_context", "read_open_page", "edit_page"]));
+      expect(tools).toEqual(expect.arrayContaining(["search_context", "read_page", "edit_page"]));
+      // Folded into read_page (NT-93): one read tool, and its schema is not re-sent every step.
+      expect(tools).not.toContain("read_open_page");
     }
     // The server tool's step replays its own reasoning, carried by content.
     expect(ofType(inputOf(1), "reasoning")).toEqual([
@@ -354,6 +356,33 @@ describe("USE_OPENROUTER off: the chat answers on OpenAI's own API", () => {
     expect(lastParts.filter((p) => p.type === "text").map((p) => p.text)).toEqual([
       "Friday, as the page says.",
     ]);
+
+    // A thread saved before NT-93 read the open page with read_open_page, a
+    // tool no request offers any more. It still replays: the old call and its
+    // output go back as history, and the model is not offered the old name.
+    const legacy = first.chat.messages.map(saved).map((message) => ({
+      ...message,
+      parts: message.parts.map((part) =>
+        part.type === "tool-read_page" ? { ...part, type: "tool-read_open_page" } : part,
+      ),
+    })) as AbMessage[];
+    expect(legacy.flatMap((m) => m.parts).some((p) => p.type === "tool-read_open_page")).toBe(true);
+    script = [{ thought: "Answering from the thread.", text: "Still Friday." }];
+    const old = panel(legacy);
+    await old.chat.sendMessage({ text: "And the day again?" });
+    await settled(old.chat);
+
+    expect(old.chat.store.getSnapshot().error).toBeUndefined();
+    expect(sent).toHaveLength(5);
+    expect(sent[4].refused).toBeUndefined();
+    const replayed = ofType(inputOf(4), "function_call");
+    expect(replayed.map((c) => c.name)).toEqual(["search_context", "read_open_page"]);
+    expect(String(ofType(inputOf(4), "function_call_output").find((o) => o.call_id === "call_2")?.output)).toContain(
+      "The rover launches on Friday.",
+    );
+    expect((sent[4].body.tools as { name?: string }[]).map((t) => t.name)).not.toContain("read_open_page");
+    const oldParts = old.chat.messages[old.chat.messages.length - 1].parts;
+    expect(oldParts.filter((p) => p.type === "text").map((p) => p.text)).toEqual(["Still Friday."]);
   });
 
   test("without OpenAI's key the turn is refused before it is charged, and the panel says so", async () => {

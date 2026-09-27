@@ -41,6 +41,7 @@ const FAMILY: Record<string, Family> = {
   search_web: "web",
   read_context: "read",
   read_page: "read",
+  // Folded into read_page (NT-93); threads saved before still hold it.
   read_open_page: "read",
   expand_context: "graph",
   write: "write",

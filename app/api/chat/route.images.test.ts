@@ -180,7 +180,7 @@ function panel(initial: AbMessage[] = []) {
     }),
     onToolCall: async ({ toolCall }) => {
       const output =
-        toolCall.toolName === "read_open_page"
+        toolCall.toolName === "read_page"
           ? PAGE_HTML
           : toolCall.toolName === "look_at"
             ? { images: [{ handle: "a1", dataUri: `data:image/webp;base64,${ALBUM_PICTURE}`, mediaType: "image/webp" }] }
@@ -243,7 +243,7 @@ describe("USE_OPENROUTER on: pictures in a thread", () => {
   test("the model sees what it looked at, each picture is fetched once, and a later turn sends neither again", async () => {
     script = [
       { call: { name: "look_at", args: { blockId: "al1", items: ["a1"] } } },
-      { call: { name: "read_open_page", args: {} } },
+      { call: { name: "read_page", args: {} } },
       { text: "The sign reads LAUNCH; a1 is the same sign at night." },
     ];
 

@@ -33,13 +33,13 @@ export const C10: StagedScript = {
   steps: [
     {
       delayMs: 450,
-      call: [{ tool: "read_open_page", input: {} }],
+      call: [{ tool: "read_page", input: {} }],
     },
     {
       delayMs: 350,
       call: [
         {
-          tool: "read_open_page",
+          tool: "read_page",
           input: (ctx) => {
             const at = canvasBlockId(ctx);
             return at ? { expand: [at] } : null;

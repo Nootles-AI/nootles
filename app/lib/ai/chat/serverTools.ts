@@ -162,7 +162,6 @@ export function chatTools(
     // No `execute` on purpose — see CLIENT_TOOLS in ./tools.
     read_page: tool(TOOLS.read_page),
     open_page: tool(TOOLS.open_page),
-    read_open_page: tool(TOOLS.read_open_page),
     edit_page: tool(TOOLS.edit_page),
     album_edit: tool(TOOLS.album_edit),
     read_comments: tool(TOOLS.read_comments),

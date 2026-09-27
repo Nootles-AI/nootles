@@ -233,8 +233,8 @@ export function useProjectChat({
         // editing into it.
         next.store.toolStarted(toolCall.toolCallId);
         // Queued, not fired: a step routinely carries several client tools, and
-        // they are not independent — the page `read_open_page` is meant to read
-        // is the one the `open_page` before it opened. Rejections take the
+        // they are not independent — the page a `read_page` with no id is meant
+        // to read is the one the `open_page` before it opened. Rejections take the
         // failure branch too, so a tool that threw does not strand the rest.
         const run = answer(next, makeContext(), toolCall, persist);
         queue = queue.then(run, run);
