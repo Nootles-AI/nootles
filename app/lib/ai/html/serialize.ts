@@ -798,16 +798,22 @@ function windowAround(
  * (measured: a 12-row table cut after row 4 compiles to setTableRows with 4).
  *
  * A single block over the cap is dropped whole for the same reason.
+ *
+ * A block in `expandDrawn` is read whole whatever it costs — that is what
+ * expanding means — so it is charged to the budget at its collapsed size and
+ * only its own size goes uncapped. Every other block is capped as usual: a
+ * read once returned the whole page whenever anything was expanded, so asking
+ * for one small diagram, or an album's index, on a 200K page returned all 200K.
  */
 export function toDocHtmlWithin(
   blocks: AnyBlock[],
   maxChars: number,
   opts: SerializeOptions = {},
 ): { html: string; dropped: number } {
-  const whole = toDocHtml(blocks, opts);
-  // A block the model asked to expand is read whole whatever it costs — that
-  // is what expanding means — so an expanded read is never cut.
-  if (whole.length <= maxChars || opts.expandDrawn?.size) return { html: whole, dropped: 0 };
+  const measure: SerializeOptions = { ...opts, expandDrawn: undefined };
+  if (toDocHtml(blocks, measure).length <= maxChars) {
+    return { html: toDocHtml(blocks, opts), dropped: 0 };
+  }
 
   // Length grows with the number of blocks kept, so the boundary is findable
   // without serializing every prefix.
@@ -816,7 +822,7 @@ export function toDocHtmlWithin(
   let hi = blocks.length - 1;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
-    if (toDocHtml(blocks.slice(0, mid), opts).length <= maxChars) {
+    if (toDocHtml(blocks.slice(0, mid), measure).length <= maxChars) {
       kept = mid;
       lo = mid + 1;
     } else {

@@ -841,5 +841,28 @@ export function pageHtml(blocks: AnyBlock[], title: string, read: PageReadOption
         `Read on with after: "${last}". -->`,
     );
   }
+  // Only the expanded block goes uncapped, not the page, so one asked for
+  // outside this part is not in the read: say where it is, or the read looks
+  // like it ignored the ask. An album is exempt — expanding one appends its
+  // index below wherever it sits.
+  const end = start + shown.length - dropped;
+  for (const id of expand ?? []) {
+    const at = blocks.findIndex((b) => blockById(b, id));
+    if (at < 0 || (at >= start && at < end) || blockById(blocks[at], id)?.type === "album") continue;
+    notes.push(
+      `<!-- ${id} is not in this part of the page, so it was not expanded. Read it with ` +
+        (at ? `after: "${blocks[at - 1].id}"` : "no after") +
+        ` and expand: ["${id}"]. -->`,
+    );
+  }
   return notes.length ? `${html}\n${notes.join("\n")}` : html;
+}
+
+function blockById(block: AnyBlock, id: string): AnyBlock | undefined {
+  if (block.id === id) return block;
+  for (const child of block.children ?? []) {
+    const found = blockById(child, id);
+    if (found) return found;
+  }
+  return undefined;
 }
