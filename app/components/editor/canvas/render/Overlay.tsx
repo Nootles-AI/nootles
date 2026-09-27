@@ -55,6 +55,12 @@ export interface OverlayApi extends OverlayHandle {
    * these shapes: their outlines would stay where the shapes were.
    */
   passive(hidden: boolean): void;
+  /**
+   * The frame drawn around shapes still gliding to where the selection says
+   * they are — scene px, this frame's. `null` lands it. A live gesture owns
+   * the frame outright and is never overridden.
+   */
+  follow(frame: RotatedRect | null): void;
 }
 
 export interface OverlayProps {
@@ -250,6 +256,8 @@ export function Overlay({
      */
     mode: null as ReadoutMode | null,
     live: false,
+    /** A glide is drawing the frame; a render's final box would jump ahead of it. */
+    following: false,
   });
 
   /** Each radius handle sits where its arc starts, or at a reachable minimum. */
@@ -277,6 +285,7 @@ export function Overlay({
       rot: number,
       fired: readonly SnapGuide[],
       live: boolean,
+      chipped = live,
     ) => {
       // Mounted together with every other ref below, so one guard covers them.
       const svg = root.current;
@@ -334,7 +343,7 @@ export function Overlay({
       drawRadii(rect, k);
 
       const readout = chip.current!;
-      const mode = live ? state.current.mode : null;
+      const mode = chipped ? state.current.mode : null;
       if (!mode) {
         readout.style.display = "none";
         return;
@@ -348,7 +357,11 @@ export function Overlay({
             : `${Math.round(w)} × ${Math.round(h)}`;
       // Monospace, so the box can be sized without measuring.
       const width = label.length * 6.7 + 14;
-      chipText.current!.textContent = label;
+      // The text node's data, never a new node: an insertion anywhere in the
+      // block re-runs the page's `:has()` rules over its whole subtree.
+      const text = chipText.current!;
+      if (text.firstChild instanceof Text) text.firstChild.data = label;
+      else text.textContent = label;
       chipBox.current!.setAttribute("x", String(-width / 2));
       chipBox.current!.setAttribute("width", String(width));
       const b = nodeBounds({ x, y, w, h, rot });
@@ -385,7 +398,7 @@ export function Overlay({
           : null;
       state.current.radii = el ? radiiOf(el) : null;
     }
-    if (state.current.live) return;
+    if (state.current.live || state.current.following) return;
     draw(selection, selection?.rot ?? 0, NO_GUIDES, false);
   });
 
@@ -394,6 +407,7 @@ export function Overlay({
     () => ({
       update(rect, rot, fired) {
         state.current.live = rect !== null;
+        state.current.following = false;
         if (rect) {
           draw(rect, rot, fired, true);
           return;
@@ -412,6 +426,23 @@ export function Overlay({
       },
       passive(hidden) {
         root.current?.classList.toggle("is-passive", hidden);
+      },
+      follow(rect) {
+        const s = state.current;
+        if (s.live) {
+          s.following = false;
+          return;
+        }
+        // Drawn as a live frame, so the members and hover ring — which a
+        // render placed at the landing — stand aside until it lands.
+        if (rect && s.selection) {
+          s.following = true;
+          draw(rect, rect.rot, NO_GUIDES, true, false);
+          return;
+        }
+        if (!s.following) return;
+        s.following = false;
+        draw(s.selection, s.selection?.rot ?? 0, NO_GUIDES, false);
       },
       marquee(rect) {
         const el = band.current;

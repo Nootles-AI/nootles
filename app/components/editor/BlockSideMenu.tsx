@@ -172,7 +172,11 @@ const gutterFit: Middleware = {
           ? line.top + Math.min(line.height, span) / 2
           : box.top + span / 2;
     }
-    const y = state.y + (centre - box.top) - state.rects.floating.height / 2;
+    // A diagram's cluster starts where its band does, top to top.
+    const band = anchor.querySelector(BAND);
+    const y = band
+      ? state.y + (band.getBoundingClientRect().top - box.top)
+      : state.y + (centre - box.top) - state.rects.floating.height / 2;
     const reach = wideReach(anchor, box);
     const x = state.x + reach;
     flag(floating, "data-nt-reach", reach < 0);

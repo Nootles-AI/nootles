@@ -47,6 +47,7 @@ import { deleteDiagramBlock, mergeOps, type LifecycleEditor } from "../canvas/pa
 import { PresetBar } from "../canvas/page/PresetBar";
 import { usePresetOffer, withdrawPresets } from "../canvas/page/presetOffer";
 import { playArrival } from "../canvas/page/presetArrival";
+import { holdBandStill } from "../canvas/render/bandMotion";
 import { presetOps, type Preset } from "../canvas/presets";
 import { blockSelection, type BlockSelectionEditor } from "../blockSelection";
 import { leavePlate, type KeyedEditor } from "../blockKeys";
@@ -550,6 +551,9 @@ function CanvasBlockView({
     flushMirror();
     lower.flushMirror();
     const ops = mergeOps(liveApi.store.getScene(), lower.api.store.getScene());
+    // The band takes the height the block leaving under it had: the page
+    // below stays where it is, which a glide would shove down and back.
+    if (liveApi.band.current) holdBandStill(liveApi.band.current);
     page.batch(() => {
       liveApi.store.dispatch(ops);
       editor.transact(() => editor.removeBlocks([below]));
@@ -578,7 +582,6 @@ function CanvasBlockView({
     const before = liveApi.store.getScene();
     const { ops, ids } = presetOps(before, preset);
     const had = new Set(before.edges.map((edge) => edge.id));
-    const fromHeight = liveApi.band.current?.offsetHeight ?? 0;
     withdrawPresets(blockId);
     page.batch(() => {
       liveApi.store.dispatch(ops);
@@ -591,7 +594,7 @@ function CanvasBlockView({
     requestAnimationFrame(() => {
       const band = liveApi.band.current;
       const scene = liveApi.viewport.sceneRef.current;
-      if (band && scene) playArrival(band, scene, fromHeight, ids, edges);
+      if (band && scene) playArrival(band, scene, ids, edges);
     });
   };
   const closePresets = () => {

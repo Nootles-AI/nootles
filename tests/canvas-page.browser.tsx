@@ -247,7 +247,8 @@ const harness = {
   /** The bar's reset button, where it stands, or null when there is none. */
   zoomReset: () => {
     const button = document.querySelector('[aria-label="Document zoom"] button[aria-label="Reset zoom"]');
-    if (!button) return null;
+    // Its slot is always in the bar, and put away (`inert`) at 100%.
+    if (!button || button.closest("[inert]")) return null;
     const { left, top, width, height } = button.getBoundingClientRect();
     return { x: left + width / 2, y: top + height / 2 };
   },
@@ -362,7 +363,10 @@ const harness = {
   /** The seam's Merge offer under a diagram, and its ×, while it shows. */
   seam: (blockId: string) => {
     const seam = bandOf(blockId)?.parentElement?.querySelector(".nt-canvas-merge");
-    if (!seam || getComputedStyle(seam).display === "none") return null;
+    if (!seam) return null;
+    // Laid out always and shown by a fade, so read where it settles, not mid-fade.
+    for (const fade of seam.getAnimations()) fade.finish();
+    if (getComputedStyle(seam).visibility === "hidden") return null;
     return {
       merge: box(seam.querySelector(".nt-canvas-merge-go")),
       dismiss: box(seam.querySelector(".nt-canvas-merge-no")),
@@ -488,6 +492,7 @@ const harness = {
       at: (offer as HTMLElement).dataset.at ?? null,
       text: offer.textContent,
       glyphs: offer.querySelectorAll(".nt-canvas-autoh-go svg").length,
+      dir: (offer.querySelector(".nt-canvas-autoh-go") as HTMLElement | null)?.dataset.dir ?? null,
     };
   },
   /** Room between a band and the block after it, in px; null takes it away. */

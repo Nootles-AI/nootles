@@ -319,6 +319,139 @@ describe("the diagram commands", () => {
     expect(store.getNode("b")!.x).toBe(250);
   });
 
+  describe("⌘D repeats the step the last copy was moved", () => {
+    const setup = () => {
+      const store = new SceneStore(
+        '<nt-diagram h="300"><nt-rect id="a" x="0" y="0" w="100" h="60"></nt-rect></nt-diagram>',
+        undefined,
+        true,
+      );
+      const selection = createSelectionStore(store.getScene());
+      store.subscribe(() => selection.setScene(store.getScene()));
+      const range = { minX: 0, maxX: 720 };
+      const commands = createDiagramCommands({ store, selection, band: () => range });
+      const picked = () => store.getNode(selection.getSnapshot().ids[0])!;
+      return { store, selection, commands, picked };
+    };
+
+    it("offsets the first copy by the plain step", () => {
+      const { selection, commands, picked } = setup();
+      selection.select(["a"]);
+      commands["edit.duplicate"]();
+      expect([picked().x, picked().y]).toEqual([10, 10]);
+    });
+
+    it("steps each further copy by however far the last one was moved", () => {
+      const { store, selection, commands, picked } = setup();
+      selection.select(["a"]);
+      commands["edit.duplicate"]();
+      store.dispatch({ type: "move", ids: [picked().id], dx: 110, dy: -10 });
+      expect([picked().x, picked().y]).toEqual([120, 0]);
+      commands["edit.duplicate"]();
+      expect([picked().x, picked().y]).toEqual([240, 0]);
+      commands["edit.duplicate"]();
+      expect([picked().x, picked().y]).toEqual([360, 0]);
+    });
+
+    it("takes the band wide when the step carries a copy past the column", () => {
+      const { store, selection, commands, picked } = setup();
+      selection.select(["a"]);
+      commands["edit.duplicate"]();
+      store.dispatch({ type: "move", ids: [picked().id], dx: 390, dy: -10 });
+      commands["edit.duplicate"]();
+      expect([picked().x, store.getScene().wide]).toEqual([800, true]);
+      store.undo();
+      expect([store.getScene().nodes.length, store.getScene().wide ?? false]).toEqual([2, false]);
+    });
+
+    it("falls back to the plain step rather than repeat past the wide band's edge", () => {
+      const { store, selection, commands, picked } = setup();
+      selection.select(["a"]);
+      commands["edit.duplicate"]();
+      store.dispatch({ type: "move", ids: [picked().id], dx: 490, dy: -10 });
+      commands["edit.duplicate"]();
+      // 1000 would end past 960: the plain step instead, from where it stands.
+      expect([picked().x, picked().y, store.getScene().wide ?? false]).toEqual([510, 10, false]);
+    });
+
+    it("steps a plain copy left off the band's right edge, never past the widest band", () => {
+      const store = new SceneStore(
+        '<nt-diagram h="300" wide="pinned"><nt-rect id="a" x="860" y="0" w="100" h="60"></nt-rect></nt-diagram>',
+        undefined,
+        true,
+      );
+      const selection = createSelectionStore(store.getScene());
+      store.subscribe(() => selection.setScene(store.getScene()));
+      const commands = createDiagramCommands({ store, selection, band: () => ({ minX: -240, maxX: 960 }) });
+      selection.select(["a"]);
+      commands["edit.duplicate"]();
+      const copy = store.getNode(selection.getSnapshot().ids[0])!;
+      expect([copy.x, copy.y]).toEqual([850, 10]);
+    });
+
+    it("keeps a plain copy by the column's side in the column", () => {
+      const store = new SceneStore(
+        '<nt-diagram h="300"><nt-rect id="a" x="620" y="0" w="100" h="60"></nt-rect></nt-diagram>',
+        undefined,
+        true,
+      );
+      const selection = createSelectionStore(store.getScene());
+      store.subscribe(() => selection.setScene(store.getScene()));
+      const commands = createDiagramCommands({ store, selection, band: () => ({ minX: 0, maxX: 720 }) });
+      selection.select(["a"]);
+      commands["edit.duplicate"]();
+      const copy = store.getNode(selection.getSnapshot().ids[0])!;
+      expect([copy.x, store.getScene().wide ?? false]).toEqual([610, false]);
+    });
+
+    it("held down by the column's side, turns off the edge rather than take the band wide", () => {
+      const store = new SceneStore(
+        '<nt-diagram h="300"><nt-rect id="a" x="580" y="0" w="100" h="60"></nt-rect></nt-diagram>',
+        undefined,
+        true,
+      );
+      const selection = createSelectionStore(store.getScene());
+      store.subscribe(() => selection.setScene(store.getScene()));
+      const commands = createDiagramCommands({ store, selection, band: () => ({ minX: 0, maxX: 720 }) });
+      selection.select(["a"]);
+      const xs: number[] = [];
+      for (let i = 0; i < 12; i++) {
+        commands["edit.duplicate"]();
+        xs.push(store.getNode(selection.getSnapshot().ids[0])!.x);
+      }
+      expect(xs).toEqual([590, 600, 610, 620, 610, 600, 590, 580, 570, 560, 550, 540]);
+      expect(store.getScene().wide ?? false).toBe(false);
+    });
+
+    it("never repeats a step past the margin the page shows", () => {
+      const store = new SceneStore(
+        '<nt-diagram h="300"><nt-rect id="a" x="0" y="0" w="100" h="60"></nt-rect></nt-diagram>',
+        undefined,
+        true,
+      );
+      const selection = createSelectionStore(store.getScene());
+      store.subscribe(() => selection.setScene(store.getScene()));
+      const commands = createDiagramCommands({ store, selection, band: () => ({ minX: 0, maxX: 720 }), wideMargin: () => 100 });
+      selection.select(["a"]);
+      commands["edit.duplicate"]();
+      store.dispatch({ type: "move", ids: [selection.getSnapshot().ids[0]], dx: 390, dy: -10 });
+      commands["edit.duplicate"]();
+      // 800…900 is past 720 + 100: the plain step, from where the copy stands.
+      const copy = store.getNode(selection.getSnapshot().ids[0])!;
+      expect([copy.x, copy.y, store.getScene().wide ?? false]).toEqual([410, 10, false]);
+    });
+
+    it("goes back to the plain step once the selection is something else", () => {
+      const { store, selection, commands, picked } = setup();
+      selection.select(["a"]);
+      commands["edit.duplicate"]();
+      store.dispatch({ type: "move", ids: [picked().id], dx: 110, dy: -10 });
+      selection.select(["a"]);
+      commands["edit.duplicate"]();
+      expect([picked().x, picked().y]).toEqual([10, 10]);
+    });
+  });
+
   it("declines an arrow with no nudge run to carry it — a palette's command set", () => {
     const store = new SceneStore(band, undefined, true);
     const selection = createSelectionStore(store.getScene());

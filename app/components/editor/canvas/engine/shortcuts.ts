@@ -52,6 +52,8 @@ import {
   unionBounds,
 } from "../scene/geometry";
 import { HUG } from "../scene/autoLayout";
+import { WIDE_MARGIN } from "../scene/bandSpan";
+import { COLUMN_WIDTH } from "@/app/lib/column";
 import { booleanOps, flattenOps, loadClipper } from "../scene/boolean";
 import { mintEdgeIds, mintIds } from "../scene/ops";
 import { parseScene } from "../scene/parse";
@@ -76,7 +78,7 @@ import {
   type BooleanOp,
 } from "../scene/types";
 import { clipboardHtml, copiesInto, isCanvasHtml, lastCopy, rememberCopy } from "./clipboard";
-import type { SceneStore } from "./useScene";
+import type { CommitMotion, SceneStore } from "./useScene";
 import type { SelectionStore } from "./useSelection";
 import type { ViewportController } from "./useViewport";
 
@@ -717,6 +719,77 @@ export function pasteLevel(scene: Scene, selection: SelectionStore): NodeId | nu
 /** How far ⌘D and a plain ⌘V offset a copy, matching Figma. */
 export const DUPLICATE_OFFSET = 10;
 
+/**
+ * Each diagram's last ⌘D: the copies it made, the parents and places of the
+ * shapes they were made from, and the step it took. Held by the store, since
+ * the page builds its commands anew on every key.
+ */
+const lastDuplicate = new WeakMap<
+  SceneStore,
+  { copies: NodeId[]; parents: (NodeId | null)[]; from: Point[]; step: Point }
+>();
+
+type Span = { x: number; w: number };
+
+const within = (box: Span, dx: number, [left, right]: readonly [number, number]) =>
+  box.x + dx >= left - 0.5 && box.x + dx + box.w <= right + 0.5;
+
+/**
+ * Where ⌘D's copies may land across, in scene px: the band as it stands, and
+ * the widest it could turn — as far into the margins as the page shows them.
+ */
+function ranges(scene: Scene, margin: number): { band: [number, number]; widest: [number, number] } {
+  const widest: [number, number] = [-margin, COLUMN_WIDTH + margin];
+  return { band: scene.wide ? widest : [0, COLUMN_WIDTH], widest };
+}
+
+/**
+ * The plain step across: away from whichever side it sits by. Right, unless
+ * that crosses the band's edge — a column band would turn wide for it — then
+ * left; failing both, whichever stays inside the widest band; failing that,
+ * straight down.
+ */
+function plainDx(box: Span, { band, widest }: ReturnType<typeof ranges>): number {
+  for (const range of [band, widest]) {
+    if (within(box, DUPLICATE_OFFSET, range)) return DUPLICATE_OFFSET;
+    if (within(box, -DUPLICATE_OFFSET, range)) return -DUPLICATE_OFFSET;
+  }
+  return 0;
+}
+
+/**
+ * Figma's repeat: with ⌘D's copies still selected, the next ⌘D steps on by
+ * however far they were moved from their originals — so duplicate, drag the
+ * copy into place, and each further ⌘D lays the next one out at that spacing,
+ * out into the margins if it takes them there. Copies nobody moved carry on
+ * at the plain step while it stays in the band, and turn off the band's edge
+ * when it would not. Never past the widest band: a step that would go there
+ * gives way to the plain one.
+ *
+ * `margin` is how far the page shows a wide band past the column; `null` for
+ * a frame, which has no margins and takes any step.
+ */
+export function duplicateStep(store: SceneStore, scene: Scene, nodes: readonly SceneNode[], margin: number | null): Point {
+  const box = absoluteSelectionBounds(scene, nodes.map((node) => node.id));
+  const room = margin === null ? null : ranges(scene, margin);
+  const plain = () => ({ x: room ? plainDx(box, room) : DUPLICATE_OFFSET, y: DUPLICATE_OFFSET });
+  const last = lastDuplicate.get(store);
+  if (!last || last.copies.length !== nodes.length) return plain();
+  let step: Point | null = null;
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i];
+    if (node.id !== last.copies[i] || parentIdOf(scene, node.id) !== last.parents[i]) return plain();
+    const dx = node.x - last.from[i].x;
+    const dy = node.y - last.from[i].y;
+    if (!step) step = { x: dx, y: dy };
+    else if (Math.abs(step.x - dx) > 0.5 || Math.abs(step.y - dy) > 0.5) return plain();
+  }
+  if (!step || !room) return step ?? plain();
+  const moved = Math.abs(step.x - last.step.x) > 0.5 || Math.abs(step.y - last.step.y) > 0.5;
+  const fits = within(box, step.x, moved ? room.widest : room.band) && box.y + step.y >= -0.5;
+  return fits ? step : plain();
+}
+
 const NUDGE: Readonly<Record<string, Point>> = {
   arrowleft: { x: -1, y: 0 },
   arrowright: { x: 1, y: 0 },
@@ -756,7 +829,8 @@ export type NudgeRange = { minX: number; maxX: number };
  */
 export interface NudgeRun {
   /** Moves `ids` by the step, opening the bracket if it is not open. */
-  move(ids: NodeId[], dx: number, dy: number): void;
+  /** `motion` is the one press's; a repeat passes none and lands crisp. */
+  move(ids: NodeId[], dx: number, dy: number, motion?: CommitMotion | null): void;
   end(): void;
   /** Ends the run and stops listening. */
   dispose(): void;
@@ -791,7 +865,7 @@ export function createNudgeRun(
     if (idle !== null) done();
   });
   return {
-    move: (ids, dx, dy) => {
+    move: (ids, dx, dy, motion) => {
       if (idle === null) {
         held = selection.getSnapshot().ids;
         store.begin();
@@ -799,7 +873,7 @@ export function createNudgeRun(
         clearTimeout(idle);
       }
       idle = setTimeout(done, NUDGE_RUN_MS);
-      if (dx || dy) store.dispatch({ type: "move", ids, dx, dy });
+      if (dx || dy) store.dispatch({ type: "move", ids, dx, dy }, { motion });
     },
     end,
     dispose: () => {
@@ -838,6 +912,8 @@ export interface DiagramCommandContext {
   nudge?: NudgeRun;
   /** Where a nudge may take the selection; `null` for a frame. */
   band(): NudgeRange | null;
+  /** How far past the column the page shows a wide band, in scene px — where ⌘D may place copies. */
+  wideMargin?(): number;
   /**
    * A nudge's step as held over every diagram sharing the selection, so the
    * shapes move together as far as the tightest band lets them — as a drag
@@ -867,7 +943,7 @@ export function createDiagramCommands(
 ): Record<ShortcutId, (e?: KeyboardEvent) => boolean> {
   const { store, selection } = ctx;
   const scene = () => store.getScene();
-  const dispatch = (ops: SceneOp | SceneOp[]) => store.dispatch(ops);
+  const dispatch = (ops: SceneOp | SceneOp[]) => store.dispatch(ops, { motion: "command" });
 
   /** The addressable selection: live, top-most, in document order. */
   const targets = () => topSelection(scene(), selection.getSnapshot().ids);
@@ -894,7 +970,7 @@ export function createDiagramCommands(
     const { x, y } = ctx.holdNudge
       ? ctx.holdNudge(delta.x * step, delta.y * step)
       : clampNudge(scene(), ids, delta.x * step, delta.y * step, ctx.band());
-    ctx.nudge.move(ids, x, y);
+    ctx.nudge.move(ids, x, y, e?.repeat ? null : "nudge");
     return true;
   };
 
@@ -977,7 +1053,9 @@ export function createDiagramCommands(
       // Copies land frontmost within the parent they came from: in front of
       // the original, which is both Figma's placement and the only one that
       // guarantees you can see what you just made.
-      const copies = copiesInto(current, nodes, DUPLICATE_OFFSET, DUPLICATE_OFFSET);
+      const band = ctx.band() !== null;
+      const step = duplicateStep(store, current, nodes, band ? (ctx.wideMargin?.() ?? WIDE_MARGIN) : null);
+      const copies = copiesInto(current, nodes, step.x, step.y);
       const parents = new Map<NodeId | null, SceneNode[]>();
       nodes.forEach((node, i) => {
         const parent = parentIdOf(current, node.id);
@@ -985,14 +1063,23 @@ export function createDiagramCommands(
         if (list) list.push(copies[i]);
         else parents.set(parent, [copies[i]]);
       });
-      dispatch(
-        [...parents].map(([parentId, group]) => ({
-          type: "insert" as const,
-          nodes: group,
-          parentId,
-        })),
-      );
+      const inserts: SceneOp[] = [...parents].map(([parentId, group]) => ({
+        type: "insert" as const,
+        nodes: group,
+        parentId,
+      }));
+      // Copies landing past the column take the band wide with them, in the
+      // same step — as a drag let go in the margin does.
+      const landed = absoluteSelectionBounds(current, nodes.map((node) => node.id));
+      const spills = landed.x + step.x < -0.5 || landed.x + step.x + landed.w > COLUMN_WIDTH + 0.5;
+      dispatch(band && !current.wide && spills ? [...inserts, { type: "setDiagram", wide: true }] : inserts);
       selection.select(copies.map((node) => node.id));
+      lastDuplicate.set(store, {
+        copies: copies.map((node) => node.id),
+        parents: nodes.map((node) => parentIdOf(current, node.id)),
+        from: nodes.map((node) => ({ x: node.x, y: node.y })),
+        step,
+      });
       return true;
     },
 
@@ -1281,6 +1368,7 @@ export function useCanvasShortcuts({
               { type: "addEdge", edges },
             ]
           : { type: "insert", nodes: copies, parentId },
+        { motion: "command" },
       );
       latest.current.selection.select(copies.map((node) => node.id));
     };

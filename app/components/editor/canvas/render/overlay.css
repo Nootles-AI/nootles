@@ -27,8 +27,13 @@
   stroke-width: var(--k, 1);
 }
 
+/* The frame group is switched with `display`, so this plays as a selection
+   appears and at no other time — never as it moves to another shape or
+   follows a drag. It goes in one frame: faded out, it would have to be held
+   where the shape was. */
 .nt-ov-outline {
   stroke: var(--nt-select);
+  animation: nt-fade-in var(--dur-fast) var(--ease);
 }
 
 /* A reader's frame says "this one", not "you have this". The editing blue is a
@@ -45,18 +50,30 @@
   opacity: 0.5;
 }
 
+/* The ring comes in as the pointer finds a shape and stays put as it moves
+   from one to the next: the rect is mounted once and re-placed. */
 .nt-ov-hover {
   stroke: var(--ov-line);
   opacity: 0.55;
+  animation: nt-fade-in var(--dur-fast) var(--ease);
 }
 
 /* A live gesture owns the frame; the passive hints would only lag behind it —
-   here, or in a diagram whose shapes another diagram's gesture is moving. */
+   here, or in a diagram whose shapes another diagram's gesture is moving. They
+   step out at once and come back softly, rather than blinking off and on with
+   every press. */
+.nt-ov-members,
+.nt-ov-hover {
+  transition: opacity var(--dur) var(--ease);
+}
 .nt-ov.is-live .nt-ov-members,
 .nt-ov.is-live .nt-ov-hover,
 .nt-ov.is-passive .nt-ov-members,
 .nt-ov.is-passive .nt-ov-hover {
-  display: none;
+  opacity: 0;
+  transition: none;
+  /* A fade-in still running would outrank the `opacity` above. */
+  animation: none;
 }
 
 .nt-ov-guides {
@@ -95,16 +112,16 @@
 .nt-ov-grips > rect {
   transform-box: fill-box;
   transform-origin: center;
-  animation: nt-ov-grip-in 260ms var(--spring) backwards;
+  animation: nt-ov-grip-in var(--dur-slow) var(--spring) backwards;
 }
 .nt-ov-grips > rect:nth-child(2) {
-  animation-delay: 26ms;
+  animation-delay: 20ms;
 }
 .nt-ov-grips > rect:nth-child(3) {
-  animation-delay: 50ms;
+  animation-delay: 40ms;
 }
 .nt-ov-grips > rect:nth-child(4) {
-  animation-delay: 75ms;
+  animation-delay: 60ms;
 }
 @keyframes nt-ov-grip-in {
   from {
@@ -143,6 +160,16 @@
      carries the digits through it. */
   font-weight: 500;
   font-variant-numeric: tabular-nums;
+}
+
+/* The pen's marks — anchors, handles, the ring that closes the loop — come
+   in on opacity alone: never a move, so each sits under the pointer from its
+   first frame. Shown with `display` or mounted as the path grows, so this
+   plays as one appears and not as it is dragged. */
+.nt-pen rect,
+.nt-pen circle,
+.nt-pen line {
+  animation: nt-fade-in var(--dur-fast) var(--ease);
 }
 
 @media (prefers-reduced-motion: reduce) {

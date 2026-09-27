@@ -16,6 +16,7 @@ import {
   useState,
   useSyncExternalStore,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { Check, FountainPen, RotateCcw } from "@/app/components/Icons";
 import { Menu, MenuItem } from "@/app/components/Menu";
@@ -186,6 +187,29 @@ const GEAR = (
     <circle cx="12" cy="12" r="2.6" />
   </svg>
 );
+
+/** The last bar the dock showed, by its name, and the bars already placed. */
+let lastBar: string | null = null;
+const placed = new WeakSet<Element>();
+
+/**
+ * The dock's entrance is the page's one authored moment, so it plays once: the
+ * first bar rises in, a different bar standing in for it later comes up in
+ * place, and the same bar again — the next shot's — simply stays. Marked on
+ * the element rather than in state, so a strict-mode re-run of the effect
+ * cannot read its own first pass as a second bar.
+ */
+function useArrival(name: string): RefObject<HTMLDivElement | null> {
+  const bar = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = bar.current;
+    if (!el || placed.has(el)) return;
+    placed.add(el);
+    if (lastBar !== null) el.dataset.arrival = lastBar === name ? "still" : "swap";
+    lastBar = name;
+  }, [name]);
+  return bar;
+}
 
 const neverChanges = () => () => {};
 const notApple = () => false;
@@ -437,6 +461,52 @@ function Settings({ targets = false }: { targets?: boolean }) {
 const unzoomed = () => 1;
 const percent = (z: number) => `${Math.round(z * 100)}%`;
 
+/** Changes closer together than this are a pinch or a held key: the digits follow them flat. */
+const CONTINUOUS_MS = 150;
+
+/**
+ * The readout's digits. A step — a key, a pick from the menu, the reset — rolls
+ * them a few px toward the way the zoom went; a pinch or a held key, which
+ * change them every frame, leaves them still.
+ */
+function ZoomDigits({ zoom }: { zoom: number }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const last = useRef({ zoom, at: Number.POSITIVE_INFINITY });
+  useLayoutEffect(() => {
+    last.current.at = performance.now();
+  }, []);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const prev = last.current;
+    const now = performance.now();
+    if (prev.zoom === zoom) return;
+    last.current = { zoom, at: now };
+    if (!el?.animate) return;
+    for (const running of el.getAnimations()) running.cancel();
+    if (now - prev.at < CONTINUOUS_MS) return;
+    const css = getComputedStyle(el);
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const rise = zoom > prev.zoom ? 4 : -4;
+    el.animate(
+      still
+        ? [{ opacity: 0.4 }, { opacity: 1 }]
+        : [
+            { opacity: 0.4, translate: `0 ${rise}px` },
+            { opacity: 1, translate: "0 0" },
+          ],
+      {
+        duration: parseFloat(css.getPropertyValue("--dur")) || 145,
+        easing: css.getPropertyValue("--ease").trim() || "ease-out",
+      },
+    );
+  }, [zoom]);
+  return (
+    <span ref={ref} className="nt-toolbar-zoom-digits">
+      {percent(zoom)}
+    </span>
+  );
+}
+
 /**
  * The focused page's zoom: its readout, and a menu of the steps. The zoom is
  * the page's, not the diagrams' — a diagram is magnified with the words
@@ -460,7 +530,7 @@ function ZoomMenu({ pane, hint }: { pane: ZoomPane; hint: (id: ShortcutId) => st
               aria-label={`Zoom ${percent(zoom)}`}
               onPointerDown={(e) => e.preventDefault()}
             >
-              {percent(zoom)}
+              <ZoomDigits zoom={zoom} />
             </button>
           </Tooltip>
         )}
@@ -502,11 +572,13 @@ function ZoomMenu({ pane, hint }: { pane: ZoomPane; hint: (id: ShortcutId) => st
           );
         }}
       </Menu>
-      {zoom !== ZOOM_MIN && (
-        <Button label="Reset zoom" hint={hint("view.zoomReset")} onClick={store.reset}>
-          <RotateCcw width={svg.width} height={svg.height} strokeWidth={svg.strokeWidth} aria-hidden />
-        </Button>
-      )}
+      <span className="nt-toolbar-reset" data-on={zoom !== ZOOM_MIN || undefined} inert={zoom === ZOOM_MIN}>
+        <span>
+          <Button label="Reset zoom" hint={hint("view.zoomReset")} onClick={store.reset}>
+            <RotateCcw width={svg.width} height={svg.height} strokeWidth={svg.strokeWidth} aria-hidden />
+          </Button>
+        </span>
+      </span>
     </>
   );
 }
@@ -518,10 +590,11 @@ function ZoomMenu({ pane, hint }: { pane: ZoomPane; hint: (id: ShortcutId) => st
 export function ZoomToolbar({ pane }: { pane: ZoomPane }) {
   const apple = useApple();
   const dock = useRef<HTMLDivElement>(null);
+  const bar = useArrival("Document zoom");
   useColumnEdges(dock);
   return (
     <div ref={dock} className="nt-toolbar-dock is-page">
-      <div className="nt-toolbar" role="toolbar" aria-label="Document zoom">
+      <div ref={bar} className="nt-toolbar" role="toolbar" aria-label="Document zoom">
         <ZoomMenu pane={pane} hint={(id) => shortcutHint(id, apple)} />
       </div>
     </div>
@@ -552,6 +625,7 @@ export function PageToolbar({
   const { tool, locked } = useSyncExternalStore(tools.subscribe, tools.snapshot, tools.snapshot);
   const apple = useApple();
   const dock = useRef<HTMLDivElement>(null);
+  const bar = useArrival("Page tools");
   useColumnEdges(dock);
   // A diagram with the keyboard answers the bare letter; the page, where a
   // bare letter is typing, answers ⌥⇧ and the letter.
@@ -560,7 +634,7 @@ export function PageToolbar({
 
   return (
     <div ref={dock} className="nt-toolbar-dock is-page">
-      <div className="nt-toolbar" role="toolbar" aria-label="Page tools">
+      <div ref={bar} className="nt-toolbar" role="toolbar" aria-label="Page tools">
         <ToolRow
           tool={tool}
           locked={locked}
@@ -608,6 +682,7 @@ export function FrameToolbar({
   const tool = useSyncExternalStore(tools.subscribe, tools.get, tools.get);
   const apple = useApple();
   const dock = useRef<HTMLDivElement>(null);
+  const bar = useArrival("Canvas");
   useColumnEdges(dock);
   // The shot has the keyboard while this bar is up, so its tools show the
   // bare letter they answer to there.
@@ -618,7 +693,7 @@ export function FrameToolbar({
     // the column's edges, and nothing here has to follow a scroll. Never a
     // transform on the dock — see `.nt-toolbar-dock`.
     <div ref={dock} className="nt-toolbar-dock">
-      <div className="nt-toolbar" role="toolbar" aria-label="Canvas">
+      <div ref={bar} className="nt-toolbar" role="toolbar" aria-label="Canvas">
         <ToolRow
           tool={tool}
           lead={LEAD_TOOLS}
@@ -734,9 +809,17 @@ function ToolRow({
     if (!on) return;
     // Offsets, not rects: the bar arrives scaled, and a rect read in its first
     // frame would be measured at 94%. The row is the positioned parent.
+    const past = Math.max(0, on.offsetWidth - on.offsetHeight);
     el.style.setProperty("--mark-x", `${on.offsetLeft}px`);
-    el.style.setProperty("--mark-w", `${on.offsetWidth}px`);
     el.style.setProperty("--mark-h", `${on.offsetHeight}px`);
+    el.style.setProperty("--mark-d", `${past}px`);
+    el.style.setProperty("--mark-s", String(past));
+    // The first place is taken, not travelled to: settle it with the motion
+    // still off, so a bar that mounts shows its mark already home.
+    if (!("placed" in el.dataset)) {
+      void el.offsetWidth;
+      el.dataset.placed = "";
+    }
   }, [tool, lastShape]);
 
   // The caret never takes focus — the canvas or the page keeps the keyboard —

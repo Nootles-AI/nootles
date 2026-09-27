@@ -1,8 +1,9 @@
 "use client";
 
-import type { ComponentType, KeyboardEvent, SVGProps } from "react";
+import { useLayoutEffect, useRef, type ComponentType, type KeyboardEvent, type SVGProps } from "react";
 import { Blank, Browser, Flowchart, Matrix, Phone, Timeline } from "@/app/components/Icons";
 import { PRESETS, type Preset, type PresetId } from "../presets";
+import { leaveAsCopy } from "../render/leaveAsCopy";
 import { presetStep } from "./presetWalk";
 
 const GLYPH: Record<PresetId, ComponentType<SVGProps<SVGSVGElement>>> = {
@@ -32,6 +33,16 @@ export function PresetBar({
   onEscape: () => void;
   onLeave: (dir: -1 | 1) => void;
 }) {
+  // Declined or taken, the offer fades out where it stood — faster than it
+  // came — while whatever replaces it comes in.
+  const bar = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = bar.current;
+    const host = el?.parentElement;
+    if (!el || !host) return;
+    return () => leaveAsCopy(el, host);
+  }, []);
+
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -48,6 +59,7 @@ export function PresetBar({
 
   return (
     <div
+      ref={bar}
       className="nt-canvas-presets"
       role="toolbar"
       aria-label="Start from a preset"

@@ -146,7 +146,8 @@ export interface PenToolProps {
  */
 export function tintMargins(band: Element | null | undefined, wash: MarginWash): void {
   if (!band) return;
-  const tint = band.querySelector<HTMLElement>(":scope > .nt-canvas-margins");
+  // A wide band keeps its margins' element only to fade out the wash that took it wide.
+  const tint = band.hasAttribute("data-wide") ? null : band.querySelector<HTMLElement>(":scope > .nt-canvas-margins");
   const shown = tint ? wash : null;
   const widen = shown === "held" ? null : shown;
   if (band.hasAttribute("data-edge") === !!shown && band.getAttribute("data-widen") === widen) return;

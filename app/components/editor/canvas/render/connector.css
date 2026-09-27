@@ -37,17 +37,26 @@
 .nt-connector-plug {
   transform-box: fill-box;
   transform-origin: center;
-  animation: nt-connector-plug-in 220ms var(--spring) backwards;
+  animation: nt-connector-plug-in var(--dur-slow) var(--spring) backwards;
   transition: fill var(--dur-fast) var(--ease);
 }
 .nt-connector-plug:nth-of-type(4n + 2) {
-  animation-delay: 21ms;
+  animation-delay: 20ms;
 }
 .nt-connector-plug:nth-of-type(4n + 3) {
   animation-delay: 40ms;
 }
 .nt-connector-plug:nth-of-type(4n + 4) {
-  animation-delay: 65ms;
+  animation-delay: 60ms;
+}
+/* The tool put down: its plugs stay a moment, as a copy, fading
+   (`leaveAsCopy`). They are new elements there, so their arrival is held
+   back. */
+.nt-connector-svg.is-leaving {
+  animation: nt-fade-out var(--dur-fast) var(--ease) forwards;
+}
+.nt-connector-svg.is-leaving .nt-connector-plug {
+  animation: none;
 }
 @keyframes nt-connector-plug-in {
   from {
@@ -72,6 +81,20 @@
   stroke-width: calc(var(--k, 1) * 2);
   outline: calc(var(--k, 1) * 4px) solid color-mix(in oklab, var(--nt-select) 18%, transparent);
   outline-offset: calc(var(--k, 1) * 1px);
+  /* It fades up where it first lands — coming back from `display: none` —
+     and from one box to the next it glides: its place is written as CSS
+     geometry, which a transition can carry and an attribute cannot. */
+  animation: nt-fade-in var(--dur-fast) var(--ease);
+  transition:
+    x var(--dur-fast) var(--ease),
+    y var(--dur-fast) var(--ease),
+    width var(--dur-fast) var(--ease),
+    height var(--dur-fast) var(--ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nt-connector-target {
+    transition: none;
+  }
 }
 
 .nt-connector-preview {

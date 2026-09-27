@@ -110,7 +110,18 @@ try {
   await page.goto(origin);
   await page.waitForFunction(() => window.canvasPage?.ready());
   const at = (fn, ...args) => page.evaluate(({ fn, args }) => window.canvasPage[fn](...args), { fn, args });
-  const frame = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  // Two frames, and any band still gliding to a committed height (`bandMotion`)
+  // landed there: what is read next is the height the commit gave it.
+  const frame = () =>
+    page.evaluate(async () => {
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      // A committed change glides home (the band's height, the shapes an undo
+      // moves); the page is read once it has landed.
+      const glides = document.getAnimations().filter((a) => a.id === "nt-band-glide" || a.id === "nt-glide" || a.id === "nt-arrive");
+      if (!glides.length) return;
+      await Promise.all(glides.map((a) => a.finished.catch(() => {})));
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    });
 
   const drag = async (from, dx, dy, { hold } = {}) => {
     await page.mouse.move(from.x, from.y);
@@ -402,7 +413,7 @@ try {
       return { at: o.at, onGrip, side, near: o.at === "below" ? o.whole.top - (b.top + b.height) < 6 : g.top - (o.whole.top + o.whole.height) < 6 };
     };
     const words = await at("autoOffer", "bottom");
-    check("the offer is its words alone, no glyph", [words.text, words.glyphs], ["Auto height", 0]);
+    check("taller than its content, the offer's words carry an up arrow", [words.text, words.glyphs, words.dir], ["Auto height", 1, "up"]);
     check("with the next block close under the band, it sits just above the grip", await rides(), { at: "above", onGrip: true, side: true, near: true });
     await at("roomUnder", "bottom", 60);
     await drag(centre(await at("heightGrip", "bottom")), 0, 10);
@@ -416,7 +427,7 @@ try {
     await drag(centre(await at("heightGrip", "bottom")), 0, -400);
     check("the grip pulls the band up to where its shapes end, no further", [await at("height", "bottom"), (await at("band", "bottom")).height], [40 + 70, 40 + 70]);
     const tight = await at("autoOffer", "bottom");
-    check("tighter than the room under the shapes, the band offers auto height", !!tight, true);
+    check("tighter than the room under the shapes, the band offers auto height, arrow down", [!!tight, tight?.dir], [true, "down"]);
     await page.mouse.click(...Object.values(centre(tight.go)));
     await frame();
     check("which puts the room back", [await at("height", "bottom"), await at("autoOffer", "bottom")], [40 + 70 + 24, null]);
@@ -1056,6 +1067,7 @@ try {
   check("and its block is gone", (await at("blocks")).some((block) => block.startsWith(`${made}:`)), false);
   await at("undo");
   await page.waitForFunction((id) => window.canvasPage.count(id) !== null, made);
+  await frame();
   check("one undo takes the whole merge back", [await at("count", "top"), await at("count", made)], [
     upperCount,
     lowerCount,

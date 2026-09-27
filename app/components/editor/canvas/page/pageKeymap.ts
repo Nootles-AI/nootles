@@ -382,14 +382,14 @@ export function attachPageKeymap(canvas: PageCanvas, pane: HTMLElement): () => v
     });
     if (ops.length === 0) return;
     batch(() => {
-      store.dispatch(ops);
+      store.dispatch(ops, { motion: "command" });
       band.api.selection.select(ids);
     });
     band.api.focus();
   };
 
   const firstPreset = (entry: DiagramEntry) =>
-    entry.api.band.current?.querySelector<HTMLElement>(".nt-canvas-presets button") ?? null;
+    entry.api.band.current?.querySelector<HTMLElement>(".nt-canvas-presets:not(.is-leaving) button") ?? null;
 
   const offDiagrams = registerPaneDiagrams(pane, {
     enter: (blockId) => {

@@ -46,6 +46,89 @@ describe("SceneStore.arriving", () => {
   });
 });
 
+describe("SceneStore.motion", () => {
+  const two =
+    `<nt-diagram w="400" h="300"><nt-rect id="a" x="40" y="40" w="100" h="60"></nt-rect>` +
+    `<nt-rect id="b" x="200" y="100" w="100" h="60"></nt-rect></nt-diagram>`;
+
+  function listen(store: SceneStore) {
+    const heard: (string | null)[] = [];
+    store.subscribe(() => void heard.push(store.motion()));
+    return heard;
+  }
+
+  it("flags undo and redo, and nothing a hand does", () => {
+    const store = new SceneStore(diagram(40));
+    const heard = listen(store);
+    store.dispatch({ type: "move", ids: ["a"], dx: 10, dy: 0 });
+    store.begin();
+    store.dispatch({ type: "move", ids: ["a"], dx: 10, dy: 0 });
+    store.commit();
+    store.undo();
+    store.redo();
+    expect(heard).toEqual([null, null, "history", "history"]);
+    expect(store.motion()).toBeNull();
+  });
+
+  it("carries a dispatch's own motion, even inside a bracket", () => {
+    const store = new SceneStore(diagram(40));
+    const heard = listen(store);
+    store.begin();
+    store.dispatch({ type: "move", ids: ["a"], dx: 10, dy: 0 }, { motion: "nudge" });
+    store.dispatch({ type: "move", ids: ["a"], dx: 10, dy: 0 }, { motion: null });
+    store.commit();
+    store.dispatch({ type: "move", ids: ["a"], dx: 10, dy: 0 }, { motion: "command" });
+    expect(heard).toEqual(["nudge", null, "command"]);
+  });
+
+  it("calls align, distribute and flip commands wherever they come from, and an unbracketed remove", () => {
+    const store = new SceneStore(two);
+    const heard = listen(store);
+    store.begin();
+    store.dispatch({ type: "align", ids: ["a", "b"], to: "left" });
+    store.dispatch({ type: "flip", ids: ["a", "b"], axis: "x" });
+    store.commit();
+    store.begin();
+    store.dispatch({ type: "remove", ids: ["b"] });
+    store.commit();
+    store.dispatch({ type: "remove", ids: ["a"] }, { guard: false });
+    expect(heard).toEqual(["command", "command", null, "command"]);
+  });
+
+  it("calls a merge or an external write remote, and a quiet adopt nothing", () => {
+    const store = new SceneStore(diagram(40));
+    const heard = listen(store);
+    store.adoptRemote(diagram(80));
+    store.setSource(diagram(120));
+    store.adoptQuiet(diagram(160));
+    expect(heard).toEqual(["remote", "remote", null]);
+  });
+
+  it("lands a merge deferred past a gesture as remote, after the gesture's own unflagged commit", () => {
+    const store = new SceneStore(diagram(40));
+    const heard = listen(store);
+    store.begin();
+    store.dispatch({ type: "move", ids: ["a"], dx: 10, dy: 0 });
+    store.adoptRemote(diagram(200));
+    store.commit();
+    expect(heard).toEqual([null, "remote"]);
+  });
+
+  it("is the outer notification's again once a nested edit's is over", () => {
+    const store = new SceneStore(diagram(40));
+    let nested = false;
+    store.subscribe(() => {
+      if (nested) return;
+      nested = true;
+      store.dispatch({ type: "move", ids: ["a"], dx: 1, dy: 0 });
+    });
+    const heard = listen(store);
+    store.undo();
+    store.dispatch({ type: "move", ids: ["a"], dx: 10, dy: 0 }, { motion: "command" });
+    expect(heard).toEqual([null, "command"]);
+  });
+});
+
 describe("SceneStore.settle", () => {
   const nudge: SceneOp = { type: "move", ids: ["a"], dx: 10, dy: 0 };
 
