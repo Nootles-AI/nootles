@@ -17,7 +17,7 @@ describe("markCachePoints", () => {
       {
         role: "assistant",
         content: [
-          { type: "tool-call", toolCallId: "c0", toolName: "read_open_page", input: {} },
+          { type: "tool-call", toolCallId: "c0", toolName: "read_page", input: {} },
           { type: "tool-call", toolCallId: "c1", toolName: "search_context", input: {} },
           { type: "tool-call", toolCallId: "c2", toolName: "expand_context", input: {} },
         ],
@@ -27,7 +27,7 @@ describe("markCachePoints", () => {
         content: [
           { type: "tool-result", toolCallId: "c1", toolName: "search_context", output: { type: "json", value: [] } },
           { type: "tool-result", toolCallId: "c2", toolName: "expand_context", output: { type: "json", value: {} } },
-          { type: "tool-result", toolCallId: "c0", toolName: "read_open_page", output: { type: "text", value: "" } },
+          { type: "tool-result", toolCallId: "c0", toolName: "read_page", output: { type: "text", value: "" } },
         ],
       },
     ];
@@ -100,8 +100,8 @@ describe("foldResearch", () => {
     { role: "user", content: "Document the architecture" },
     call("r1", "read_context"),
     result("r1", "read_context", file),
-    call("p1", "read_open_page"),
-    result("p1", "read_open_page", page),
+    call("p1", "read_page"),
+    result("p1", "read_page", page),
     call("s1", "search_context"),
     result("s1", "search_context", { type: "json", value: [{ id: "n1", title: "convex/schema.ts" }] }),
   ];
@@ -115,8 +115,8 @@ describe("foldResearch", () => {
       ...research,
       call("w1", "write"),
       result("w1", "write", { type: "json", value: { ref: "w1abc", headings: ["Data"] } }),
-      call("p2", "read_open_page"),
-      result("p2", "read_open_page", page),
+      call("p2", "read_page"),
+      result("p2", "read_page", page),
     ];
     const out = foldResearch(after);
     const value = (i: number) => ((out[i] as Extract<ModelMessage, { role: "tool" }>).content[0] as { output: { value: unknown } }).output.value;
@@ -242,5 +242,25 @@ describe("shortenStaleReads on canvas reports", () => {
     const folded = (out[2] as Extract<ModelMessage, { role: "tool" }>).content[0] as ToolResultPart;
     expect(folded.output.type).toBe("text");
     expect((folded.output as { value: string }).value).toMatch(/Ask for it again/);
+  });
+});
+
+describe("shortenStaleReads on page reads", () => {
+  const page = { type: "text" as const, value: `<title>Overview</title>\n${"<p>words</p>\n".repeat(2000)}` };
+  const turn = (toolName: string): ModelMessage[] => [
+    { role: "user", content: "What does it say?" },
+    { role: "assistant", content: [{ type: "tool-call", toolCallId: "r", toolName, input: {} }] },
+    { role: "tool", content: [{ type: "tool-result", toolCallId: "r", toolName, output: page }] },
+    { role: "user", content: "And now?" },
+  ];
+  const head = (out: ModelMessage[]) =>
+    ((out[2] as Extract<ModelMessage, { role: "tool" }>).content[0] as ToolResultPart).output as { value: string };
+
+  test.each(["read_page", "read_open_page"])("an earlier turn's %s shrinks to its head", (toolName) => {
+    // read_open_page was folded into read_page (NT-93); threads saved before
+    // still carry its reads, and they cost the same every later request.
+    const out = shortenStaleReads(turn(toolName));
+    expect(head(out).value.length).toBeLessThan(AI.chat.staleReadChars + 200);
+    expect(head(out).value).toMatch(/^<title>Overview<\/title>/);
   });
 });

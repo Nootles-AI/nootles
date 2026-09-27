@@ -16,7 +16,7 @@ import { useProjectChat } from "../app/lib/ai/chat/useProjectChat";
 import { CommentsStore, readThreads } from "../app/lib/comments/store";
 import { commentText } from "../app/lib/comments/types";
 import type { ProjectRole } from "../convex/roles";
-import { commentsFixture } from "./comments-assistant.fixture";
+import { commentsFixture, ROADMAP } from "./comments-assistant.fixture";
 import "@blocknote/mantine/style.css";
 import "../app/components/editor/editor.css";
 
@@ -47,6 +47,22 @@ const editor = BlockNoteEditor.create(
 
 let role: ProjectRole | null = "owner";
 const roleListeners = new Set<() => void>();
+
+/** The page on screen: the launch plan until the assistant opens another. */
+let onScreen: Id<"pages"> = PAGE;
+const pageListeners = new Set<() => void>();
+
+// Bram's thread on the roadmap, from before this session.
+void new CommentsStore(commentsFixture.roadmap(), {
+  actor: { userId: "user_bram", kind: "human" },
+  authorize: () => true,
+}).createThread({
+  anchor: { blockId: "r1", exact: "ship in Q3", prefix: "", suffix: "", offsetHint: 0 },
+  body: "Is Q3 still realistic after the review?",
+  authorId: "user_bram",
+  threadId: "roadmap-t1",
+  commentId: "roadmap-t1-c",
+});
 
 type ForkApi = { fork: () => void; merge: (opts: { keepChanges: boolean }) => void; store: { state: { isForked: boolean } } };
 const forkApi = () => editor.getExtension("yForkDoc") as unknown as ForkApi;
@@ -81,6 +97,10 @@ declare global {
     peerState: () => string | null;
     origins: () => Array<{ userId: string; kind: string; command: string }>;
     ensured: () => number;
+    /** What the chat's `open` put on screen, in order — the workspace's navigation. */
+    opened: string[];
+    open: (pageId: string) => void;
+    onScreen: () => string;
   };
 }
 
@@ -138,7 +158,24 @@ globalThis.assistantHarness = {
   },
   origins: () => commentsFixture.origins.map((o) => ({ userId: o.actor.userId, kind: o.actor.kind, command: o.command })),
   ensured: () => commentsFixture.ensured,
+  opened: [],
+  open: (pageId) => {
+    globalThis.assistantHarness.opened.push(pageId);
+    onScreen = pageId as Id<"pages">;
+    for (const listener of pageListeners) listener();
+  },
+  onScreen: () => onScreen,
 };
+
+function useOnScreen() {
+  return useSyncExternalStore(
+    (listener) => {
+      pageListeners.add(listener);
+      return () => void pageListeners.delete(listener);
+    },
+    () => onScreen,
+  );
+}
 
 function useRole() {
   return useSyncExternalStore(
@@ -150,8 +187,8 @@ function useRole() {
   );
 }
 
-function Rail() {
-  const chat = useProjectChat({ threadId: "thread" as Id<"chatThreads">, projectId: "project" as Id<"projects">, pageId: PAGE });
+function Rail({ pageId }: { pageId: Id<"pages"> }) {
+  const chat = useProjectChat({ threadId: "thread" as Id<"chatThreads">, projectId: "project" as Id<"projects">, pageId });
   const tools = chat.messages.flatMap((message) =>
     message.role === "assistant" ? message.parts.filter(isToolUIPart) : [],
   );
@@ -163,7 +200,7 @@ function Rail() {
         busy={chat.busy}
         queued={chat.queued}
         projectId={"project" as Id<"projects">}
-        pageId={PAGE}
+        pageId={pageId}
         onSend={async (draft) => void chat.send(draft)}
         onStop={chat.stop}
         onUnqueue={chat.unqueue}
@@ -190,16 +227,23 @@ function Rail() {
 
 function App() {
   const current = useRole();
+  const page = useOnScreen();
   return (
     <PageCommentsRegistryProvider>
       <CommentAccessContext value={commentAccessFor(current)}>
         <main style={{ display: "flex", gap: 24 }}>
           <div style={{ width: 640, padding: 24 }}>
-            <PageCommentsProvider pageId={PAGE}>
-              <BlockNoteView editor={editor} theme="light" className="nt-editor" sideMenu={false} slashMenu={false} formattingToolbar={false} />
-            </PageCommentsProvider>
+            {page === ROADMAP ? (
+              <PageCommentsProvider key={page} pageId={page}>
+                <p id="roadmap">We will ship in Q3.</p>
+              </PageCommentsProvider>
+            ) : (
+              <PageCommentsProvider key={page} pageId={page}>
+                <BlockNoteView editor={editor} theme="light" className="nt-editor" sideMenu={false} slashMenu={false} formattingToolbar={false} />
+              </PageCommentsProvider>
+            )}
           </div>
-          <Rail />
+          <Rail pageId={page} />
         </main>
       </CommentAccessContext>
     </PageCommentsRegistryProvider>

@@ -49,9 +49,9 @@ export type ToolContext = {
   review: ReviewSession;
   /**
    * The page on screen, as the workspace resolved it. Read when the tool runs,
-   * not when the call arrived: one step routinely carries an `open_page` and
-   * the tools that act on what it opened, and the workspace only resolves the
-   * new page a React commit later.
+   * not when the call arrived: one step routinely carries an `edit_page` or a
+   * comment write, which opens its page, and the tools that act on what it
+   * opened — and the workspace only resolves the new page a React commit later.
    */
   openPageId: () => Id<"pages"> | null;
   openPage: (pageId: Id<"pages">) => void;
@@ -155,20 +155,16 @@ type Executor = (input: unknown, ctx: ToolContext, call: ToolCallInfo) => Promis
  */
 const CLIENT_EXECUTORS: Record<ClientToolName, Executor> = {
   read_page: async (input, ctx) => {
-    const { pageId, expand, after } = TOOLS.read_page.inputSchema.parse(input);
-    return await readPage(ctx, pageId as Id<"pages">, { expand, after });
+    const { pageId, expand, after } = TOOLS.read_page.inputSchema.parse(input ?? {});
+    return await readPage(ctx, namedOrOpen(ctx, pageId), { expand, after });
   },
   open_page: async (input, ctx) => {
     const { pageId } = TOOLS.open_page.inputSchema.parse(input);
     return await openPage(ctx, pageId as Id<"pages">);
   },
-  read_open_page: async (input, ctx) => {
-    const { expand, after } = TOOLS.read_open_page.inputSchema.parse(input ?? {});
-    return await readOpenPage(ctx, { expand, after });
-  },
   edit_page: async (input, ctx) => {
     const { pageId, html, replacing } = TOOLS.edit_page.inputSchema.parse(input);
-    return await editPage(ctx, pageId as Id<"pages">, html, replacing);
+    return await editPage(ctx, namedOrOpen(ctx, pageId), html, replacing);
   },
   album_edit: async (input, ctx) => {
     const { pageId, blockId, ops } = TOOLS.album_edit.inputSchema.parse(input);
@@ -180,7 +176,7 @@ const CLIENT_EXECUTORS: Record<ClientToolName, Executor> = {
   },
   read_comments: async (input, ctx) => {
     const { pageId, includeResolved } = TOOLS.read_comments.inputSchema.parse(input ?? {});
-    const { scope } = await commentsScope(ctx, pageId, { navigate: false });
+    const { scope } = await commentsScope(ctx, pageId);
     return readComments(scope, { includeResolved }, AI.chat.maxPageChars);
   },
   create_comment: async (input, ctx, call) => {
@@ -226,26 +222,29 @@ export async function runClientTool(
 }
 
 /**
+ * The page a tool names, or the open one when it names none — the one default
+ * every page tool shares, so "this page" never costs the model a lookup.
+ */
+function namedOrOpen(ctx: ToolContext, pageId: string | undefined): Id<"pages"> {
+  const page = pageId ?? ctx.openPageId();
+  if (!page) throw new Error("No page is open. Pass a pageId from list_pages.");
+  return page as Id<"pages">;
+}
+
+/**
  * The comments a comment tool acts on: the named page's, or the open one's.
- * A write to a page that is not on screen opens it first, as `edit_page`
- * does — its comments document is held by the page, and only a page on
- * screen has one. A read does not navigate; it asks for the page instead.
+ * A page that is not on screen is opened first, as `edit_page` does — its
+ * comments document is held by the page, and only a page on screen has one.
+ * Reads included: refusing one only sent the model to `open_page` and back,
+ * a round trip that ended in the same navigation (NT-93).
  */
 async function commentsScope(
   ctx: ToolContext,
   pageId: string | undefined,
-  { navigate = true }: { navigate?: boolean } = {},
 ): Promise<{ scope: CommentsScope; pageId: Id<"pages"> }> {
   const open = ctx.openPageId();
-  const page = (pageId ?? open) as Id<"pages"> | null;
-  if (!page) throw new Error("No page is open. Call list_pages, then open_page.");
+  const page = namedOrOpen(ctx, pageId);
   if (page !== open) {
-    // A read never moves what the user is looking at.
-    if (!navigate) {
-      throw new Error(
-        "Comments can be read only on the open page. Open that page with open_page first, if the user wants to work there.",
-      );
-    }
     await fetchPage(ctx, page);
     ctx.openPage(page);
   }
@@ -677,11 +676,11 @@ async function openPage(
  * way is a page as it was a moment ago — and an edit written against that reads
  * the last thing typed as a block to delete.
  */
-async function readOpenPage(ctx: ToolContext, read: PageReadOptions = {}): Promise<string> {
-  const pageId = ctx.openPageId();
-  if (!pageId) {
-    throw new Error("No page is open. Call list_pages, then open_page.");
-  }
+async function readOpenPage(
+  ctx: ToolContext,
+  pageId: Id<"pages">,
+  read: PageReadOptions = {},
+): Promise<string> {
   const [page, editor] = await Promise.all([
     fetchPage(ctx, pageId),
     ctx.editorFor(pageId),
@@ -721,7 +720,7 @@ async function readPage(
   // the user has since typed into, and echoing it back unchanged compiles to a
   // setBlockContent that reverts them. Valid ids throughout, so neither the
   // id guard nor `resolveBatch` catches it.
-  if (ctx.openPageId() === pageId) return await readOpenPage(ctx, read);
+  if (ctx.openPageId() === pageId) return await readOpenPage(ctx, pageId, read);
 
   const page = await fetchPage(ctx, pageId);
   return await pageRead(ctx, await storedBlocks(ctx, page.docId), page.title, read);

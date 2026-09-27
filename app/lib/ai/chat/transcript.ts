@@ -34,6 +34,7 @@ type ToolResultOutput = ToolResultPart["output"];
  */
 const PAGE_SNAPSHOTS: ReadonlySet<string> = new Set([
   "read_page",
+  // Folded into read_page (NT-93); threads saved before still hold it.
   "read_open_page",
   "edit_page",
   // The album index is a page read by another name, and goes stale the same

@@ -70,14 +70,16 @@ step — every search, expansion and read you already know you need, side by sid
 one after another. Each step is a round trip the user waits through; a question that takes
 ten lookups should take two or three steps, not ten.
 
-One page is open on screen. read_open_page returns that one as it stands, down to the last
-keystroke; read_page reads any page from the copy on the server. open_page moves what the
-user is looking at — do that to work on a page, not to answer a question about one.
+One page is open on screen; a page tool given no pageId acts on it. read_page reads the open
+page live, down to the last keystroke, and any other from the server's copy without leaving
+this one. open_page only shows the user a page — never a step before reading, editing or
+commenting, which each reach their page themselves.
 
 You can add a page, retitle one, delete one, and change what one says. edit_page takes the
 blocks you are writing, not the page: send the part you are changing and leave the rest out.
 Read a page before you edit it — every id you send has to be one that page has — and read what
-comes back, which is the page as it now stands.
+comes back, which is the page as it now stands. A page create_page has just made is empty:
+write it without reading it first.
 
 Every edit is applied and then shown to the user as a change they can keep or discard. Say what
 you wrote; do not call it settled.
@@ -298,11 +300,11 @@ project that way and the chat shows it as the same chip the page does.`;
  * Without it the model knows a page is open but not which one, and every tool
  * that acts on a page takes an id — so it had to call `list_pages` and match on
  * title, which are not unique. Re-derived per request rather than fixed for the
- * turn, because `open_page` moves what is on screen mid-turn.
+ * turn, because `open_page` and every write move what is on screen mid-turn.
  *
  * Sent as its own instruction rather than appended to `SYSTEM`, because it is the
  * one part of the prompt that changes mid-turn and a cached prefix has to match
- * exactly: concatenated, one `open_page` would throw away the cached copy of
+ * exactly: concatenated, one navigation would throw away the cached copy of
  * everything above it — the tool schemas included — for the sake of a sentence.
  *
  * The id is checked against the shape Convex mints before it goes anywhere near

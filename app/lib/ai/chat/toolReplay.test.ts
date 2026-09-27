@@ -72,12 +72,12 @@ describe("turn-scoped mutation replay guard", () => {
 
   it("does not deduplicate read tools", () => {
     const read = {
-      toolName: "read_open_page",
+      toolName: "read_page",
       toolCallId: "read-2",
       input: { expand: ["canvas-1"] },
     };
     const previous = {
-      type: "tool-read_open_page",
+      type: "tool-read_page",
       toolCallId: "read-1",
       state: "output-available",
       input: { expand: ["canvas-1"] },
