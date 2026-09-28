@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900">
+  <rect width="1200" height="900" fill="#e3e7e8"/>
+  <g fill="none" stroke="#687a7e" stroke-width="10" stroke-linejoin="round" opacity="0.7">
+    <rect x="522" y="307" width="156" height="122" rx="19"/>
+    <path d="M541 407l37 -37 28 25 19 -16 34 28"/>
+    <circle cx="631" cy="348" r="12"/>
+  </g>
+  <text x="600" y="575" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="86" fill="#687a7e">People</text>
+</svg>

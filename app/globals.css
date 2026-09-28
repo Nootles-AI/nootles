@@ -5262,8 +5262,8 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
    pane, filling it and running off its edges: wider than the pane, so the
    outer courses are cut by its sides, and taller, so the top and bottom rows
    are cut too — it reads as a piece of something larger. The pane clips it;
-   the courses drift a few pixels against each other, slowly enough to be
-   noticed only as the wall not being a picture. */
+   the courses slide against each other, steadily enough that the wall reads
+   as moving scenery rather than tiles waiting for a click. */
 .nt-pal-side {
   position: relative;
   overflow: hidden;
@@ -5271,32 +5271,35 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
 .nt-wall {
   position: absolute;
   inset: 0;
+  pointer-events: none;
   animation: nt-fade-in var(--dur-slow) var(--ease);
 }
+/* Slanted, about the pane's centre, so it reads as a picture of pages rather
+   than a stack of cards to pick from. */
 .nt-wall-courses {
   position: absolute;
-  top: 0;
+  top: 50%;
   left: 50%;
   display: flex;
   gap: 20px;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%) rotate(12deg);
 }
 .nt-wall-course {
   display: flex;
   flex: none;
   flex-direction: column;
   gap: 20px;
-  animation: nt-wall-drift 22s ease-in-out infinite alternate;
+  animation: nt-wall-drift 12s ease-in-out infinite alternate;
 }
 .nt-wall-course[data-dir="down"] {
   animation-direction: alternate-reverse;
 }
 @keyframes nt-wall-drift {
   from {
-    transform: translateY(-10px);
+    transform: translateY(-16px);
   }
   to {
-    transform: translateY(10px);
+    transform: translateY(16px);
   }
 }
 .nt-wall-brick {

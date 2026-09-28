@@ -1,11 +1,37 @@
 import { toAny } from "@/app/lib/onboarding/preview";
 import type { AnyBlock } from "@/app/lib/ai/projection";
+import { courseNotes } from "./courseNotes";
+import { itinerary } from "./itinerary";
+import { marketingPlan } from "./marketingPlan";
+import { meetingNotes } from "./meetingNotes";
+import { offsite } from "./offsite";
+import { postmortem } from "./postmortem";
 import { prd } from "./prd";
+import { roadmap } from "./roadmap";
+import { techDesign } from "./techDesign";
 import type { ProjectTemplate, TemplatePage } from "./types";
+import { userResearch } from "./userResearch";
+import { videoShoot } from "./videoShoot";
 
 export type { ProjectTemplate, TemplatePage, TemplateRow } from "./types";
 
-export const PROJECT_TEMPLATES: ProjectTemplate[] = [prd];
+/**
+ * Building a product first, then running a team, then the work around a
+ * launch, then plans that are not software at all.
+ */
+export const PROJECT_TEMPLATES: ProjectTemplate[] = [
+  prd,
+  techDesign,
+  roadmap,
+  userResearch,
+  postmortem,
+  meetingNotes,
+  marketingPlan,
+  videoShoot,
+  offsite,
+  itinerary,
+  courseNotes,
+];
 
 export const findTemplate = (id: string) => PROJECT_TEMPLATES.find((t) => t.id === id);
 

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <rect width="1600" height="1000" fill="#e9e4da"/>
+  <g fill="none" stroke="#8a8070" stroke-width="6" stroke-linejoin="round" opacity="0.7">
+    <rect x="748" y="404" width="104" height="81" rx="12"/>
+    <path d="M760 471l25 -25 19 17 12 -10 23 19"/>
+    <circle cx="821" cy="431" r="8"/>
+  </g>
+  <text x="800" y="584" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="58" fill="#8a8070">Hero image</text>
+</svg>

@@ -1,4 +1,5 @@
 import { landFragment } from "./engine/clipboard";
+import { browser, CENTRED, INK, phone, RULE } from "./devices";
 import { parseScene, type ParseHtml } from "./scene/parse";
 import type { NodeId, Scene, SceneOp } from "./scene/types";
 
@@ -26,10 +27,6 @@ export type Preset = {
   html: string;
 };
 
-const INK = "#2b2b28";
-const RULE = "#d8d8d4";
-
-const CENTRED = "display: flex; align-items: center; justify-content: center; text-align: center";
 const BOX = `background: #f2f2f0; border: 1px solid ${RULE}; border-radius: 10px; ${CENTRED}; color: ${INK}; font-size: 13px`;
 const PLAIN = BOX.replace("border-radius: 10px; ", "");
 const PILL = BOX.replace("border-radius: 10px", "border-radius: 24px");
@@ -38,10 +35,6 @@ const CAPTION = `${CENTRED}; color: #6b6b66; font-size: 12px`;
 const LABEL = `${CENTRED}; color: ${INK}; font-size: 13px`;
 
 const SOLID = `background: ${INK}`;
-/** Where a page's words and pictures would go. */
-const FILLER = "background: #ececea; border-radius: 4px";
-/** A browser's own marks: its buttons, its lock. */
-const GLYPH = "background: #8a8a85";
 
 // ---- The presets ---------------------------------------------------------------
 
@@ -56,48 +49,11 @@ const FLOWCHART = `<nt-diagram h="336">
 </nt-diagram>`;
 
 const PHONE = `<nt-diagram h="468">
-  <nt-group id="phone" x="260" y="24" w="200" h="420" name="iPhone">
-    <nt-rect id="phone-frame" x="0" y="0" w="200" h="420" name="Frame" style="background: #ffffff; border: 3px solid ${INK}; border-radius: 34px"></nt-rect>
-    <nt-rect id="phone-island" x="72" y="14" w="56" h="18" name="Island" style="${SOLID}; border-radius: 9px"></nt-rect>
-    <nt-text id="phone-time" x="20" y="14" w="44" h="18" name="Time" style="${CENTRED}; color: ${INK}; font-size: 12px; font-weight: 600">9:41</nt-text>
-    <nt-group id="phone-signal" x="138" y="18" w="15" h="10" name="Signal">
-      <nt-rect id="phone-bar-1" x="0" y="6" w="3" h="4" name="Bar" style="${SOLID}; border-radius: 1px"></nt-rect>
-      <nt-rect id="phone-bar-2" x="4" y="4" w="3" h="6" name="Bar" style="${SOLID}; border-radius: 1px"></nt-rect>
-      <nt-rect id="phone-bar-3" x="8" y="2" w="3" h="8" name="Bar" style="${SOLID}; border-radius: 1px"></nt-rect>
-      <nt-rect id="phone-bar-4" x="12" y="0" w="3" h="10" name="Bar" style="${SOLID}; border-radius: 1px"></nt-rect>
-    </nt-group>
-    <nt-group id="phone-battery" x="159" y="18" w="23" h="10" name="Battery">
-      <nt-rect id="phone-battery-body" x="0" y="0" w="20" h="10" name="Body" style="border: 1px solid ${INK}; border-radius: 3px"></nt-rect>
-      <nt-rect id="phone-battery-charge" x="2" y="2" w="12" h="6" name="Charge" style="${SOLID}; border-radius: 1.5px"></nt-rect>
-      <nt-rect id="phone-battery-cap" x="21" y="3" w="2" h="4" name="Cap" style="${SOLID}; border-radius: 1px"></nt-rect>
-    </nt-group>
-    <nt-rect id="phone-home" x="66" y="406" w="68" h="5" name="Home indicator" style="${SOLID}; border-radius: 2.5px"></nt-rect>
-  </nt-group>
+${phone("phone", 260, 24)}
 </nt-diagram>`;
 
 const BROWSER = `<nt-diagram h="368">
-  <nt-group id="browser" x="100" y="24" w="520" h="320" name="Browser">
-    <nt-rect id="browser-window" x="0" y="0" w="520" h="320" name="Window" style="background: #ffffff; border: 1px solid ${RULE}; border-radius: 10px"></nt-rect>
-    <nt-rect id="browser-toolbar" x="1" y="1" w="518" h="43" name="Toolbar" style="background: #f5f5f3; border-bottom: 1px solid #ececea; border-radius: 9px 9px 0 0"></nt-rect>
-    <nt-group id="browser-controls" x="14" y="17" w="42" h="10" name="Window controls">
-      <nt-ellipse id="browser-close" x="0" y="0" w="10" h="10" name="Close" style="background: #ee6a5f"></nt-ellipse>
-      <nt-ellipse id="browser-minimize" x="16" y="0" w="10" h="10" name="Minimize" style="background: #f5be4f"></nt-ellipse>
-      <nt-ellipse id="browser-zoom" x="32" y="0" w="10" h="10" name="Zoom" style="background: #62c554"></nt-ellipse>
-    </nt-group>
-    <nt-rect id="browser-address" x="150" y="10" w="220" h="24" name="Address bar" style="background: #ffffff; border: 1px solid #ececea; border-radius: 7px; display: flex; align-items: center; justify-content: center; padding: 0 12px; color: #6b6b66; font-size: 11px">nootles.app</nt-rect>
-    <nt-group id="browser-lock" x="200" y="17" w="8" h="10" name="Lock">
-      <nt-ellipse id="browser-shackle" x="1" y="0" w="6" h="8" name="Shackle" start="270" sweep="180" inner="0.6" style="${GLYPH}"></nt-ellipse>
-      <nt-rect id="browser-lock-body" x="0" y="4" w="8" h="6" name="Body" style="${GLYPH}; border-radius: 1.5px"></nt-rect>
-    </nt-group>
-    <nt-ellipse id="browser-reload" x="354" y="17" w="10" h="10" name="Reload" start="45" sweep="300" inner="0.6" style="${GLYPH}"></nt-ellipse>
-    <nt-group id="browser-skeleton" x="32" y="72" w="456" h="224" name="Skeleton">
-      <nt-rect id="browser-heading" x="0" y="0" w="180" h="14" name="Heading" style="${FILLER}"></nt-rect>
-      <nt-rect id="browser-line-1" x="0" y="30" w="456" h="8" name="Text" style="${FILLER}"></nt-rect>
-      <nt-rect id="browser-line-2" x="0" y="46" w="420" h="8" name="Text" style="${FILLER}"></nt-rect>
-      <nt-rect id="browser-line-3" x="0" y="62" w="280" h="8" name="Text" style="${FILLER}"></nt-rect>
-      <nt-rect id="browser-image" x="0" y="90" w="456" h="134" name="Image" style="background: #f5f5f3; border-radius: 6px"></nt-rect>
-    </nt-group>
-  </nt-group>
+${browser("browser", 100, 24)}
 </nt-diagram>`;
 
 const MATRIX = `<nt-diagram h="328">

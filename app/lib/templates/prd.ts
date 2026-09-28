@@ -1,8 +1,22 @@
+import { browser, CENTRED, phone, PHONE_W } from "@/app/components/editor/canvas/devices";
+import { canvas, cell, h2, p } from "./blocks";
 import type { ProjectTemplate } from "./types";
 
-/** A table cell: inline content, which is what both the editor and the
- *  thumbnail read. */
-const cell = (text: string) => [{ type: "text" as const, text, styles: {} }];
+const LABEL = `${CENTRED}; color: #6b6b66; font-size: 12px`;
+
+/** Three phones across the column, each under the name of the screen it will hold. */
+const SCREENS = ["First run", "Main screen", "Detail"];
+const MOBILE = `<nt-diagram h="492">
+${SCREENS.map((name, i) => {
+  const x = 20 + i * 240;
+  return `  <nt-text id="screen-${i + 1}-name" x="${x}" y="16" w="${PHONE_W}" h="20" style="${LABEL}">${name}</nt-text>
+${phone(`screen-${i + 1}`, x, 48)}`;
+}).join("\n")}
+</nt-diagram>`;
+
+const WEB = `<nt-diagram h="368">
+${browser("web", 100, 24, { address: "yourproduct.com", skeleton: false })}
+</nt-diagram>`;
 
 /**
  * A product requirements document, as a scaffold: the questions a PRD has to
@@ -12,7 +26,7 @@ const cell = (text: string) => [{ type: "text" as const, text, styles: {} }];
 export const prd: ProjectTemplate = {
   id: "prd",
   name: "PRD",
-  description: "An overview, and a spec folder for requirements and open questions",
+  description: "An overview, and a spec folder for requirements, designs and open questions",
   rows: [
     {
       kind: "page",
@@ -85,6 +99,21 @@ export const prd: ProjectTemplate = {
             { type: "bulletListItem", content: "What happens when it is empty" },
             { type: "bulletListItem", content: "What happens when it fails halfway" },
             { type: "bulletListItem", content: "What happens for someone without permission" },
+          ],
+        },
+        {
+          title: "Designs",
+          blocks: [
+            p(
+              "The screens the requirements add up to. Every frame is a group of ordinary shapes: double-click into one to draw the screen, or paste a screenshot over it.",
+            ),
+            h2("Mobile"),
+            canvas(MOBILE),
+            h2("Web"),
+            canvas(WEB),
+            p(
+              "For another screen, type / and choose Diagram: a new one offers the iPhone and the browser to start from. Name each screen after the requirement it answers.",
+            ),
           ],
         },
         {
