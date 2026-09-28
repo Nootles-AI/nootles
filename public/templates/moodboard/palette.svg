@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000" viewBox="0 0 1000 1000">
+  <rect width="1000" height="1000" fill="#f1ebe3"/>
+  <g fill="none" stroke="#8f7f6c" stroke-width="8" stroke-linejoin="round" opacity="0.7">
+    <rect x="435" y="381" width="130" height="101" rx="16"/>
+    <path d="M451 464l31 -31 23 21 16 -13 29 23"/>
+    <circle cx="526" cy="415" r="10"/>
+  </g>
+  <text x="500" y="605" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="72" fill="#8f7f6c">Palette</text>
+</svg>
