@@ -13,6 +13,7 @@ import type { Id } from "../convex/_generated/dataModel";
 import { schema } from "../app/components/editor/schema";
 import { blockSelection, blockSelectionExtension } from "../app/components/editor/blockSelection";
 import { blockKeysExtension } from "../app/components/editor/blockKeys";
+import { bearFromSlash } from "../app/components/editor/canvas/page/birth";
 import { pasteHandler } from "../app/components/editor/paste";
 import { CurrentPageProvider } from "../app/components/OpenPageContext";
 import {
@@ -360,6 +361,14 @@ const harness = {
   addLine: (after: string) => editor.insertBlocks([{ type: "paragraph" }], after, "after")[0].id,
   /** Takes a block out, as a person deleting it would. */
   removeBlock: (blockId: string) => editor.removeBlocks([blockId]),
+  /** A diagram made and selected in one go, as the slash item does (`slashDiagram`) — before it has mounted. */
+  slashDiagram: (at: string) => {
+    const id = bearFromSlash(editor as never, at, "");
+    blockSelection(editor).select([id]);
+    return id;
+  },
+  /** The preset option the keyboard is on, if any. */
+  presetFocus: () => document.activeElement?.getAttribute("data-preset") ?? null,
   /** The seam's Merge offer under a diagram, and its ×, while it shows. */
   seam: (blockId: string) => {
     const seam = bandOf(blockId)?.parentElement?.querySelector(".nt-canvas-merge");
