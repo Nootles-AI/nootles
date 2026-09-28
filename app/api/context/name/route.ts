@@ -43,7 +43,6 @@ export async function POST(req: Request) {
     .catch(() => null);
   if (!outline) return new Response(null, { status: 204 });
 
-  const started = Date.now();
   try {
     // Not tied to the request: a tab closed mid-call would otherwise leave the
     // repository claimed and unnamed, and the claim would have to time out first.
@@ -56,7 +55,7 @@ export async function POST(req: Request) {
         projectId: project,
         promptTokens: call.promptTokens,
         completionTokens: call.completionTokens,
-        latencyMs: Date.now() - started,
+        latencyMs: call.latencyMs,
         ...(call.failure
           ? { status: "error" as const, errorCode: call.failure }
           : { status: "ok" as const }),
