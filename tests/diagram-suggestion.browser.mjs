@@ -77,6 +77,7 @@ let script = { chunks: [], end: "close" };
 let answer = "";
 const completions = [];
 const diagrams = [];
+let streamedChunks = 0;
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url, "http://localhost");
@@ -98,6 +99,7 @@ const server = createServer(async (request, response) => {
         await sleep(pause);
         if (response.destroyed) return;
         response.write(chunk);
+        streamedChunks++;
       }
       await sleep(mine.tailMs ?? 0);
       if (mine.end === "destroy") response.destroy();
@@ -342,6 +344,42 @@ try {
     assert.deepEqual(ids(placed), ["s1", "s2", "s3", "s4"]);
     assert.match(placed, /<nt-edge[^>]*id="e1"/);
     checks.push("whole-reply-accepted");
+  });
+
+  // A person takes the first shape while a long second label is still being
+  // streamed. An unfinished shape must not repeatedly write the same diagram.
+  await scenario("taken-while-next-shape-streams", async (page) => {
+    const label = "A".repeat(12000);
+    const pieces = label.match(/.{1,200}/g);
+    const beforeChunks = streamedChunks;
+    await ask(page, {
+      chunks: [
+        [150, OPEN + S1],
+        [300, '\n  <nt-rect id="s2" x="180" y="156" w="240" h="128">'],
+        ...pieces.map((piece) => [10, piece]),
+        [1500, "</nt-rect>" + CLOSE],
+      ],
+      end: "close",
+    });
+    await until(page, (o) => o.text.includes("Order received"), "first shape offered");
+    await take(page);
+    await page.evaluate(() => window.completionWindow.watchUpdates());
+    const deadline = Date.now() + 5000;
+    while (streamedChunks < beforeChunks + 2 + pieces.length) {
+      if (Date.now() > deadline) throw new Error("long shape did not stream");
+      await sleep(25);
+    }
+    await sleep(150);
+    const updatesBeforeClose = await page.evaluate(() => window.completionWindow.updateAttempts());
+    assert.equal(updatesBeforeClose, 0, "partial shape made no block update attempts");
+    const [during] = await canvases(page);
+    assert.deepEqual(ids(during), ["s1"], "only whole shapes are in the document");
+    await sleep(1700);
+    const [finished] = await canvases(page);
+    assert.deepEqual(ids(finished), ["s1", "s2"], "the complete shape landed after the stream ended");
+    assert.equal(await page.evaluate(() => window.completionWindow.updateAttempts()), 1,
+      "the closed shape landed once, with no identical final write");
+    checks.push("taken-diagram-writes-only-when-a-shape-closes");
   });
 
   // A dropped connection is a failed fetch, which the browser reports as a
