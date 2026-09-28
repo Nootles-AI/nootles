@@ -54,6 +54,10 @@ export function chatTools(
    * the choice rides the resume request's body into here.
    */
   drawStyle: DrawChoice = DEFAULT_DRAW_CHOICE,
+  drawLifecycle?: {
+    deadlineAt?: number;
+    keepAlive?: (work: Promise<unknown>) => void;
+  },
 ) {
   return {
     // The project's context graph, by the same three verbs an MCP client
@@ -242,89 +246,111 @@ export function chatTools(
       // picker in the chat answers the approval, and the choice arrives in
       // the resume request's body.
       needsApproval: true,
-      execute: async ({ brief, ratio }) => {
-        // A shot's frame is COMPUTED from the board's ratio, never taken from
-        // the model's arithmetic. It used to be handed w and h against a table
-        // of ratio→height in the prompt, and a board of 16:9 shots came back
-        // drawn 569 tall — the 9:16 row — so every picture stood three times
-        // its shot and hung out of the frame. The model now names the ratio it
-        // can read off the board, and the one place that knows what a shot
-        // measures works out the rest.
-        const frame = { w: SHOT_W, h: shotHeight(ratio) };
+      execute: ({ brief, ratio }) => {
+        const work = (async () => {
+          // A shot's frame is COMPUTED from the board's ratio, never taken from
+          // the model's arithmetic. It used to be handed w and h against a table
+          // of ratio→height in the prompt, and a board of 16:9 shots came back
+          // drawn 569 tall — the 9:16 row — so every picture stood three times
+          // its shot and hung out of the frame. The model now names the ratio it
+          // can read off the board, and the one place that knows what a shot
+          // measures works out the rest.
+          const frame = { w: SHOT_W, h: shotHeight(ratio) };
 
-        // The ref is the brief's own fingerprint, which makes drawing
-        // IDEMPOTENT — and idempotence is the whole reliability story. A
-        // nine-shot salvo routinely loses its slowest calls when the model
-        // ends the step early (it likes an edit_page in with the draws, and
-        // ending the step ends the request): measured live, four of nine
-        // shots died in flight and their retries died the same way. So the
-        // work below deliberately ignores the request's abort signal — an
-        // orphaned draw finishes and stores anyway — and the retry, hashing
-        // the same brief, finds the finished drawing here for free instead
-        // of paying the artist twice. The style is part of the fingerprint:
-        // the same brief in a different style is a different drawing, not a
-        // cache hit on the old one. The tuple keeps the shape it had when
-        // the tool also drew standalone pictures, so a board's finished shots
-        // are still found under their old names.
-        const ref = `d${createHash("sha256")
-          .update(
-            JSON.stringify([
-              brief,
-              frame.w,
-              frame.h,
-              "scene",
-              drawStyle.style,
-              drawStyle.artisticLevel,
-            ]),
-          )
-          .digest("hex")
-          .slice(0, 10)}`;
-        const cached = await convex.query(api.ai.drawings.get, { refs: [ref] });
-        if (cached[ref]) {
-          return { ref, shapes: (cached[ref].match(/<nt-[a-z]/g) ?? []).length - 1 };
-        }
+          // The ref is the brief's own fingerprint, which makes drawing
+          // IDEMPOTENT — and idempotence is the whole reliability story. A
+          // nine-shot salvo routinely loses its slowest calls when the model
+          // ends the step early (it likes an edit_page in with the draws, and
+          // ending the step ends the request): measured live, four of nine
+          // shots died in flight and their retries died the same way. So the
+          // work below deliberately ignores the request's abort signal — an
+          // orphaned draw finishes and stores anyway — and the retry, hashing
+          // the same brief, finds the finished drawing here for free instead
+          // of paying the artist twice. The style is part of the fingerprint:
+          // the same brief in a different style is a different drawing, not a
+          // cache hit on the old one. The tuple keeps the shape it had when
+          // the tool also drew standalone pictures, so a board's finished shots
+          // are still found under their old names.
+          const ref = `d${createHash("sha256")
+            .update(
+              JSON.stringify([
+                brief,
+                frame.w,
+                frame.h,
+                "scene",
+                drawStyle.style,
+                drawStyle.artisticLevel,
+              ]),
+            )
+            .digest("hex")
+            .slice(0, 10)}`;
+          // A failed import is deterministic for this brief/style/ref. Keep its
+          // marker separate from the `d…` ref that edit_page may redeem as HTML.
+          const failedRef = `f${ref}`;
+          const cached = await convex.query(api.ai.drawings.get, { refs: [ref, failedRef] });
+          if (cached[ref]) {
+            return { ref, shapes: (cached[ref].match(/<nt-[a-z]/g) ?? []).length - 1 };
+          }
+          if (cached[failedRef]) {
+            return { error: "That drawing could not be imported. Rewrite the brief before trying again." };
+          }
 
-        // Every shot goes to the vector specialist. A miss is an honest miss
-        // the agent can retry (idempotently, for free) — it used to fall
-        // through to an LLM lane, which filled boards with pictures not worth
-        // keeping.
-        const vector = await generateVectorDrawing(brief, frame, drawStyle);
-        if (!vector) {
-          return {
-            error:
-              "The artist did not answer for this brief. Call draw again " +
-              "with the SAME brief — finished work is kept, so a retry " +
-              "costs nothing and answers instantly once the drawing lands. " +
-              "If it misses twice more, say so honestly and leave the shot " +
-              "to its written note.",
+          // Every shot goes to the vector specialist. A transient miss can be
+          // retried, while an import failure is kept as a named refusal.
+          const vector = await generateVectorDrawing(
+            brief, frame, drawStyle, undefined, drawLifecycle?.deadlineAt,
+          );
+          const call = {
+            ownerId,
+            feature: "diagram" as const,
+            model: AI.diagram.vector.model,
+            projectId,
+            latencyMs: vector.latencyMs,
           };
-        }
-        recordAiCall(convex, {
-          ownerId,
-          feature: "diagram",
-          model: AI.diagram.vector.model,
-          projectId,
-          latencyMs: vector.latencyMs,
-          status: "ok",
-        });
-        const html = vector.html;
-        if (!html) {
-          return {
-            error:
-              "Nothing worth drawing came back. Rewrite the brief to describe a " +
-              "picture — a subject, an action, a composition — and try once more.",
-          };
-        }
-        // The drawing goes into its own table and the result is a NAME. Not an
-        // optimisation — carried in the result, a drawing rides everywhere a
-        // message rides: through the model's own step loop (nine shots put
-        // 400K tokens into one request — the draw tool executes server-side,
-        // so its results re-enter the model INSIDE the request, where the
-        // route's transcript stripping never runs), and into a persisted
-        // transcript that Convex refused at 2.14MiB. A ref weighs nothing in
-        // all three places, and `edit_page` redeems it from the table.
-        await convex.mutation(api.ai.drawings.put, { ref, data: html });
-        return { ref, shapes: (html.match(/<nt-[a-z]/g) ?? []).length - 1 };
+          if (vector.html === null) {
+            if (vector.cacheFailure) {
+              await convex.mutation(api.ai.drawings.put, { ref: failedRef, data: vector.errorCode });
+            }
+            await recordAiCall(convex, {
+              ...call,
+              status: vector.status,
+              errorCode: vector.errorCode,
+              // A refusal, timeout or broken connection cannot establish a
+              // provider charge. A valid response with unusable SVG did generate.
+              ...(vector.errorCode !== "invalid-svg" && vector.errorCode !== "no-image"
+                ? { costUsdOverride: null }
+                : {}),
+            });
+            if (vector.cacheFailure) {
+              return { error: "That drawing could not be imported. Rewrite the brief before trying again." };
+            }
+            return {
+              error:
+                "The artist did not answer for this brief. Call draw again " +
+                "with the SAME brief if the service recovers. If it keeps failing, " +
+                "say so honestly and leave the shot to its written note.",
+            };
+          }
+          const html = vector.html;
+          // The drawing goes into its own table and the result is a NAME. Not an
+          // optimisation — carried in the result, a drawing rides everywhere a
+          // message rides: through the model's own step loop (nine shots put
+          // 400K tokens into one request — the draw tool executes server-side,
+          // so its results re-enter the model INSIDE the request, where the
+          // route's transcript stripping never runs), and into a persisted
+          // transcript that Convex refused at 2.14MiB. A ref weighs nothing in
+          // all three places, and `edit_page` redeems it from the table.
+          try {
+            await convex.mutation(api.ai.drawings.put, { ref, data: html });
+          } catch {
+            await recordAiCall(convex, { ...call, status: "error", errorCode: "store-failed" });
+            return { error: "The drawing finished but could not be saved. Try draw again later." };
+          }
+          await recordAiCall(convex, { ...call, status: "ok" });
+          return { ref, shapes: (html.match(/<nt-[a-z]/g) ?? []).length - 1 };
+        })();
+        drawLifecycle?.keepAlive?.(work);
+        return work;
       },
     }),
 
