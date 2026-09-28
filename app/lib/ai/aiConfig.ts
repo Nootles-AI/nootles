@@ -31,7 +31,10 @@ export const AI = {
     maxTokens: {
       /** "complete": the few words the page already implies, and no more. */
       complete: 64,
-      /** Prose where a block would be cut anyway — inside a table cell. */
+      /**
+       * Prose where a block would be cut anyway: inside a table cell, or with
+       * words after the caret in its block (`completionShape`, NT-102).
+       */
       prose: 96,
       /**
        * Structure spans many lines. A five-node flowchart with labelled edges

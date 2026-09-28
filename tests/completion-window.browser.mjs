@@ -129,11 +129,20 @@ try {
     return page;
   };
 
-  /** Puts the caret at the end of a block and types, the way a person does. */
-  const typeAt = async (page, id, typed, completion) => {
+  /**
+   * Puts the caret in a block — at its end, or `offset` characters in — and
+   * types, the way a person does.
+   */
+  const typeAt = async (page, id, typed, completion, offset) => {
     answer = completion;
     const before = requests.length;
-    await page.evaluate((id) => window.completionWindow.caretAtEnd(id), id);
+    await page.evaluate(
+      ([id, offset]) =>
+        offset === undefined
+          ? window.completionWindow.caretAtEnd(id)
+          : window.completionWindow.caretAt(id, offset),
+      [id, offset],
+    );
     await sleep(100);
     await page.keyboard.type(typed, { delay: 25 });
     const deadline = Date.now() + 8000;
@@ -156,6 +165,7 @@ try {
     const page = await open("list", 1);
     const original = await doc(page);
     const req = await typeAt(page, "li12", ".", "</li>\n<li>Step 13: verify widget13");
+    assert.equal(req.mode, "structure", "the end of a list item asks for structure");
     assert.ok(req.before.startsWith("<title>Release checklist</title>"), "title leads the prompt");
     assert.ok(req.before.includes("Launch steps"), "the heading above the list is shown");
     for (let i = 1; i <= 11; i++) {
@@ -235,6 +245,82 @@ try {
     assert.ok(req.after.includes("Rollout checklist and staffing"), "the later paragraph is shown");
     assert.match(await ghost(page), /rollout staffing/, "a completion grounded below is offered");
     checks.push("complete-grounded-below");
+    await page.context().close();
+  }
+
+  // 6. NT-102: mid-sentence in create mode asks for prose (96 tokens, stopped
+  //    at a line break), and a completion that runs on into a paragraph of its
+  //    own is cut back to the words that finish the sentence.
+  {
+    const page = await open("sentence", 1);
+    const original = await doc(page);
+    const req = await typeAt(
+      page,
+      "caret",
+      " train",
+      " finally</p>\n<p>An invented paragraph about nothing.</p>",
+      "The release".length,
+    );
+    assert.equal(req.mode, "prose", "a caret with words after it asks for prose");
+    assert.ok(req.after.startsWith(" ships on Friday."), "the rest of the sentence is the suffix");
+    // The ghost carries a "Tab" key hint after the words.
+    assert.equal(
+      (await ghost(page)).replace(/Tab$/, "").trim(),
+      "finally",
+      "only the words finishing the sentence are offered",
+    );
+    await page.keyboard.press("Tab");
+    await sleep(400);
+    const after = await doc(page);
+    assert.equal(after.length, original.length, "no paragraph is added");
+    assert.equal(
+      after.find((b) => b.id === "caret").text,
+      "The release train finally ships on Friday.",
+    );
+    assert.ok(!after.some((b) => b.text.includes("invented")), "the run-on paragraph never lands");
+    checks.push("mid-sentence-asks-for-prose-and-drops-the-run-on");
+    await page.context().close();
+  }
+
+  // 7. NT-102: mid-sentence, a completion that is nothing but a new block has
+  //    nothing to offer — it would split the sentence around a list.
+  {
+    const page = await open("sentence", 1);
+    const original = await doc(page);
+    const req = await typeAt(
+      page,
+      "caret",
+      " train",
+      "</p>\n<ul>\n<li>Invented item</li>\n</ul>",
+      "The release".length,
+    );
+    assert.equal(req.mode, "prose");
+    assert.equal(await ghost(page), "", "no ghost");
+    assert.equal(
+      await page.evaluate(() => document.querySelectorAll(".nt-action-chip, .nt-ghost-blocks").length),
+      0,
+      "no block preview",
+    );
+    const after = await doc(page);
+    assert.equal(after.length, original.length, "the sentence is not split");
+    checks.push("mid-sentence-block-only-completion-offers-nothing");
+    await page.context().close();
+  }
+
+  // 8. NT-102: the end of the same paragraph still asks for structure, and the
+  //    Complete end mid-sentence still asks for a completion.
+  {
+    const page = await open("sentence", 1);
+    const req = await typeAt(page, "caret", " Then", " we celebrate.");
+    assert.equal(req.mode, "structure", "the end of a block asks for structure");
+    checks.push("end-of-block-still-asks-for-structure");
+    await page.context().close();
+  }
+  {
+    const page = await open("sentence", 0);
+    const req = await typeAt(page, "caret", " train", " ships", "The release".length);
+    assert.equal(req.mode, "complete", "the Complete end is unchanged");
+    checks.push("complete-end-unchanged-mid-sentence");
     await page.context().close();
   }
 

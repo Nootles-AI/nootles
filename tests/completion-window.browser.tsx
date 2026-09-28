@@ -2,6 +2,7 @@ import { BlockNoteEditor } from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/mantine";
 import { ConvexProvider, ConvexReactClient } from "convex/react";
 import { createRoot } from "react-dom/client";
+import { TextSelection } from "prosemirror-state";
 import { schema } from "../app/components/editor/schema";
 import { completionExtension } from "../app/components/editor/ai/completionExtension";
 import { hintExtension } from "../app/components/editor/ai/hintText";
@@ -53,6 +54,14 @@ const SCENARIOS: Record<string, { title: string; blocks: ReturnType<typeof block
     blocks: [
       block("intro", "paragraph", "Orders move through picking, packing and shipping."),
       block("caret", "paragraph", "Here is the flow"),
+    ],
+  },
+  sentence: {
+    title: "Launch plan",
+    blocks: [
+      block("intro", "paragraph", "The launch is planned for the spring."),
+      block("caret", "paragraph", "The release ships on Friday."),
+      block("after", "paragraph", "Support is staffed all weekend."),
     ],
   },
   below: {
@@ -118,6 +127,14 @@ const harness = {
   caretAtEnd(id: string) {
     editor.focus();
     editor.setTextCursorPosition(id, "end");
+  },
+  /** The caret `offset` characters into block `id`'s text. */
+  caretAt(id: string, offset: number) {
+    editor.focus();
+    editor.setTextCursorPosition(id, "start");
+    const view = editor.prosemirrorView!;
+    const at = view.state.selection.from + offset;
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, at)));
   },
   doc: () => flat(editor.document),
   /** Each canvas block's stored markup, in document order. */

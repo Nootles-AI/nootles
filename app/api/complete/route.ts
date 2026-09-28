@@ -46,9 +46,9 @@ export async function POST(req: Request) {
   const spent = await refuseIfSpent(token, "completions", projectId);
   if (spent) return spent;
 
-  // What the caller is completing INTO, which is what the budget is for.
-  // "html" is the older spelling of "structure" and still arrives from the
-  // code and math lanes.
+  // What the caller is completing INTO, which is what the budget is for; the
+  // editor picks it in `completionShape`. "html" is the older spelling of
+  // "structure" and still arrives from the code and math lanes.
   const shape =
     mode === "complete" ? "complete" : mode === "prose" ? "prose" : "structure";
   return streamFim(before, typeof after === "string" ? after : "", {
