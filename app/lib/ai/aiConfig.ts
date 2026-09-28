@@ -102,14 +102,13 @@ export const AI = {
    */
   /**
    * Naming what the GitHub indexer clustered (stage 2 of the context graph).
-   * One call names a whole repository's areas and concerns — the design's
-   * estimate of a call per concern was a hundred times this — split by area
-   * only when a repository has more concerns than one answer holds.
+   * Names a repository's areas and concerns in bounded groups, with a small
+   * number of calls in flight at once.
    */
   context: {
     nameModel: "google/gemini-3.7-flash",
     /** Concerns per call; each costs a name and a sentence in the answer. */
-    concernsPerCall: 60,
+    concernsPerCall: 30,
     answerTokens: 4000,
   },
 

@@ -17,7 +17,7 @@ change together, so each group is one real area of the product or codebase.
 For every area and concern you are given, write:
 - title: 1 to 4 words, what it IS or DOES for the product ("Checkout flow",
   "Canvas rendering", "Auth and sessions"). No file extensions, no "module",
-  no "misc". Title case for the first word only.
+  no "misc". Use sentence case: capitalize the first word and preserve proper names.
 - brief: one plain sentence (at most 20 words) saying what it does.
 
 A concern marked styling is the codebase's styling and component library: keep
@@ -27,99 +27,274 @@ Answer with JSON only: {"names":[{"id":"...","title":"...","brief":"..."}]},
 one entry per id you were given, and nothing else.`;
 
 type Chunk = NamingOutline["areas"];
+type Call = {
+  promptTokens?: number;
+  completionTokens?: number;
+  latencyMs: number;
+  failure?: string;
+};
+type Work = { areas: Chunk; root: number; depth: number; order: number };
+const PROMPT_CHARS = 50_000;
+const PARALLEL = 3;
+const EXTRA_CALLS_PER_CHUNK = 8;
 
 export async function nameRepository(
   outline: NamingOutline,
   signal?: AbortSignal,
 ): Promise<{
   names: Named[];
-  calls: { promptTokens?: number; completionTokens?: number; failure?: string }[];
+  calls: Call[];
 }> {
-  const names: Named[] = [];
-  const calls: { promptTokens?: number; completionTokens?: number; failure?: string }[] = [];
-  for (const chunk of chunks(outline.areas)) {
-    const result = await nameChunk(outline, chunk, signal);
-    calls.push(result.call);
-    names.push(...result.names);
+  const initial = chunks(outline);
+  const queue: Work[] = initial.map((areas, root) => ({
+    areas,
+    root,
+    depth: 0,
+    order: root,
+  }));
+  const extra = initial.map(() => 0);
+  const results: { names: Named[]; call: Call }[] = [];
+  let next = 0;
+
+  async function worker() {
+    while (next < queue.length) {
+      const job = queue[next++];
+      const result = await nameChunk(outline, job.areas, signal);
+      results[job.order] = result;
+      if (!result.truncated || job.depth >= 4) continue;
+      const missing = missingPieces(
+        job.areas,
+        new Set(result.names.map((n) => n.nodeId)),
+      );
+      if (!missing.length || (missing.length === 1 && job.depth > 0)) continue;
+      const middle = Math.ceil(missing.length / 2);
+      const halves =
+        missing.length === 1
+          ? [missing]
+          : [missing.slice(0, middle), missing.slice(middle)];
+      for (const half of halves) {
+        if (extra[job.root] >= EXTRA_CALLS_PER_CHUNK) break;
+        queue.push({
+          areas: pack(half),
+          root: job.root,
+          depth: job.depth + 1,
+          order: queue.length,
+        });
+        extra[job.root]++;
+      }
+    }
   }
-  return { names, calls };
+  await Promise.all(
+    Array.from({ length: Math.min(PARALLEL, queue.length) }, () => worker()),
+  );
+  const names = new Map<string, Named>();
+  for (const result of results) {
+    for (const name of result.names)
+      if (!names.has(name.nodeId)) names.set(name.nodeId, name);
+  }
+  return {
+    names: [...names.values()],
+    calls: results.map((result) => result.call),
+  };
 }
 
-/** Areas grouped so no call carries more concerns than one answer holds. */
-function chunks(areas: Chunk): Chunk[] {
+/** A large area can cross calls; each copy carries only the concerns in that call. */
+function pieces(areas: Chunk): Chunk {
+  return areas.flatMap((area) =>
+    area.concerns.length
+      ? area.concerns.map((concern) => ({ ...area, concerns: [concern] }))
+      : [{ ...area, concerns: [] }],
+  );
+}
+
+function pack(parts: Chunk): Chunk {
+  const grouped: Chunk = [];
+  for (const part of parts) {
+    const last = grouped[grouped.length - 1];
+    if (last?.nodeId === part.nodeId) last.concerns.push(...part.concerns);
+    else grouped.push({ ...part, concerns: [...part.concerns] });
+  }
+  return grouped;
+}
+
+function chunks(outline: NamingOutline): Chunk[] {
   const out: Chunk[] = [];
   let current: Chunk = [];
-  let count = 0;
-  for (const area of areas) {
-    if (count && count + area.concerns.length > AI.context.concernsPerCall) {
+  for (const piece of pieces(outline.areas)) {
+    const candidate = pack([...current, piece]);
+    const count = candidate.reduce(
+      (sum, area) => sum + area.concerns.length,
+      0,
+    );
+    if (
+      current.length &&
+      (count > AI.context.concernsPerCall ||
+        prompt(outline, candidate).length > PROMPT_CHARS)
+    ) {
       out.push(current);
       current = [];
-      count = 0;
     }
-    current.push(area);
-    count += area.concerns.length;
+    current = pack([...current, piece]);
   }
   if (current.length) out.push(current);
   return out;
 }
 
-async function nameChunk(outline: NamingOutline, areas: Chunk, signal?: AbortSignal) {
+function missingPieces(areas: Chunk, present: Set<string>): Chunk {
+  return areas.flatMap((area) => {
+    const missing = area.concerns.filter(
+      (concern) => !present.has(concern.nodeId),
+    );
+    return missing.length
+      ? missing.map((concern) => ({ ...area, concerns: [concern] }))
+      : present.has(area.nodeId)
+        ? []
+        : [{ ...area, concerns: [] }];
+  });
+}
+
+function short(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
+function prompt(outline: NamingOutline, areas: Chunk): string {
   const lines = [
-    `Repository: ${outline.fullName}${outline.description ? ` — ${outline.description}` : ""}`,
+    `Repository: ${short(outline.fullName, 300)}${outline.description ? ` — ${short(outline.description, 1000)}` : ""}`,
     "",
   ];
-  const ids = new Set<string>();
   for (const area of areas) {
-    ids.add(area.nodeId);
-    lines.push(`AREA id=${area.nodeId} (currently "${area.name}")`);
+    lines.push(`AREA id=${area.nodeId} (currently "${short(area.name, 120)}")`);
     for (const c of area.concerns) {
-      ids.add(c.nodeId);
-      lines.push(`  CONCERN id=${c.nodeId}${c.styling ? " styling" : ""} (currently "${c.name}")`);
-      for (const f of c.files) lines.push(`    ${f.path}${f.brief ? ` — ${f.brief}` : ""}`);
+      lines.push(
+        `  CONCERN id=${c.nodeId}${c.styling ? " styling" : ""} (currently "${short(c.name, 120)}")`,
+      );
+      for (const f of c.files)
+        lines.push(
+          `    ${short(f.path, 240)}${f.brief ? ` — ${short(f.brief, 160)}` : ""}`,
+        );
       if (c.more) lines.push(`    …and ${c.more} more files`);
     }
     lines.push("");
   }
-
-  const res = await postChat(
-    chatTarget(AI.context.nameModel, AI.context.answerTokens),
-    {
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: SYSTEM },
-        { role: "user", content: lines.join("\n").slice(0, 60_000) },
-      ],
-    },
-    signal,
-  );
-  if (!res.ok) {
-    await reportUpstream("context-name", res);
-    return { names: [], call: { failure: `upstream-${res.status}` } };
-  }
-  const json = await res.json();
-  const usage = readUsage(json?.usage);
-  const text = String(json?.choices?.[0]?.message?.content ?? "");
-  const parsed = parse(text).filter((n) => ids.has(n.nodeId));
-  return {
-    names: parsed,
-    call: { ...usage, ...(parsed.length ? {} : { failure: "unparsed" }) },
-  };
+  return lines.join("\n");
 }
 
-/** The answer's names, tolerating a fenced block around the JSON. */
+async function nameChunk(
+  outline: NamingOutline,
+  areas: Chunk,
+  signal?: AbortSignal,
+) {
+  const started = Date.now();
+  const ids = new Set<string>();
+  for (const area of areas) {
+    ids.add(area.nodeId);
+    for (const c of area.concerns) ids.add(c.nodeId);
+  }
+
+  try {
+    const res = await postChat(
+      chatTarget(AI.context.nameModel, AI.context.answerTokens),
+      {
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: SYSTEM },
+          { role: "user", content: prompt(outline, areas) },
+        ],
+      },
+      signal,
+    );
+    if (!res.ok) {
+      await reportUpstream("context-name", res);
+      return {
+        names: [],
+        call: {
+          latencyMs: Date.now() - started,
+          failure: `upstream-${res.status}`,
+        },
+        truncated: false,
+      };
+    }
+    const json = await res.json();
+    const usage = readUsage(json?.usage);
+    const choice = json?.choices?.[0];
+    const text = String(choice?.message?.content ?? "");
+    const parsed = parse(text).filter((n) => ids.has(n.nodeId));
+    const named = new Set(parsed.map((n) => n.nodeId));
+    const truncated = choice?.finish_reason === "length";
+    return {
+      names: parsed,
+      call: {
+        ...usage,
+        latencyMs: Date.now() - started,
+        ...(truncated
+          ? { failure: "truncated" }
+          : !parsed.length
+            ? { failure: "unparsed" }
+            : named.size < ids.size
+              ? { failure: "incomplete" }
+              : {}),
+      },
+      truncated,
+    };
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    return {
+      names: [],
+      call: { latencyMs: Date.now() - started, failure: "request" },
+      truncated: false,
+    };
+  }
+}
+
+function rows(value: unknown): Named[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((n) => {
+    if (!n || typeof n !== "object") return [];
+    const row = n as { id?: unknown; title?: unknown; brief?: unknown };
+    return typeof row.id === "string" && typeof row.title === "string"
+      ? [
+          {
+            nodeId: row.id,
+            title: row.title,
+            brief: typeof row.brief === "string" ? row.brief : "",
+          },
+        ]
+      : [];
+  });
+}
+
+/** Keep complete entries even if the response ends inside a later JSON object. */
 export function parse(text: string): Named[] {
   const body = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
   try {
     const value = JSON.parse(body) as { names?: unknown };
-    if (!Array.isArray(value.names)) return [];
-    return value.names.flatMap((n) => {
-      const row = n as { id?: unknown; title?: unknown; brief?: unknown };
-      return typeof row.id === "string" && typeof row.title === "string"
-        ? [{ nodeId: row.id, title: row.title, brief: typeof row.brief === "string" ? row.brief : "" }]
-        : [];
-    });
+    return rows(value.names);
   } catch {
-    return [];
+    const start = /"names"\s*:\s*\[/.exec(text);
+    if (!start) return [];
+    const complete: unknown[] = [];
+    let depth = 0;
+    let begin = -1;
+    let quoted = false;
+    let escaped = false;
+    for (let i = start.index + start[0].length; i < text.length; i++) {
+      const char = text[i];
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === '"') quoted = false;
+      } else if (char === '"') quoted = true;
+      else if (char === "{") {
+        if (depth++ === 0) begin = i;
+      } else if (char === "}" && depth && --depth === 0) {
+        try {
+          complete.push(JSON.parse(text.slice(begin, i + 1)));
+        } catch {
+          /* Keep later complete rows. */
+        }
+      } else if (char === "]" && depth === 0) break;
+    }
+    return rows(complete);
   }
 }

@@ -548,8 +548,11 @@ above, the departure is deliberate:
   (with the Convex `api.*` resolver), clusters with two-level Louvain, and writes repo → area →
   concern → file nodes, import and `about` edges, and concern rollups
   (`convex/github/index/`, pure and tested). Stage 2 names areas and concerns with Gemini in
-  one call per repository, or one per 60 concerns (`app/api/context/name`, asked for by the
-  linker's workspace, bounded by a claim so it runs once per index). Directory names stand in
+  one call for a small repository, or bounded chunks of at most 30 concerns and 50K prompt
+  characters for a larger one (`app/api/context/name`, asked for by the linker's workspace,
+  bounded by a claim so it runs once per index). Up to three chunks run at once. A cut-off
+  answer keeps its complete names and retries only missing entries in smaller chunks, with
+  a limit on extra calls. Each naming call has its own latency and AI-call ledger row. Directory names stand in
   until then and stay if naming fails. The graph view shows repos, areas and concerns with
   their strongest ties; files are listed in a concern's panel. `read_context` returns a file's
   whole text from GitHub.
