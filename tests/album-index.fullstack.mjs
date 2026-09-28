@@ -67,6 +67,8 @@ const PICTURES = {
   // Deep blue, then deep green: colours a grey stand-in would contradict.
   "sea.png": png(48, 64, (x, y) => [10, 40 + (y >> 1), 190 + (x >> 1), 255]),
   "forest.png": png(64, 64, (x, y) => [20 + (x >> 2), 120 + (y >> 1), 30, 255]),
+  "cloud.png": png(64, 48, (x, y) => [170 + (x >> 2), 190 + (y >> 2), 210, 255]),
+  "lamp.png": png(48, 64, (x, y) => [160 + (x >> 2), 90 + (y >> 2), 20, 255]),
 };
 
 const album = (id, origin, names) => ({
@@ -220,6 +222,33 @@ try {
     check("[legacy] the stored row now holds a measured palette", (healed?.palette ?? []).length > 0, true);
     check("[legacy] …a measured energy", typeof healed?.energy === "number" && healed.energy > 0, true);
     check("[legacy] …and its caption and rank", [healed?.alt, healed?.striking], ["forest.png photo", 55]);
+  }
+
+  // ── 4. The provider cuts off the last caption ────────────────────────────
+  {
+    console.log("\nan album whose last caption was cut off");
+    const names = ["cloud.png", "lamp.png"];
+    const blocks = [album("album_d", origin, names)];
+    captions = new Map();
+    await page.route(`${origin}/api/album/index`, (route) => route.fulfill({ status: 503, body: "" }), { times: 1 });
+    nameCaptions((await read(blocks, ["album_d"])).index, names);
+
+    await page.route(`${origin}/api/album/index`, async (route) => {
+      const { handles } = route.request().postDataJSON();
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ described: [{ handle: handles[0], alt: "cloud.png photo", striking: 40 }] }),
+      });
+    }, { times: 1 });
+    const first = await read(blocks, ["album_d"]);
+    check("[cut off] completed caption is visible", lineFor(first.index, "cloud.png") !== null, true);
+    check("[cut off] last picture remains undescribed", first.index.includes("undescribed"), true);
+    check("[cut off] last caption is not stored", (await stored())("lamp.png")?.alt, undefined);
+
+    const again = await read(blocks, ["album_d"]);
+    check("[cut off] next read asks only for the missing picture", again.sheets, [["lamp.png"]]);
+    check("[cut off] next read shows its complete caption", lineFor(again.index, "lamp.png") !== null, true);
+    check("[cut off] complete caption is stored", (await stored())("lamp.png")?.alt, "lamp.png photo");
   }
 
   check("no request left the fixture or the local backend", deployment.outbound, []);
