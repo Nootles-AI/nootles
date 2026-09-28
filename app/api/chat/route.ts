@@ -90,6 +90,13 @@ export async function POST(req: Request) {
   if (!threadId) {
     return new Response("`threadId` is required", { status: 400 });
   }
+  // The composer persists this id before sending. Client-tool resumes retain
+  // the same user message, while a follow-up adds a new one.
+  const latestUserId = messages.findLast((message) => message?.role === "user")?.id;
+  const turnId =
+    typeof latestUserId === "string" && latestUserId.length > 0 && latestUserId.length <= 128
+      ? latestUserId
+      : undefined;
   // The open page's comments, as the browser holding them digested them. Its
   // own words about comments it could already read, so nothing to authorize —
   // only to bound. `toDigest` never builds what this refuses, so a refusal is a
@@ -173,6 +180,7 @@ export async function POST(req: Request) {
       keepAlive: (work) => after(() => work.then(() => undefined, () => undefined)),
       deadlineAt: startedAt + maxDuration * 1_000 - 10_000,
     },
+    turnId,
   );
   const history = stripDrawings(
     shortenStaleReads(
@@ -208,7 +216,7 @@ export async function POST(req: Request) {
               offered,
               budget > 0,
               AbortSignal.any([req.signal, refused.signal]),
-              { ownerId: caller.userId, projectId },
+              { ownerId: caller.userId, projectId, turnId },
             ).catch(() => false)
           : null,
       )
@@ -286,6 +294,8 @@ export async function POST(req: Request) {
         feature: "chat",
         model: AI.chat.model,
         projectId,
+        ...(turnId ? { turnId } : {}),
+        ...(turnId ? { turnRequest: true as const } : {}),
         promptTokens: usage?.inputTokens,
         completionTokens: usage?.outputTokens,
         cacheReadTokens: usage?.inputTokenDetails.cacheReadTokens,
@@ -353,7 +363,7 @@ async function commentsWanted(
   digest: CommentsDigest,
   mayAsk: boolean,
   signal: AbortSignal,
-  asker: { ownerId: string | null; projectId?: string },
+  asker: { ownerId: string | null; projectId?: string; turnId?: string },
 ): Promise<boolean | null> {
   const last = messages[messages.length - 1];
   const asked = last?.role === "assistant" ? last.metadata?.commentsGate : undefined;

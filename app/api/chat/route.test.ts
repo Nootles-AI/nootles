@@ -624,7 +624,7 @@ describe("a caller beginChat refuses (NT-83)", () => {
   });
 });
 
-describe("the ledger row (NT-89)", () => {
+describe("the ledger row (NT-89, NT-118)", () => {
   const chatRows = () => recordAiCall.mock.calls.filter(([, row]) => row.feature === "chat").map(([, row]) => row);
 
   /** A chat model whose one answer is `parts`, or which refuses the call. */
@@ -663,6 +663,20 @@ describe("the ledger row (NT-89)", () => {
 
   beforeEach(() => {
     vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  test("a resumed tool turn keeps the user's id, and a follow-up starts another turn", async () => {
+    answering([...began, ...ended("stop")]);
+    const first = user("Make a plan");
+    const assistant: AbMessage = { id: "a1", role: "assistant", parts: [{ type: "text", text: "I read the page." }] };
+    await run(post({ messages: [first] }));
+    await run(post({ messages: [first, assistant] }));
+    await run(post({ messages: [first, assistant, { ...user("Now revise it"), id: "u2" }] }));
+    expect(chatRows().map((row) => [row.turnId, row.turnRequest])).toEqual([
+      ["u1", true],
+      ["u1", true],
+      ["u2", true],
+    ]);
   });
 
   test("a finished turn is ok, with its tokens and its time to first output", async () => {

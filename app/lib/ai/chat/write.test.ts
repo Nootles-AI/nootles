@@ -58,7 +58,7 @@ function convexStandIn() {
 }
 
 const execute = (convex: ConvexHttpClient, input: { brief: string; sources?: string[] }) => {
-  const tools = chatTools("p1" as Id<"projects">, convex, "user_1");
+  const tools = chatTools("p1" as Id<"projects">, convex, "user_1", undefined, undefined, "message-1");
   return (tools.write as unknown as { execute: (i: unknown, o: unknown) => Promise<Record<string, unknown>> }).execute(
     input,
     { toolCallId: "t1", messages: [] },
@@ -86,7 +86,7 @@ describe("write", () => {
     expect(pen.get(out.ref as string)).toBe("<h2>Sync</h2>\n<p>Pages sync as Yjs CRDTs.</p>");
     expect(recordAiCall).toHaveBeenCalledWith(
       convex,
-      expect.objectContaining({ feature: "chat", status: "ok", promptTokens: 900, completionTokens: 300 }),
+      expect.objectContaining({ feature: "chat", status: "ok", turnId: "message-1", promptTokens: 900, completionTokens: 300 }),
     );
   });
 

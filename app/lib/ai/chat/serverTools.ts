@@ -58,6 +58,7 @@ export function chatTools(
     deadlineAt?: number;
     keepAlive?: (work: Promise<unknown>) => void;
   },
+  turnId?: string,
 ) {
   return {
     // The project's context graph, by the same three verbs an MCP client
@@ -127,6 +128,7 @@ export function chatTools(
           feature: "chat",
           model: AI.chat.writer.model,
           projectId,
+          ...(turnId ? { turnId } : {}),
           ...(failed
             ? { status: "error" as const, errorCode: errorCode(written) }
             : {
@@ -305,6 +307,7 @@ export function chatTools(
             feature: "diagram" as const,
             model: AI.diagram.vector.model,
             projectId,
+            ...(turnId ? { turnId } : {}),
             latencyMs: vector.latencyMs,
           };
           if (vector.html === null) {

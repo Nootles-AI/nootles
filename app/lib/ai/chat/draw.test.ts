@@ -31,7 +31,7 @@ function approvedDraw(
   brief: string,
   keepAlive?: (work: Promise<unknown>) => void,
 ) {
-  const tools = chatTools("project" as Id<"projects">, convex, "user_1", undefined, { keepAlive });
+  const tools = chatTools("project" as Id<"projects">, convex, "user_1", undefined, { keepAlive }, "message-1");
   const execute = tools.draw.execute as unknown as (input: unknown, options: unknown) => Promise<Record<string, unknown>>;
   return execute({ brief, ratio: "16:9" }, { toolCallId: `draw-${brief}`, messages: [] });
 }
@@ -59,6 +59,7 @@ describe("an approved storyboard draw", () => {
     expect(new Set(results.map((result) => result.ref)).size).toBe(9);
     expect(pen.size).toBe(9);
     expect(recordAiCall).toHaveBeenCalledTimes(9);
+    expect(recordAiCall).toHaveBeenCalledWith(convex, expect.objectContaining({ feature: "diagram", turnId: "message-1" }));
     const again = await approvedDraw(convex, briefs[0]);
     expect(again).toEqual(results[0]);
     expect(generateVectorDrawing).toHaveBeenCalledTimes(9);
