@@ -372,12 +372,14 @@ function tablePreview(
  * label has not would otherwise redraw the whole preview to add an empty box,
  * and then again a moment later to fill it in.
  */
-function previewSignature(acc: string): string {
+function previewSignature(acc: string, diagramOnly = false): string {
   const shapes = (
     acc.match(/<\/nt-(?:rect|ellipse|polygon|text|image|path|group|icon)>/gi) ?? []
   ).length;
   const edges = (acc.match(/<\/nt-edge\s*>/gi) ?? []).length;
-  return `${proseTail(acc)}:${shapes}:${edges}:${acc.length >> 5}`;
+  const prefix = diagramOnly ? "" : proseTail(acc);
+  const length = diagramOnly || /<nt-diagram[\s>]/i.test(acc) ? "" : `:${acc.length >> 5}`;
+  return `${prefix}:${shapes}:${edges}${length}`;
 }
 
 /**
@@ -1026,6 +1028,13 @@ export function useTabCompletion(
       let lastSig = "";
       /** The block the shapes are going into, once there is one. */
       let live: string | null = null;
+      let lastWritten = "";
+
+      const writeLive = (data: string) => {
+        if (!live || !data || data === lastWritten) return;
+        writeDiagram(live, data);
+        lastWritten = data;
+      };
 
       // Whole shapes only: the tail of the stream is usually a tag cut
       // mid-attribute or mid-label. `diagramElement` keeps the reply up to its
@@ -1055,6 +1064,7 @@ export function useTabCompletion(
         const placed = place(drawn);
         if (placed) {
           live = placed;
+          lastWritten = drawn;
           return;
         }
         // Nothing landed, so this is still an ordinary suggestion: give the
@@ -1079,14 +1089,13 @@ export function useTabCompletion(
           // document, and the document does not care what the caret is doing.
           if (!live && mySeq !== seq) return null;
           out += value;
-          const sig = previewSignature(out);
+          const sig = previewSignature(out, true);
           if (sig === lastSig) continue;
           lastSig = sig;
           if (live) {
             // Straight into the block, so it fills in under the user while they
             // carry on writing beneath it.
-            const drawn = soFar();
-            if (drawn) writeDiagram(live, drawn);
+            writeLive(soFar());
             continue;
           }
           // Drawn as the shapes arrive, so a two-second call reads as a diagram
@@ -1124,7 +1133,7 @@ export function useTabCompletion(
       if (!live) return soFar();
       const finished = soFar();
       if (finished) {
-        writeDiagram(live, finished);
+        writeLive(finished);
         if (pageId) {
           const ops = [
             {

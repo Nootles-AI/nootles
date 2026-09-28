@@ -86,6 +86,9 @@ const editor = BlockNoteEditor.create({
   initialContent: scenario.blocks as never,
 }) as unknown as Editor;
 
+let updateAttempts = 0;
+let watchingUpdates = false;
+
 function Fixture() {
   useTabCompletion(editor, undefined, scenario.title, reach);
   return (
@@ -142,6 +145,17 @@ const harness = {
     (editor.document as Array<{ type: string; props: { data?: string } }>)
       .filter((b) => b.type === "canvas")
       .map((b) => b.props.data ?? ""),
+  watchUpdates() {
+    if (watchingUpdates) return;
+    watchingUpdates = true;
+    updateAttempts = 0;
+    const updateBlock = editor.updateBlock.bind(editor);
+    editor.updateBlock = ((...args: Parameters<typeof editor.updateBlock>) => {
+      updateAttempts++;
+      return updateBlock(...args);
+    }) as typeof editor.updateBlock;
+  },
+  updateAttempts: () => updateAttempts,
   ghost: () => document.querySelector(".nt-ghost")?.textContent ?? "",
 };
 
