@@ -53,6 +53,8 @@ export const record = mutation({
       v.literal("commentsGate"),
     ),
     model: v.string(),
+    turnId: v.optional(v.string()),
+    turnRequest: v.optional(v.literal(true)),
     promptTokens: v.optional(v.number()),
     completionTokens: v.optional(v.number()),
     cacheReadTokens: v.optional(v.number()),
@@ -91,7 +93,9 @@ export const record = mutation({
       !inRange(call.costUsd, MAX_CALL_USD) ||
       !inRange(call.latencyMs, Number.MAX_SAFE_INTEGER) ||
       !inRange(call.ttfbMs, Number.MAX_SAFE_INTEGER) ||
-      call.model.length > MAX_MODEL_CHARS
+      call.model.length > MAX_MODEL_CHARS ||
+      (call.turnId !== undefined && (call.turnId.length === 0 || call.turnId.length > 128)) ||
+      (call.turnRequest === true && (!call.turnId || call.feature !== "chat"))
     ) {
       throw new ConvexError("That isn’t a model call anything could have made.");
     }

@@ -1270,6 +1270,10 @@ export default defineSchema({
       v.literal("commentsGate"),
     ),
     model: v.string(),
+    /** The user message whose chat turn this request belongs to. Older rows have none. */
+    turnId: v.optional(v.string()),
+    /** Distinguishes an HTTP chat request from its writer and other subcalls. */
+    turnRequest: v.optional(v.literal(true)),
     promptTokens: v.optional(v.number()),
     completionTokens: v.optional(v.number()),
     cacheReadTokens: v.optional(v.number()),

@@ -105,7 +105,7 @@ export async function commentsGate(
   input: GateInput,
   parent: AbortSignal,
   /** Who asked, and in which project — what the ledger signs and charges. */
-  caller: { ownerId: string | null; projectId?: string },
+  caller: { ownerId: string | null; projectId?: string; turnId?: string },
 ): Promise<boolean> {
   if (input.openThreads <= 0 || !input.message.trim() || parent.aborted) return false;
 

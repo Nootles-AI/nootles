@@ -100,6 +100,20 @@ const rows = (t: T) => t.run(async (ctx) => await ctx.db.query("aiCalls").collec
 const days = (t: T) => t.run(async (ctx) => await ctx.db.query("guestAiSpend").collect());
 
 describe("a signed row", () => {
+  test("keeps the chat turn id without changing what the billing signature covers", async () => {
+    const t = convexTest(schema, modules);
+    const { projectId } = await world(t);
+    const base = await signed(MEMBER, call(projectId));
+    await t.withIdentity(MEMBER).mutation(api.ai.calls.record, {
+      ...base,
+      turnId: "user-message-1",
+      turnRequest: true,
+    });
+    expect(await rows(t)).toMatchObject([
+      { turnId: "user-message-1", turnRequest: true, signed: true },
+    ]);
+  });
+
   test("is believed, and charged to the workspace the project is in", async () => {
     const t = convexTest(schema, modules);
     const { workspaceId, projectId } = await world(t);

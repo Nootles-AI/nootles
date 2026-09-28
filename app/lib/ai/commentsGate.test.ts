@@ -17,7 +17,7 @@ import { classifyComments, commentsGate, type GateInput } from "./commentsGate";
 
 const convex = {} as ConvexHttpClient;
 /** Who asked: the ledger signs its row as theirs, in their project. */
-const CALLER = { ownerId: "user_asker", projectId: "project_1" };
+const CALLER = { ownerId: "user_asker", projectId: "project_1", turnId: "message-1" };
 
 const NO_NETWORK = vi.fn(async () => {
   throw new Error("network is not allowed in tests");

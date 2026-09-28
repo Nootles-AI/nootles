@@ -48,6 +48,9 @@ type Row = {
     | "context"
     | "commentsGate";
   model: string;
+  /** Stable across the HTTP requests that resume one chat turn. */
+  turnId?: string;
+  turnRequest?: true;
   latencyMs: number;
   ttfbMs?: number;
   status: "ok" | "error" | "aborted" | "timeout";
