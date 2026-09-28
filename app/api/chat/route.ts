@@ -40,6 +40,7 @@ import { refuseIfLimited } from "@/app/lib/requestLimitGate";
 import { isChatRefusal, isQuotaRefusal } from "@/convex/entitlements";
 import { session } from "@/app/lib/session";
 import * as Sentry from "@sentry/nextjs";
+import { after } from "next/server";
 
 /**
  * The chat agent's loop.
@@ -166,6 +167,12 @@ export async function POST(req: Request) {
     // answered the draw approvals. Absent or malformed reads as the
     // default — a request hand-rolled without a choice still draws.
     drawChoiceSchema.safeParse(drawStyle).data,
+    {
+      // `after` keeps a draw and its Convex writes alive if the model ends its
+      // step while another approved storyboard shot is still in flight.
+      keepAlive: (work) => after(() => work.then(() => undefined, () => undefined)),
+      deadlineAt: startedAt + maxDuration * 1_000 - 10_000,
+    },
   );
   const history = stripDrawings(
     shortenStaleReads(

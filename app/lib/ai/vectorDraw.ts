@@ -1,4 +1,5 @@
 import { parseHTML } from "linkedom";
+import { setTimeout as sleep } from "node:timers/promises";
 import { serializeScene } from "@/app/components/editor/canvas/scene/serialize";
 import { AI } from "./aiConfig";
 import type { DrawFrame } from "./diagram";
@@ -116,10 +117,31 @@ export function recraftRequest(
   };
 }
 
-export type VectorDrawResult = {
-  html: string;
-  latencyMs: number;
-};
+export type VectorDrawResult =
+  | { html: string; latencyMs: number }
+  | {
+      html: null;
+      latencyMs: number;
+      status: "error" | "timeout" | "aborted";
+      errorCode: string;
+      /** The same SVG cannot be imported on a second paid call for this ref. */
+      cacheFailure: boolean;
+    };
+
+const BACKOFF_MS = [2_000, 5_000, 10_000];
+const ATTEMPT_TIMEOUT_MS = 30_000;
+const DRAW_BUDGET_MS = 120_000;
+const MAX_RETRY_AFTER_MS = 20_000;
+const MIN_ATTEMPT_MS = 1_000;
+
+export function retryDelayMs(header: string | null, fallbackMs: number, now = Date.now()): number {
+  if (!header) return fallbackMs;
+  const seconds = Number(header);
+  const delay = Number.isFinite(seconds) && seconds >= 0
+    ? seconds * 1_000
+    : Date.parse(header) - now;
+  return Number.isFinite(delay) ? Math.min(MAX_RETRY_AFTER_MS, Math.max(0, delay)) : fallbackMs;
+}
 
 /**
  * The frame an unframed drawing gets — "draw a cat" with no board in sight.
@@ -132,38 +154,40 @@ export type VectorDrawResult = {
 const DEFAULT_FRAME = { w: COLUMN_WIDTH, h: Math.round((COLUMN_WIDTH * 3) / 4) };
 
 /**
- * One drawing from the vector model, as canonical scene markup — or null. A
- * scene has no understudy: the caller answers a miss with "call again", not
- * with the LLM lane, whose drawings are not worth placing in a board.
+ * One drawing from the vector model, as canonical scene markup or a named
+ * failure. The deadline is the route's remaining lifetime, with room left to
+ * persist the result and its ledger row before the platform stops the request.
  */
 export async function generateVectorDrawing(
   brief: string,
   requested: DrawFrame,
   choice: DrawChoice = DEFAULT_DRAW_CHOICE,
   signal?: AbortSignal,
-): Promise<VectorDrawResult | null> {
+  deadlineAt?: number,
+): Promise<VectorDrawResult> {
   const frame = requested ?? DEFAULT_FRAME;
   const { url, key, model } = imageTarget(AI.diagram.vector.model);
   const direct = true;
   const started = Date.now();
 
-  // A silent miss here once silently changed who drew the picture; every
-  // miss says why now, so the ledger and the logs tell one story.
-  const miss = (why: string): null => {
+  const deadline = Math.min(started + DRAW_BUDGET_MS, deadlineAt ?? Infinity);
+  const miss = (
+    errorCode: string,
+    status: "error" | "timeout" | "aborted" = "error",
+    cacheFailure = false,
+  ): VectorDrawResult => {
     if (process.env.NODE_ENV !== "production") {
-      console.warn(`[vector-draw] miss (${why}): "${brief.slice(0, 60)}"`);
+      console.warn(`[vector-draw] miss (${errorCode})`);
     }
-    return null;
+    return { html: null, latencyMs: Date.now() - started, status, errorCode, cacheFailure };
   };
 
-  // A board fires nine of these at once, which is exactly the shape rate
-  // limits and connection churn are made of — and the artist has no
-  // understudy any more (a scene that misses stays missed until retried),
-  // so patience is the reliability budget: four tries, backing off.
-  const backoffMs = [2_000, 5_000, 10_000];
   let svg: string | null = null;
-  for (let attempt = 0; attempt <= backoffMs.length && svg === null; attempt++) {
+  for (let attempt = 0; attempt <= BACKOFF_MS.length && svg === null; attempt++) {
+    const remaining = deadline - Date.now();
+    if (remaining < MIN_ATTEMPT_MS) return miss("draw-deadline", "timeout");
     try {
+      const timeout = AbortSignal.timeout(Math.min(ATTEMPT_TIMEOUT_MS, remaining));
       const res = await fetch(url, {
         method: "POST",
         headers: {
@@ -171,46 +195,66 @@ export async function generateVectorDrawing(
           "Content-Type": "application/json",
         },
         body: JSON.stringify(recraftRequest(brief, frame, choice, { model, direct })),
-        signal,
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       });
       if (res.status === 429 || res.status >= 500) {
-        if (attempt < backoffMs.length) {
-          await new Promise((r) => setTimeout(r, backoffMs[attempt]));
+        const delay = retryDelayMs(res.headers.get("Retry-After"), BACKOFF_MS[attempt] ?? 0);
+        if (attempt < BACKOFF_MS.length && Date.now() + delay + MIN_ATTEMPT_MS < deadline) {
+          await sleep(delay, undefined, { signal });
           continue;
         }
         await reportUpstream("vector-draw", res);
-        return miss(`http ${res.status}`);
+        return miss(`upstream-${res.status}`);
       }
       if (!res.ok) {
         // The refusal itself, not just its number: this wire's shape is written
         // from the docs, so a 400 here is most likely a field the endpoint
         // spells differently — and the body is what names it.
         await reportUpstream("vector-draw", res);
-        return miss(`http ${res.status}`);
+        return miss(`upstream-${res.status}`);
       }
-      const json = (await res.json()) as { data?: { b64_json?: string }[] };
+      let json: { data?: { b64_json?: string }[] };
+      try {
+        json = (await res.json()) as typeof json;
+      } catch {
+        // A 200 may already have been billed. Never send the same brief again
+        // merely because its response body failed or ran past this attempt.
+        if (signal?.aborted) return miss("aborted", "aborted");
+        if (timeout.aborted) return miss("attempt-timeout", "timeout");
+        return miss("invalid-response");
+      }
       const b64 = json.data?.[0]?.b64_json;
-      if (!b64) return miss("no image in response");
+      if (!b64) return miss("no-image");
       svg = Buffer.from(b64, "base64").toString("utf8");
     } catch (error) {
-      if ((error as Error).name === "AbortError") throw error;
-      if (attempt < backoffMs.length) {
-        await new Promise((r) => setTimeout(r, backoffMs[attempt]));
+      if (signal?.aborted) return miss("aborted", "aborted");
+      const timedOut = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+      const delay = BACKOFF_MS[attempt] ?? 0;
+      if (attempt < BACKOFF_MS.length && Date.now() + delay + MIN_ATTEMPT_MS < deadline) {
+        try {
+          await sleep(delay, undefined, { signal });
+        } catch {
+          return miss("aborted", "aborted");
+        }
         continue;
       }
-      return miss(String((error as Error).message ?? error).slice(0, 80));
+      return timedOut ? miss("attempt-timeout", "timeout") : miss("fetch-failed");
     }
   }
-  if (svg === null) return miss("exhausted retries");
+  if (svg === null) return miss("draw-deadline", "timeout");
 
-  const imported = importSvgScene(
-    svg,
-    frame,
-    (html) => parseHTML(html).document as unknown as Document,
-    // The brief's opening clause names the layer — "Close on the detective".
-    brief.split(/[,.;—\n]/)[0].trim().slice(0, 48) || "Drawing",
-  );
-  if (!imported) return null;
+  let imported: ReturnType<typeof importSvgScene>;
+  try {
+    imported = importSvgScene(
+      svg,
+      frame,
+      (html) => parseHTML(html).document as unknown as Document,
+      brief.split(/[,.;—\n]/)[0].trim().slice(0, 48) || "Drawing",
+    );
+  } catch {
+    return miss("invalid-svg", "error", true);
+  }
+  if (!imported) return miss("invalid-svg", "error", true);
   if (imported.dropped && process.env.NODE_ENV !== "production") {
     console.warn(`[vector-draw] dropped ${imported.dropped} unconvertible elements`);
   }

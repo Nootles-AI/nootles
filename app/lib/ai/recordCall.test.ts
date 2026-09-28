@@ -74,6 +74,22 @@ describe("recordAiCall", () => {
     }
   });
 
+  test("does not bill an unknown provider charge on a failed draw", async () => {
+    const { convex, mutation } = client();
+    await recordAiCall(convex, {
+      ownerId: "user_1",
+      feature: "diagram",
+      model: "recraft/recraft-v3",
+      latencyMs: 200,
+      status: "error",
+      errorCode: "upstream-429",
+      costUsdOverride: null,
+    });
+    const args = await sent(mutation);
+    expect(args).not.toHaveProperty("costUsd");
+    expect(args).not.toHaveProperty("costUsdOverride");
+  });
+
   test("says in production when a row does not land — why, never the row (NT-82)", async () => {
     vi.stubEnv("NODE_ENV", "production");
     const said = vi.spyOn(console, "error").mockImplementation(() => {});

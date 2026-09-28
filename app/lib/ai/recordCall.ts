@@ -86,6 +86,7 @@ export function recordAiCall(
   convex: ConvexHttpClient,
   {
     ownerId,
+    costUsdOverride,
     ...call
   }: Omit<Row, "costUsd"> & {
     /**
@@ -94,11 +95,17 @@ export function recordAiCall(
      * to it, so it must be the session's own — never anything a request said.
      */
     ownerId: string | null;
+    /** Null when a failed request's provider charge cannot be known. */
+    costUsdOverride?: number | null;
   },
-): void {
-  const row: Row = { ...call, costUsd: costUsd(call.model, call) };
-  void signatureFor(ownerId, row)
+): Promise<void> {
+  const row: Row = {
+    ...call,
+    ...(costUsdOverride === null ? {} : { costUsd: costUsdOverride ?? costUsd(call.model, call) }),
+  };
+  return signatureFor(ownerId, row)
     .then((signature) => convex.mutation(api.ai.calls.record, { ...row, ...signature }))
+    .then(() => undefined)
     .catch((error: unknown) => {
       // Never the user's problem, but never silent either: a row that fails to
       // land is a cost nobody sees, and this once hid a token expiring under a
