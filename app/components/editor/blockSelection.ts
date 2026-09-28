@@ -61,6 +61,7 @@ import type { Mappable } from "prosemirror-transform";
 import { Decoration, DecorationSet } from "prosemirror-view";
 import type { EditorView } from "prosemirror-view";
 import { useCallback, useSyncExternalStore } from "react";
+import { ySyncPluginKey } from "y-prosemirror";
 import { blocksTouched } from "./blockNav";
 import "./blockSelection.css";
 
@@ -330,6 +331,12 @@ const blockSelectionKey = new PluginKey<PlateState>("nt-block-selection");
  */
 const storesByView = new WeakMap<EditorView, BlockSelectionStoreImpl>();
 
+/** A transaction y-prosemirror made to apply the Y.Doc, not one anybody here dispatched. */
+function fromDoc(tr: Transaction): boolean {
+  const sync = tr.getMeta(ySyncPluginKey) as { isChangeOrigin?: boolean } | undefined;
+  return !!sync?.isChangeOrigin;
+}
+
 function blockSelectionPlugin() {
   return new Plugin<PlateState>({
     key: blockSelectionKey,
@@ -354,6 +361,23 @@ function blockSelectionPlugin() {
       decorations(state) {
         return blockSelectionKey.getState(state)?.set ?? null;
       },
+    },
+    /**
+     * A change arriving through the Y.Doc — a collaborator's, another tab's,
+     * or this page's own diagram writing its first shapes into the doc — is
+     * applied by y-prosemirror as a whole-document replace, after which it
+     * puts back the selection it remembered as a text anchor and head. A run
+     * of whole blocks has no such form, so the plates went: a diagram the
+     * slash menu had just selected lost its selection the moment it mounted,
+     * and → had nothing to step into its presets from. Nobody here chose that
+     * text selection, so the blocks are selected again, by id.
+     */
+    appendTransaction(transactions, oldState, newState) {
+      const was = oldState.selection;
+      if (!(was instanceof BlockRangeSelection) || newState.selection instanceof BlockRangeSelection) return null;
+      if (!transactions.some(fromDoc) || transactions.some((tr) => tr.selectionSet && !fromDoc(tr))) return null;
+      const kept = blockRangeFor(newState.doc, was.blockIds);
+      return kept ? newState.tr.setSelection(kept).setMeta("addToHistory", false) : null;
     },
     view(editorView) {
       const push = () => storesByView.get(editorView)?.pull(editorView.state);

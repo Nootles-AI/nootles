@@ -133,6 +133,29 @@ try {
     await frame();
     return during;
   };
+  // A diagram the slash menu makes is selected before it has mounted. Its
+  // first render writes it into the Y.Doc, which y-prosemirror applies as a
+  // whole-document replace: the selection has to come through that, or → has
+  // no diagram to step into the presets from.
+  const slashLine = await at("addLine", "outro");
+  await frame();
+  // The caret on that line, as when "/" is typed there.
+  const typed = await at("block", slashLine);
+  await page.mouse.click(typed.left + 10, typed.top + typed.height / 2);
+  await frame();
+  const slashed = await at("slashDiagram", slashLine);
+  await page.waitForFunction((id) => window.canvasPage.diagrams().includes(id), slashed);
+  await frame();
+  check("a diagram the slash menu made is still selected once it is up", await at("blockSelection"), [slashed]);
+  await page.keyboard.press("ArrowRight");
+  await frame();
+  check("and → steps onto its presets", await at("presetFocus"), "blank");
+  await page.keyboard.press("ArrowRight");
+  check("and on through them", await at("presetFocus"), "flowchart");
+  await at("removeBlock", slashed);
+  await frame();
+
+
 
   // A press on a band's empty canvas chooses the diagram itself — what the
   // panels then speak for — with nothing selected, and shows its edge.
