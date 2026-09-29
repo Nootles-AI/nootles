@@ -1661,6 +1661,92 @@ export default defineSchema({
     .index("by_code", ["codeId"])
     .index("by_owner_and_code", ["ownerId", "codeId"]),
 
+  // ---- Affiliates -----------------------------------------------------------
+
+  /**
+   * One per influencer: the `/r/<slug>` link they share, and where it lands.
+   * Measurement only — nothing here pays anyone.
+   *
+   * Disabling keeps the row and its history; it only stops new clicks from
+   * counting and new accounts from being attributed. `ownerId` is the
+   * affiliate's own Nootles account, when they have one, so their link cannot
+   * attribute them to themselves. Written by the operator, from ops.
+   */
+  affiliates: defineTable({
+    /** `normalizeAffiliateSlug`'s form, and unique. */
+    slug: v.string(),
+    name: v.string(),
+    /** In the operator's words — shown in ops only. */
+    note: v.optional(v.string()),
+    /** Where the link redirects. Only `isAllowedDestination` URLs are ever followed. */
+    destination: v.string(),
+    ownerId: v.optional(v.string()),
+    /**
+     * A Stripe promotion code handed to this affiliate, so a checkout that
+     * redeems it is theirs even without the link (`via: "code"`).
+     */
+    promotionCodeId: v.optional(v.string()),
+    /** The code as customers type it, for ops. */
+    promotionCode: v.optional(v.string()),
+    createdAt: v.number(),
+    disabledAt: v.optional(v.number()),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_owner", ["ownerId"])
+    .index("by_promotion_code_id", ["promotionCodeId"]),
+
+  /**
+   * One row per visitor per affiliate: the click count and the times of the
+   * first and last. The count of rows is the link's unique visitors.
+   *
+   * Both times are this server's, stamped by `affiliates.recordClick`.
+   * Attribution reads its dates from here rather than from the visitor's
+   * cookie, which the visitor can write.
+   */
+  affiliateVisits: defineTable({
+    affiliateId: v.id("affiliates"),
+    /** A UUID the route mints into the visitor's cookie. Identifies a browser, not a person. */
+    visitorId: v.string(),
+    firstAt: v.number(),
+    lastAt: v.number(),
+    clicks: v.number(),
+  }).index("by_affiliate_and_visitor", ["affiliateId", "visitorId"]),
+
+  /**
+   * Clicks and visitors per affiliate per UTC day, kept as the clicks land so
+   * a chart never has to scan `affiliateVisits`. `visitors` counts distinct
+   * visitors on that day, so days do not sum to the link's unique visitors.
+   */
+  affiliateDays: defineTable({
+    affiliateId: v.id("affiliates"),
+    /** `YYYY-MM-DD`, UTC. */
+    day: v.string(),
+    clicks: v.number(),
+    visitors: v.number(),
+  }).index("by_affiliate_and_day", ["affiliateId", "day"]),
+
+  /**
+   * Which affiliate brought an account — at most one per account, written once
+   * and never overwritten, by `affiliates.attribute` (the link) or
+   * `affiliates.attributeByCode` (a promotion code at checkout).
+   *
+   * Nothing later in the funnel is copied here: onboarding, the paywall,
+   * checkout and payment are read off `profiles` and `billingAccounts` when the
+   * stats are asked for, so they cannot drift from billing.
+   */
+  affiliateAttributions: defineTable({
+    ownerId: v.string(),
+    affiliateId: v.id("affiliates"),
+    /** The visit it came from; absent for a code. */
+    visitorId: v.optional(v.string()),
+    /** That visit's last click, from `affiliateVisits`; absent for a code. */
+    clickedAt: v.optional(v.number()),
+    attributedAt: v.number(),
+    via: v.union(v.literal("link"), v.literal("code")),
+  })
+    .index("by_owner", ["ownerId"])
+    .index("by_affiliate_and_attributed_at", ["affiliateId", "attributedAt"]),
+
   /**
    * One feature, forced on or off for one project or one account, over what
    * the owner's plan says — the Teams design's override table (its decision
