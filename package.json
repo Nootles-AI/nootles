@@ -40,7 +40,8 @@
     "test:comments:browser": "node tests/comments-browser.mjs",
     "test:comments:fullstack": "node tests/comments-browser.mjs --fullstack",
     "test:album:fullstack": "node tests/album-index.fullstack.mjs",
-    "test:links:expiry": "node tests/link-expiry.fullstack.mjs"
+    "test:links:expiry": "node tests/link-expiry.fullstack.mjs",
+    "test:affiliates:fullstack": "node tests/affiliates.fullstack.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.63",

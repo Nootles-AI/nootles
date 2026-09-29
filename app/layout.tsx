@@ -7,6 +7,7 @@ import { TelemetryProvider } from "./components/TelemetryProvider";
 import { UpdateToast } from "./components/UpdateToast";
 import { StandInProvider } from "./components/StandIn";
 import { IdentitySync } from "./components/IdentitySync";
+import { AffiliateClaim } from "./components/AffiliateClaim";
 import { NotionConfigProvider } from "./components/notion/NotionAvailable";
 import { oauthConfig } from "./api/notion/oauth";
 import { COLUMN_VARS } from "./lib/column";
@@ -34,6 +35,7 @@ export default function RootLayout({
               <NotionConfigProvider oauth={oauthConfig() !== null}>
                 <StandInProvider>
                   <IdentitySync>{children}</IdentitySync>
+                  <AffiliateClaim />
                 </StandInProvider>
               </NotionConfigProvider>
               <UpdateToast />
