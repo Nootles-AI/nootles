@@ -1,10 +1,12 @@
 /**
- * The MCP App (SEP-1865) that `list_docs` and `read_doc` results render in:
+ * The MCP App (SEP-1865) that every Nootles tool result renders in:
  * one self-contained HTML document, served as a `ui://` resource and drawn by
  * the host in a sandboxed iframe.
  *
  * Laid out from the "MCP Apps for Claude" Figma kit's inline card — the 52px
- * app header, the list-view rows, the loading skeleton and the footer link —
+ * app header, the list-view rows, the loading skeleton and the footer link; an
+ * edit's receipt from its "Confirmation actions" frame (heading, meta panel with
+ * an ink button, a checked list) —
  * and styled only through the host's standard variables (`--color-*`,
  * `--font-*`, `--border-radius-*`), each with the kit's own light value as the
  * fallback, so the card takes on Claude's theme wherever it is shown and still
@@ -118,6 +120,28 @@ button.item:hover { background: var(--nt-bg-3); }
 .b.chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: var(--nt-hair) solid var(--nt-line-3); border-radius: 999px; font-size: var(--nt-xs); color: var(--nt-text-3); }
 .more { font-size: var(--nt-xs); color: var(--nt-text-3); margin-top: 8px; }
 
+.confirm { padding: 24px; display: flex; flex-direction: column; gap: 24px; }
+.confirm-title { margin: 0; font-size: var(--font-heading-lg-size, 20px); line-height: var(--font-heading-lg-line-height, 25px); font-weight: var(--nt-semibold); overflow-wrap: anywhere; }
+.panel { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px; border: var(--nt-hair) solid var(--nt-line); border-radius: 12px; }
+.panel-who { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.panel .avatar { width: 40px; height: 40px; border-radius: 24px; }
+.panel .avatar svg { width: 20px; height: 20px; }
+.panel-text { display: flex; flex-direction: column; min-width: 0; }
+.panel-name { font-size: var(--nt-sm); line-height: var(--nt-sm-lh); font-weight: var(--nt-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.panel-sub { font-size: var(--nt-sm); line-height: var(--nt-sm-lh); color: var(--nt-text-3); opacity: 0.75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.btn { flex: none; height: 36px; padding: 0 16px; border-radius: var(--nt-radius-md); display: inline-flex; align-items: center; font-size: var(--nt-sm); line-height: var(--nt-sm-lh); font-weight: var(--nt-semibold); white-space: nowrap; }
+.btn.ink { background: var(--color-background-inverse, var(--nt-text)); color: var(--color-text-inverse, var(--nt-bg)); }
+.btn.ink:hover { opacity: 0.88; }
+.btn:disabled { opacity: 0.55; cursor: wait; }
+.section { display: flex; flex-direction: column; gap: 16px; }
+.section-label { font-size: var(--nt-sm); line-height: var(--nt-sm-lh); font-weight: var(--nt-semibold); }
+.checks { display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.check { display: flex; gap: 8px; align-items: flex-start; font-size: var(--nt-sm); line-height: var(--nt-sm-lh); color: var(--nt-text-3); }
+.check svg { flex: none; width: 20px; height: 20px; }
+.check .what { color: var(--nt-text-2); }
+.check .text { overflow-wrap: anywhere; }
+.footer .link.quiet { color: var(--nt-text-3); }
+.footer .link.quiet:hover { color: var(--nt-text); }
 .note { padding: 20px 24px; font-size: var(--nt-sm); line-height: var(--nt-sm-lh); color: var(--nt-text-2); }
 .note.warn { background: var(--nt-danger-bg); color: var(--nt-danger); }
 
@@ -139,6 +163,8 @@ const SCRIPT = String.raw`
     back: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5l-5 5 5 5"/></svg>',
     expand: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4h4v4M8 16H4v-4M16 4l-5 5M4 16l5-5"/></svg>',
     arrow: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg>',
+    // The kit's own Check glyph, filled with the list's text colour.
+    check: '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M15.1883 5.10908C15.3699 4.96398 15.6346 4.96153 15.8202 5.11592C16.0056 5.27067 16.0504 5.53125 15.9403 5.73605L15.8837 5.82003L8.38355 14.8202C8.29362 14.9279 8.16243 14.9925 8.02222 14.9989C7.88204 15.0051 7.74546 14.9526 7.64624 14.8534L4.14618 11.3533L4.08173 11.2752C3.95385 11.0811 3.97543 10.817 4.14618 10.6463C4.31694 10.4755 4.58106 10.4539 4.7751 10.5818L4.85323 10.6463L7.96558 13.7586L15.1161 5.1794L15.1883 5.10908Z" fill="currentColor"/></svg>',
   };
   const LOGO = ${JSON.stringify(LOGO)};
 
@@ -291,15 +317,69 @@ const SCRIPT = String.raw`
       footer("Read-only · live from Nootles", d.url, "Open in Nootles") + "</div>";
   }
 
+  const VERB = { added: "Added", changed: "Changed", removed: "Removed", moved: "Moved" };
+  const TYPE = {
+    paragraph: "paragraph", heading: "heading", bulletListItem: "bullet", numberedListItem: "numbered item", checkListItem: "to-do",
+    toggleListItem: "toggle", quote: "quote", codeBlock: "code", mathBlock: "math", table: "table", divider: "divider",
+    image: "image", video: "video", audio: "audio", file: "file",
+  };
+
+  function panel(d, sub) {
+    return '<div class="panel"><div class="panel-who"><span class="avatar">' + ICON.page + '</span><span class="panel-text">' +
+      '<span class="panel-name">' + esc(d.title || "Untitled") + '</span><span class="panel-sub">' + esc(sub) + "</span></span></div>" +
+      (d.url ? '<button class="btn ink" data-act="open" data-url="' + esc(d.url) + '">Open in Nootles</button>' : "") + "</div>";
+  }
+
+  function renderEdit(data) {
+    const d = data.doc;
+    if (data.replayed) {
+      root.innerHTML = '<div class="card">' + header({ crumb: d.title || "Untitled", url: d.url }) +
+        '<div class="note">That edit was already made; nothing new was changed.</div></div>';
+      return;
+    }
+    const n = data.changes.length;
+    const rows = data.changes.map((c) =>
+      '<li class="check" data-id="' + esc(c.id) + '">' + ICON.check + '<span class="text"><span class="what">' + esc(VERB[c.kind] || c.kind) + " " +
+        esc(TYPE[c.type] || c.type) + "</span>" + (c.text ? " · " + esc(c.text) : "") + "</span></li>").join("");
+    const undo = host.capabilities.serverTools
+      ? '<a class="link quiet" href="#" data-act="undo" data-edit="' + esc(data.editId) + '">Undo this edit</a>'
+      : "";
+    root.innerHTML = '<div class="card">' + header({ url: d.url }) +
+      '<div class="confirm"><h1 class="confirm-title">Edited ' + esc(d.title || "Untitled") + "</h1>" +
+        panel(d, (d.projectTitle || "Untitled project") + " · " + n + (n === 1 ? " change" : " changes")) +
+        '<div class="section"><div class="section-label">Changes</div><ul class="checks">' + rows + "</ul></div></div>" +
+      '<div class="footer"><span class="count">Live on the page · undoable for 7 days</span>' + undo + "</div></div>";
+  }
+
+  function renderUndo(data) {
+    const d = data.doc;
+    root.innerHTML = '<div class="card">' + header({ url: d.url }) +
+      '<div class="confirm"><h1 class="confirm-title">Undid the edit</h1>' +
+        panel(d, "Back to how it was before that edit") + "</div></div>";
+  }
+
+  async function undoFromCard(el) {
+    el.textContent = "Undoing…";
+    el.setAttribute("aria-disabled", "true");
+    try {
+      renderResult(await request("tools/call", { name: "undo_edit", arguments: { edit_id: el.dataset.edit } }));
+    } catch {
+      el.textContent = "Undo this edit";
+      el.removeAttribute("aria-disabled");
+    }
+  }
+
   function renderResult(result) {
     const data = result && result.structuredContent;
     if (result && result.isError) {
       const text = (result.content || []).map((c) => c.text || "").join(" ");
-      renderNote(text || "That could not be read.", true, listState ? "" : undefined);
+      renderNote(text || "That did not work.", true, listState ? "" : undefined);
       return;
     }
     if (data && data.kind === "docList") renderList(data);
     else if (data && data.kind === "doc") renderDoc(data);
+    else if (data && data.kind === "edit") renderEdit(data);
+    else if (data && data.kind === "undo") renderUndo(data);
     else renderNote("Nothing to show.", false);
   }
 
@@ -322,6 +402,7 @@ const SCRIPT = String.raw`
     const act = el.dataset.act;
     if (act === "open") openLink(el.dataset.url);
     else if (act === "read") readFromList(el);
+    else if (act === "undo" && !el.hasAttribute("aria-disabled")) undoFromCard(el);
     else if (act === "back" && listState) renderList(listState);
     else if (act === "expand") request("ui/request-display-mode", { mode: "fullscreen" }).then((r) => applyContext({ displayMode: r && r.mode })).catch(() => {});
   });
@@ -339,7 +420,7 @@ const SCRIPT = String.raw`
     switch (msg.method) {
       case "ui/notifications/tool-input": {
         const args = (msg.params && msg.params.arguments) || {};
-        renderLoading(args.doc ? "Reading…" : "Documents");
+        renderLoading(args.operations ? "Editing…" : args.edit_id ? "Undoing…" : args.doc ? "Reading…" : "Documents");
         break;
       }
       case "ui/notifications/tool-result":

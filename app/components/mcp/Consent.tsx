@@ -15,11 +15,11 @@ const REFUSALS = {
 } as const;
 
 /**
- * The one question an MCP sign-in asks a person. Read-only is the whole of
- * what is granted, so the page says what that means in both directions — what
- * the agent will see and what it will not — and names where the answer goes,
- * because a registered client can call itself anything but cannot change where
- * it is redirected.
+ * The one question an MCP sign-in asks a person. The page says what is granted
+ * in both directions — what the agent will see and do, and what it will not —
+ * and names where the answer goes, because a registered client can call itself
+ * anything but cannot change where it is redirected. Editing is its own line
+ * with its own switch: an agent that asks to write can still be let in to read.
  */
 export function Consent({ request }: { request: string | null }) {
   const pending = useQuery(api.mcp.oauth.pendingRequest, request ? { request } : "skip");
@@ -28,13 +28,15 @@ export function Consent({ request }: { request: string | null }) {
   const [busy, setBusy] = useState<"allow" | "deny" | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
+  const [allowEdits, setAllowEdits] = useState(true);
+  const asksToEdit = pending?.status === "pending" && pending.scope.split(" ").includes("docs:write");
 
   const allow = async () => {
     if (!request) return;
     setBusy("allow");
     setProblem(null);
     try {
-      const outcome = await approve({ request });
+      const outcome = await approve({ request, allowEdits: asksToEdit && allowEdits });
       if (outcome.status === "redirect") {
         setLeaving(true);
         window.location.assign(outcome.redirectTo);
@@ -89,7 +91,8 @@ export function Consent({ request }: { request: string | null }) {
           <>
             <h1 className="nt-set-title">Connect {pending.clientName}?</h1>
             <p className="nt-set-note nt-mcp-lede">
-              <span className="nt-mcp-client">{pending.clientName}</span> wants to read your pages.
+              <span className="nt-mcp-client">{pending.clientName}</span> wants to{" "}
+              {asksToEdit ? "read and edit" : "read"} your pages.
             </p>
 
             <ul className="nt-set-list nt-mcp-card">
@@ -99,12 +102,29 @@ export function Consent({ request }: { request: string | null }) {
                 </span>
                 <span>See and read your own pages</span>
               </li>
-              <li className="nt-mcp-item">
-                <span className="nt-mcp-mark" aria-hidden>
-                  ✕
-                </span>
-                <span>Edit anything</span>
-              </li>
+              {asksToEdit ? (
+                <li>
+                  <label className="nt-mcp-item nt-mcp-choice">
+                    <input
+                      type="checkbox"
+                      checked={allowEdits}
+                      onChange={(event) => setAllowEdits(event.target.checked)}
+                      disabled={busy !== null || leaving}
+                    />
+                    <span>
+                      <strong>Allow edits</strong> to your own pages. Each one shows on the page, marked as{" "}
+                      {pending.clientName}’s, and you can undo it.
+                    </span>
+                  </label>
+                </li>
+              ) : (
+                <li className="nt-mcp-item">
+                  <span className="nt-mcp-mark" aria-hidden>
+                    ✕
+                  </span>
+                  <span>Edit anything</span>
+                </li>
+              )}
               <li className="nt-mcp-item">
                 <span className="nt-mcp-mark" aria-hidden>
                   ✕
@@ -140,7 +160,13 @@ export function Consent({ request }: { request: string | null }) {
                   disabled={busy !== null || leaving}
                   className="nt-row nt-solid px-3 font-medium"
                 >
-                  {leaving ? `Returning to ${pending.clientName}…` : busy === "allow" ? "Connecting…" : "Allow"}
+                  {leaving
+                    ? `Returning to ${pending.clientName}…`
+                    : busy === "allow"
+                      ? "Connecting…"
+                      : asksToEdit && !allowEdits
+                        ? "Allow reading"
+                        : "Allow"}
                 </button>
               )}
             </div>

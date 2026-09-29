@@ -1,6 +1,6 @@
 /**
- * MCP for internal docs (NT-121), end to end the way it is used: Aryan connects
- * Claude to Nootles and Claude reads his pages.
+ * MCP for internal docs (NT-121, NT-123), end to end the way it is used: Aryan
+ * connects Claude to Nootles, and Claude reads and edits his pages.
  *
  * Everything that decides is real:
  * - a throwaway convex-local-backend with this repo's functions
@@ -30,6 +30,12 @@
  *   g. Aryan disconnects it from Settings; it is out, refresh included.
  *   h. Another agent is cancelled on the consent page; a stranger is refused
  *      there; the master switch turns every token away.
+ *   i. Claude edits (NT-123) while Aryan has the page open in the real editor:
+ *      the change appears live with no reload, the page offers Undo; the card
+ *      shows the receipt and undoes from its own link; Aryan undoes from the
+ *      page; an undo that would take his later typing is refused and he keeps
+ *      it; a read-only connection and a legacy page are refused; Settings lists
+ *      the edits.
  *
  * Nothing leaves the machine: the AI keys are unset, the backend's outbound
  * fetches are refused (and fail the run), and every browser request outside
@@ -258,7 +264,7 @@ try {
   }
 
   /** The SDK's own connect: the first attempt stops at consent; the browser answers; the second attempt connects. */
-  async function connectAgent(agent, who, answer = "allow") {
+  async function connectAgent(agent, who, answer = "allow", { readOnly = false } = {}) {
     const client = new Client({ name: agent.name, version: "1.0.0" });
     let transport = new StreamableHTTPClientTransport(MCP_URL, { authProvider: agent });
     try {
@@ -277,9 +283,15 @@ try {
       where: await consent.page.textContent(".nt-mcp-where").catch(() => null),
       refusal: await consent.page.textContent(".nt-set-problem").catch(() => null),
       allow: await consent.page.$("button.nt-solid"),
+      lede: await consent.page.textContent(".nt-mcp-lede").catch(() => null),
+      edits: await consent.page.$(".nt-mcp-choice input").then((box) => box && box.isChecked()).catch(() => null),
     };
     await consent.page.screenshot({ path: path.join(shots, `consent-${agent.name.toLowerCase().replace(/[^a-z]+/g, "-").replace(/-+$/, "")}.png`) });
     if (answer === "look") return { client, shown, consent, authorization };
+    if (readOnly) {
+      await consent.page.uncheck(".nt-mcp-choice input");
+      shown.button = await consent.page.textContent("button.nt-solid");
+    }
     await consent.page.click(answer === "allow" ? "button.nt-solid" : "button:has-text('Cancel')");
     for (let i = 0; arrivals.length === before; i++) {
       if (i > 100) throw new Error("the browser never came back to the agent");
@@ -305,6 +317,7 @@ try {
     authorization.origin,
   ], ["S256", MCP_URL.href, SITE]);
   check("the consent page names the agent", shown.title, "Connect Claude (e2e)?");
+  check("…says it asks to read and edit, with edits allowed until unticked", [shown.lede?.trim(), shown.edits], ["Claude (e2e) wants to read and edit your pages.", true]);
   check("…and where the answer goes", shown.where, `Returns to ${new URL(CALLBACK).origin}`);
   check("…and offers Allow to an internal owner", Boolean(shown.allow) && shown.refusal === null, true);
   check("Allow comes back with a code, the client's own state and our issuer", [Boolean(back.code), back.state, back.iss], [true, claude.sentState, SITE]);
@@ -314,7 +327,8 @@ try {
   // ── b. It lists and reads ──────────────────────────────────────────────────
   console.log("\nb. Claude lists and reads");
   const tools = await client.listTools();
-  check("two read-only tools", tools.tools.map((t) => [t.name, t.annotations?.readOnlyHint]), [["list_docs", true], ["read_doc", true]]);
+  check("two read tools and two write tools", tools.tools.map((t) => [t.name, t.annotations?.readOnlyHint]), [["list_docs", true], ["read_doc", true], ["edit_doc", false], ["undo_edit", false]]);
+  check("the token it holds may read and edit", claude.tokens()?.scope, "docs:read docs:write");
   const resources = await client.listResources();
   check("the card is a listed MCP App resource", resources.resources.map((r) => [r.uri, r.mimeType]), [["ui://nootles/documents.html", "text/html;profile=mcp-app"]]);
   const appHtml = (await client.readResource({ uri: "ui://nootles/documents.html" })).contents[0].text;
@@ -362,9 +376,9 @@ try {
 
   // ── e. The card ────────────────────────────────────────────────────────────
   console.log("\ne. The MCP App card");
-  async function host(label, result, input, theme = "light") {
+  async function host(label, result, input, theme = "light", via = client) {
     const hostTab = await tab(null, label, "/", { width: 800, height: 900 });
-    await hostTab.page.exposeFunction("__mcpCall", async (name, args) => await client.callTool({ name, arguments: args }));
+    await hostTab.page.exposeFunction("__mcpCall", async (name, args) => await via.callTool({ name, arguments: args }));
     await hostTab.page.addInitScript((cfg) => { window.__mcpHost = cfg; }, { html: appHtml, theme, input, result, variables: HOST_VARIABLES });
     await hostTab.page.goto(`${APP}/host`, { waitUntil: "domcontentloaded" });
     const frame = await (await hostTab.page.waitForSelector("iframe")).contentFrame();
@@ -468,6 +482,154 @@ try {
   await run("mcp/oauth:setMcpEnabled", { enabled: true });
   check("…and back on, it answers again", (await reconnected.client.callTool({ name: "list_docs", arguments: {} })).structuredContent.total, 3);
 
+  // ── i. Claude edits while the page is open ──────────────────────────────────
+  console.log("\ni. Claude edits the page Aryan has open");
+  const agent = reconnected.client;
+  const editorTab = await tab(ARYAN, "editor", `/editor?doc=${launch.docId}&page=${launch.pageId}&project=${roadmap}&title=Launch%20plan`, { width: 1100, height: 900 });
+  const editorText = () => editorTab.page.evaluate(() => document.querySelector("#editor-host [data-nml-served] .bn-editor")?.textContent ?? "");
+  const until = async (label, predicate, timeout = 15_000) => {
+    try {
+      await editorTab.page.waitForFunction(predicate, null, { timeout });
+      return true;
+    } catch {
+      failures.push(`[editor] timed out waiting: ${label}`);
+      return false;
+    }
+  };
+  await until("the served surface to mount with the page on it", () =>
+    (document.querySelector('#editor-host [data-nml-served="true"] .bn-editor')?.textContent ?? "").includes("Ship MCP reads"), 30_000);
+  check("the page is open on the served editor, with the collaborator's edit from c", (await editorText()).includes("Ship MCP reads"), true);
+  check("no agent bar before any agent edit", await editorTab.page.$(".nt-agent-bar"), null);
+
+  const opsFirst = [
+    { kind: "setBlockContent", blockId: "p-goal", content: [{ type: "text", text: "Ship MCP edits " }, { type: "text", text: "today", marks: ["bold"] }] },
+    { kind: "insertBlocks", at: { at: "after", ref: "n-two" }, blocks: [{ tempId: "docs", type: "checkListItem", content: "Write the edit_doc guide" }] },
+  ];
+  const first = await agent.callTool({ name: "edit_doc", arguments: { doc: launch.docId, operations: opsFirst, idempotency_key: "e2e-first" } });
+  check("edit_doc answers with what it changed and an editId", [first.isError ?? false, /Edited "Launch plan" — 2 changes\. editId: \S+/.test(first.content[0].text)], [false, true]);
+  const newId = first.structuredContent.created.docs;
+  check("…and the new block's real id", typeof newId === "string" && newId.length > 20, true);
+  await until("the edit to arrive in the open editor", () => {
+    const text = document.querySelector("#editor-host [data-nml-served] .bn-editor")?.textContent ?? "";
+    return text.includes("Ship MCP edits today") && text.includes("Write the edit_doc guide");
+  });
+  check("it appears in the open editor, live, with no reload", [(await editorText()).includes("Ship MCP edits today"), (await editorText()).includes("Write the edit_doc guide")], [true, true]);
+  check("…bold where the agent made it bold", await editorTab.page.evaluate(() => [...document.querySelectorAll("#editor-host .bn-editor strong")].some((el) => el.textContent === "today")), true);
+  check("…the new to-do exactly where it was put", await editorTab.page.evaluate((id) => {
+    const block = document.querySelector(`#editor-host .bn-block-outer[data-id="${id}"]`);
+    return block?.previousElementSibling?.textContent?.includes("Dogfood for a week") ?? false;
+  }, newId), true);
+  await until("the agent bar", () => !!document.querySelector(".nt-agent-bar"));
+  check("the page offers the answer: who, how much, Undo and Keep", await editorTab.page.evaluate(() => {
+    const bar = document.querySelector(".nt-agent-bar");
+    return [bar?.querySelector(".nt-agent-bar-who")?.textContent, bar?.querySelector(".nt-review-count")?.textContent, [...(bar?.querySelectorAll("button") ?? [])].map((b) => b.textContent)];
+  }), ["Claude again (e2e) edited this page", "1 added, 1 changed", ["Undo", "Keep"]]);
+  await wait(600); // the bar rises into place over 440ms
+  await editorTab.page.screenshot({ path: path.join(shots, "editor-agent-edit.png"), fullPage: true });
+  const retried = await agent.callTool({ name: "edit_doc", arguments: { doc: launch.docId, operations: opsFirst, idempotency_key: "e2e-first" } });
+  check("a retried call with the same key changes nothing", [/already made/.test(retried.content[0].text), (await editorText()).split("Write the edit_doc guide").length - 1], [true, 1]);
+  const afterEdit = (await agent.callTool({ name: "read_doc", arguments: { doc: launch.docId } })).content[0].text;
+  check("read_doc has it, with the new id", afterEdit.includes(`⟦${newId}⟧ - [ ] Write the edit_doc guide`), true);
+
+  // The receipt card, and undo from it.
+  const receipt = await host("card: edit", first, { doc: launch.docId, operations: opsFirst }, "light", agent);
+  await receipt.frame.waitForSelector(".confirm-title");
+  check("the card is the receipt: title, page, changes", [
+    await receipt.frame.textContent(".confirm-title"),
+    await receipt.frame.textContent(".panel-name"),
+    await receipt.frame.textContent(".panel-sub"),
+    await receipt.frame.$$eval(".checks .check .text", (els) => els.map((e) => e.textContent)),
+  ], ["Edited Launch plan", "Launch plan", "Roadmap · 2 changes", ["Changed paragraph · Ship MCP edits today", "Added to-do · Write the edit_doc guide"]]);
+  await receipt.page.screenshot({ path: path.join(shots, "card-edit-light.png"), fullPage: true });
+  await receipt.page.evaluate(() => window.__hostTheme("dark"));
+  await wait(150);
+  check("…and dark with the host", await receipt.frame.$eval(".btn.ink", (el) => getComputedStyle(el).backgroundColor) !== "rgb(20, 20, 19)", true);
+  await receipt.page.screenshot({ path: path.join(shots, "card-edit-dark.png"), fullPage: true });
+  await receipt.page.evaluate(() => window.__hostTheme("light"));
+  await receipt.frame.click("[data-act=undo]");
+  await receipt.frame.waitForSelector(".confirm-title:text('Undid the edit')");
+  check("Undo in the card goes through the host to undo_edit", (await receipt.log()).calls, ["undo_edit"]);
+  await receipt.page.screenshot({ path: path.join(shots, "card-undo.png"), fullPage: true });
+  await receipt.context.close();
+  await until("the undo to arrive in the open editor", () => {
+    const text = document.querySelector("#editor-host [data-nml-served] .bn-editor")?.textContent ?? "";
+    return text.includes("Ship MCP reads") && !text.includes("Write the edit_doc guide");
+  });
+  check("the open editor is back to how it was, live", [(await editorText()).includes("Ship MCP reads this week."), (await editorText()).includes("Write the edit_doc guide")], [true, false]);
+  await until("the bar to go", () => !document.querySelector(".nt-agent-bar"));
+  check("…and the page stops asking", await editorTab.page.$(".nt-agent-bar"), null);
+
+  // Aryan undoes from the page.
+  const second = await agent.callTool({ name: "edit_doc", arguments: { doc: launch.docId, operations: [
+    { kind: "removeBlock", blockId: "q-note" },
+    { kind: "moveBlock", blockId: "n-two", to: { at: "before", ref: "n-one" } },
+  ] } });
+  check("a remove and a move land as one edit", second.content[0].text.split("\n").slice(1, 3).sort(), ["- Moved ⟦n-two⟧ numberedListItem: Dogfood for a week", "- Removed ⟦q-note⟧ quote: Read-only first; writes come with review."]);
+  await until("the removal to arrive", () => !(document.querySelector("#editor-host [data-nml-served] .bn-editor")?.textContent ?? "").includes("Read-only first"));
+  await until("the bar for the second edit", () => document.querySelector(".nt-agent-bar .nt-review-count")?.textContent === "1 removed, 1 moved");
+  await editorTab.page.click(".nt-agent-bar button:has-text('Undo')");
+  await until("the page undo to arrive", () => (document.querySelector("#editor-host [data-nml-served] .bn-editor")?.textContent ?? "").includes("Read-only first"));
+  check("Undo on the page puts back the removed quote and the order", await editorTab.page.evaluate(() => {
+    const text = document.querySelector("#editor-host [data-nml-served] .bn-editor")?.textContent ?? "";
+    return [text.includes("Read-only first"), text.indexOf("Write the docs") < text.indexOf("Dogfood for a week")];
+  }), [true, true]);
+  await until("the bar to go after the page undo", () => !document.querySelector(".nt-agent-bar"));
+
+  // An undo that would take Aryan's later typing is refused, and he keeps the edit.
+  const third = await agent.callTool({ name: "edit_doc", arguments: { doc: launch.docId, operations: [{ kind: "setBlockContent", blockId: "n-one", content: "Write the docs and the runbook" }] } });
+  await until("the third edit", () => (document.querySelector("#editor-host [data-nml-served] .bn-editor")?.textContent ?? "").includes("Write the docs and the runbook"));
+  const line = await editorTab.page.$(`#editor-host .bn-block-outer[data-id="n-one"] .bn-inline-content`);
+  const box = await line.boundingBox();
+  await editorTab.page.mouse.click(box.x + box.width - 2, box.y + box.height / 2);
+  await editorTab.page.waitForFunction(() => document.activeElement?.closest?.(".bn-editor"));
+  await editorTab.page.keyboard.type(", today");
+  let persisted = "";
+  for (let i = 0; i < 60 && !persisted.includes("runbook, today"); i++) {
+    await wait(250);
+    persisted = JSON.stringify(seed.decode(await stored("aryan", launch.docId)).blocks);
+  }
+  check("Aryan's typing is on the canonical tree", persisted.includes("Write the docs and the runbook, today"), true);
+  await editorTab.page.click(".nt-agent-bar button:has-text('Undo')");
+  await until("the refusal", () => document.querySelector(".nt-agent-bar .nt-review-failure")?.textContent === "Changed since — can’t undo");
+  check("the refusal fits the bar on one line, in the counts' place", await editorTab.page.evaluate(() => {
+    const bar = document.querySelector(".nt-agent-bar");
+    const failure = bar.querySelector(".nt-review-failure");
+    return [failure.getBoundingClientRect().height < 24, !bar.querySelector(".nt-review-count")];
+  }), [true, true]);
+  check("Undo is refused: he has typed where the agent edited", await editorTab.page.textContent(".nt-agent-bar .nt-review-failure"), "Changed since — can’t undo");
+  check("…and nothing of his is lost", (await editorText()).includes("Write the docs and the runbook, today"), true);
+  await editorTab.page.screenshot({ path: path.join(shots, "editor-undo-refused.png"), fullPage: true });
+  const agentUndo = await agent.callTool({ name: "undo_edit", arguments: { edit_id: third.structuredContent.editId } });
+  check("the agent's undo_edit is refused the same way, naming the block", [agentUndo.isError, /edited since.*⟦n-one⟧/.test(agentUndo.content[0].text)], [true, true]);
+  await editorTab.page.click(".nt-agent-bar button:has-text('Keep')");
+  await until("Keep to clear the bar", () => !document.querySelector(".nt-agent-bar"));
+  check("Keep clears the bar", await editorTab.page.$(".nt-agent-bar"), null);
+  check("the editor only ever asked for AI lanes locally, and none left the machine", editorTab.lanes.every((lane) => lane.startsWith("/api/")), true);
+  await editorTab.context.close();
+
+  // What stays out of writing.
+  const reader = new Agent("Reader (e2e)", CALLBACK);
+  const readerConnected = await connectAgent(reader, ARYAN, "allow", { readOnly: true });
+  check("unticking “Allow edits” makes the button say what it grants", readerConnected.shown.button?.trim(), "Allow reading");
+  check("…and the token can only read", reader.tokens()?.scope, "docs:read");
+  const readOnlyEdit = await readerConnected.client.callTool({ name: "edit_doc", arguments: { doc: launch.docId, operations: [{ kind: "removeBlock", blockId: "h-launch" }] } });
+  check("a read-only connection is told how to get edits, and nothing changes", [readOnlyEdit.isError, /can only read/.test(readOnlyEdit.content[0].text)], [true, true]);
+  const legacyEdit = await agent.callTool({ name: "edit_doc", arguments: { doc: scratch.docId, operations: [{ kind: "insertBlocks", at: { at: "docEnd" }, blocks: [{ tempId: "x", type: "paragraph", content: "nope" }] }] } });
+  check("a legacy page cannot be edited", [legacyEdit.isError, /not served/.test(legacyEdit.content[0].text)], [true, true]);
+  const strangerEdit = await agent.callTool({ name: "edit_doc", arguments: { doc: secret.docId, operations: [{ kind: "removeBlock", blockId: "p-secret" }] } });
+  check("a stranger's page cannot be edited, or even found", [strangerEdit.isError, /No document you own/.test(strangerEdit.content[0].text)], [true, true]);
+  check("the stranger's page is untouched", JSON.stringify(seed.decode(await stored("stranger", secret.docId)).blocks).includes("stranger's secret plans"), true);
+
+  // Settings: who can edit, and what they did.
+  const agentsTab = await tab(ARYAN, "settings: edits", "/settings", { width: 1100, height: 1000 });
+  await agentsTab.page.waitForSelector(".nt-mcp-sublabel");
+  const metas = await agentsTab.page.$$eval("section[aria-labelledby=nt-set-agents] .nt-set-meta", (els) => els.map((e) => e.textContent));
+  check("Settings says which connections can edit", [metas.some((m) => m.startsWith("Can read and edit")), metas.some((m) => m.startsWith("Read only"))], [true, true]);
+  const editRows = await agentsTab.page.$$eval(".nt-mcp-sublabel + .nt-set-list .nt-set-meta", (els) => els.map((e) => e.textContent));
+  check("…and lists the edits, newest first, the undone ones marked", [editRows.length, editRows[0].includes("1 changed"), editRows.filter((r) => r.endsWith("undone")).length], [3, true, 2]);
+  await agentsTab.page.screenshot({ path: path.join(shots, "settings-agent-edits.png"), fullPage: true });
+  await agentsTab.context.close();
+
   // ── The record ─────────────────────────────────────────────────────────────
   console.log("\nThe record");
   const reads = (await table("auditEvents")).filter((e) => e.action === "mcp.read");
@@ -476,11 +638,22 @@ try {
   ], [true, true, false]);
   const secretsAt = JSON.stringify([await table("mcpGrants"), await table("mcpAuthCodes"), await table("mcpClients")]);
   check("no token is stored readable", [again.tokens().access_token, again.tokens().refresh_token].some((t) => secretsAt.includes(t)), false);
+  const edits = await table("mcpEdits");
+  const editAudit = (await table("auditEvents")).filter((e) => e.action === "mcp.edit" || e.action === "mcp.undo");
+  check("every edit and undo left a content-free line, and the edit records hold no content", [
+    edits.length, editAudit.filter((e) => e.action === "mcp.edit").length, editAudit.filter((e) => e.action === "mcp.undo").length,
+    JSON.stringify([edits, editAudit]).includes("edit_doc guide") || JSON.stringify([edits, editAudit]).includes("runbook"),
+  ], [3, 3, 2, false]);
   check("the backend fetched nothing from outside", deployment.outbound, []);
 } catch (error) {
   failures.push(`harness: ${error?.stack ?? error}`);
   console.error(error);
 } finally {
+  if (failures.length && deployment) {
+    // What the server said while it failed — function errors never reach the MCP client.
+    const said = deployment.backendLog.join("").split("\n").filter((l) => /error|uncaught|mcp:/i.test(l));
+    if (said.length) console.error(`\nbackend log (errors):\n${said.slice(-40).join("\n")}`);
+  }
   await browser?.close().catch(() => {});
   fixture?.server.close();
   callback?.close();

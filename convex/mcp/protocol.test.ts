@@ -1,12 +1,27 @@
 import { describe, expect, test, vi } from "vitest";
 import { MCP_APP_HTML, MCP_APP_MIME, MCP_APP_URI } from "./app";
-import { handleMcp, PROTOCOL_VERSIONS, type DocRead, type McpBackend } from "./protocol";
+import { handleMcp, PROTOCOL_VERSIONS, type DocEdit, type DocRead, type DocUndo, type McpBackend } from "./protocol";
 
 const DOC = { docId: "d-1", pageId: "p1", projectId: "j1", title: "Launch plan", projectTitle: "Roadmap", updatedAt: Date.UTC(2026, 8, 28) };
 
 function backend(overrides: Partial<McpBackend> = {}): McpBackend {
   return {
     appUrl: "https://app.nootles.com",
+    canWrite: true,
+    editDoc: vi.fn(
+      async (): Promise<DocEdit> => ({
+        status: "applied",
+        editId: "e1",
+        doc: DOC,
+        changes: [
+          { kind: "changed", id: "p1", type: "paragraph", text: "Ship it today" },
+          { kind: "added", id: "n1", type: "checkListItem", text: "Write docs" },
+        ],
+        created: { risk: "n1" },
+        blockCount: 3,
+      }),
+    ),
+    undoEdit: vi.fn(async (): Promise<DocUndo> => ({ status: "undone", docId: "d-1", pageId: "p1", projectId: "j1", title: "Launch plan" })),
     listDocs: vi.fn(async () => ({ total: 1, docs: [{ ...DOC, snippet: "Ship it", blockCount: 3 }] })),
     readDoc: vi.fn(
       async (): Promise<DocRead> => ({
@@ -33,7 +48,8 @@ describe("MCP protocol", () => {
     expect(ok.result.serverInfo.name).toBe("nootles");
     expect(ok.result.capabilities).toHaveProperty("tools");
     expect(ok.result.capabilities).toHaveProperty("resources");
-    expect(ok.result.instructions).toMatch(/read-only/);
+    expect(ok.result.instructions).toMatch(/edit_doc/);
+    expect(ok.result.instructions).toMatch(/undo/);
     const future = (await handleMcp(call(2, "initialize", { protocolVersion: "2099-01-01" }), backend())) as { result: { protocolVersion: string } };
     expect(future.result.protocolVersion).toBe(PROTOCOL_VERSIONS[0]);
   });
@@ -59,14 +75,17 @@ describe("MCP protocol", () => {
     expect(answers.map((a) => a.id)).toEqual([1, 2]);
   });
 
-  test("both tools are read-only, closed-world, and point at the app resource", async () => {
+  test("read tools are read-only, write tools say they write, all closed-world on the app resource", async () => {
     const { result } = (await handleMcp(call(1, "tools/list"), backend())) as {
       result: { tools: Array<{ name: string; annotations: Record<string, boolean>; _meta: { ui: { resourceUri: string } } }> };
     };
-    expect(result.tools.map((t) => t.name)).toEqual(["list_docs", "read_doc"]);
+    expect(result.tools.map((t) => [t.name, t.annotations.readOnlyHint, t.annotations.destructiveHint])).toEqual([
+      ["list_docs", true, false],
+      ["read_doc", true, false],
+      ["edit_doc", false, true],
+      ["undo_edit", false, true],
+    ]);
     for (const tool of result.tools) {
-      expect(tool.annotations.readOnlyHint).toBe(true);
-      expect(tool.annotations.destructiveHint).toBe(false);
       expect(tool.annotations.openWorldHint).toBe(false);
       expect(tool._meta.ui.resourceUri).toBe(MCP_APP_URI);
     }
@@ -133,6 +152,8 @@ describe("MCP protocol", () => {
   test("read_doc without a doc, unknown tools and non-object arguments are invalid params", async () => {
     expect(await handleMcp(call(1, "tools/call", { name: "read_doc", arguments: {} }), backend())).toMatchObject({ error: { code: -32602 } });
     expect(await handleMcp(call(2, "tools/call", { name: "edit_doc", arguments: {} }), backend())).toMatchObject({ error: { code: -32602 } });
+    expect(await handleMcp(call(4, "tools/call", { name: "undo_edit", arguments: {} }), backend())).toMatchObject({ error: { code: -32602 } });
+    expect(await handleMcp(call(5, "tools/call", { name: "delete_doc", arguments: {} }), backend())).toMatchObject({ error: { code: -32602 } });
     expect(await handleMcp(call(3, "tools/call", { name: "list_docs", arguments: [1] }), backend())).toMatchObject({ error: { code: -32602 } });
   });
 
@@ -143,5 +164,77 @@ describe("MCP protocol", () => {
     expect(answer.error.message).toBe("Internal error");
     expect(JSON.stringify(spy.mock.calls)).not.toContain("secret page text");
     spy.mockRestore();
+  });
+
+  test("edit_doc passes the operations through and reports every change, the new ids and the editId", async () => {
+    const b = backend();
+    const operations = [{ kind: "setBlockContent", blockId: "p1", content: "Ship it today" }];
+    const { result } = (await handleMcp(
+      call(1, "tools/call", { name: "edit_doc", arguments: { doc: "d-1", operations, idempotency_key: "k1" } }),
+      b,
+    )) as { result: { content: Array<{ text: string }>; structuredContent: { kind: string; editId: string; doc: { url: string } }; isError?: boolean } };
+    expect(b.editDoc).toHaveBeenCalledWith({ ref: "d-1", operations, idempotencyKey: "k1" });
+    expect(result.isError).toBeUndefined();
+    const text = result.content[0].text;
+    expect(text).toContain('Edited "Launch plan" — 2 changes. editId: e1');
+    expect(text).toContain("- Changed ⟦p1⟧ paragraph: Ship it today");
+    expect(text).toContain("- Added ⟦n1⟧ checkListItem: Write docs");
+    expect(text).toContain("risk → n1");
+    expect(result.structuredContent).toMatchObject({ kind: "edit", editId: "e1", doc: { url: "https://app.nootles.com/p/j1?page=p1" } });
+  });
+
+  test("a read-only connection is told how to get edit access, and the backend is never asked", async () => {
+    const b = backend({ canWrite: false });
+    for (const [name, args] of [["edit_doc", { doc: "d-1", operations: [] }], ["undo_edit", { edit_id: "e1" }]] as const) {
+      const { result } = (await handleMcp(call(1, "tools/call", { name, arguments: args }), b)) as {
+        result: { isError: boolean; content: Array<{ text: string }> };
+      };
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toMatch(/can only read.*Allow edits/);
+    }
+    expect(b.editDoc).not.toHaveBeenCalled();
+    expect(b.undoEdit).not.toHaveBeenCalled();
+  });
+
+  test("a rejected edit names the operation and says nothing changed; a refused one says why", async () => {
+    const rejected = backend({ editDoc: async () => ({ status: "rejected", code: "missing_node", message: "Block x does not exist", operationIndex: 2 }) });
+    const r = (await handleMcp(call(1, "tools/call", { name: "edit_doc", arguments: { doc: "d", operations: [] } }), rejected)) as {
+      result: { isError: boolean; content: Array<{ text: string }> };
+    };
+    expect(r.result).toMatchObject({ isError: true });
+    expect(r.result.content[0].text).toBe("Nothing was changed: Block x does not exist (operation 2). [missing_node]");
+    for (const reason of ["not-found", "not-served", "too-large", "no-write", "busy", "rate-limited"] as const) {
+      const b = backend({ editDoc: async () => ({ status: "refused", reason }) });
+      const answer = (await handleMcp(call(1, "tools/call", { name: "edit_doc", arguments: { doc: "d", operations: [] } }), b)) as {
+        result: { isError: boolean; content: Array<{ text: string }> };
+      };
+      expect(answer.result.isError).toBe(true);
+      expect(answer.result.content[0].text.length).toBeGreaterThan(20);
+    }
+  });
+
+  test("a replayed edit changes nothing and says so", async () => {
+    const b = backend({ editDoc: async () => ({ status: "replayed", editId: "e1", doc: DOC }) });
+    const { result } = (await handleMcp(call(1, "tools/call", { name: "edit_doc", arguments: { doc: "d", operations: [] } }), b)) as {
+      result: { content: Array<{ text: string }>; structuredContent: { replayed: boolean } };
+    };
+    expect(result.content[0].text).toMatch(/already made \(editId: e1\)/);
+    expect(result.structuredContent.replayed).toBe(true);
+  });
+
+  test("undo_edit undoes by id, and a refusal names the blocks in the way", async () => {
+    const b = backend();
+    const ok = (await handleMcp(call(1, "tools/call", { name: "undo_edit", arguments: { edit_id: " e1 " } }), b)) as {
+      result: { content: Array<{ text: string }>; structuredContent: { kind: string; doc: { url: string } } };
+    };
+    expect(b.undoEdit).toHaveBeenCalledWith({ editId: "e1" });
+    expect(ok.result.content[0].text).toMatch(/^Undone\./);
+    expect(ok.result.structuredContent).toMatchObject({ kind: "undo", doc: { url: "https://app.nootles.com/p/j1?page=p1" } });
+    const refused = backend({ undoEdit: async () => ({ status: "refused", reason: "changed-since", ids: ["p1"] }) });
+    const no = (await handleMcp(call(2, "tools/call", { name: "undo_edit", arguments: { edit_id: "e1" } }), refused)) as {
+      result: { isError: boolean; content: Array<{ text: string }> };
+    };
+    expect(no.result.isError).toBe(true);
+    expect(no.result.content[0].text).toMatch(/edited since.*⟦p1⟧/);
   });
 });

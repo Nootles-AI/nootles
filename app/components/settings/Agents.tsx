@@ -1,19 +1,22 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import Link from "next/link";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { DialogBox } from "@/app/components/Dialog";
+import { editSummary } from "@/app/lib/mcp/format";
 import { Check, Copy, Sparkle } from "@/app/components/Icons";
 import "../mcp/mcp.css";
 
 const WHEN = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "short", year: "numeric" });
 
 /**
- * MCP connections: the server URL to give an agent, and every agent holding
- * access, each one disconnectable. Drawn only for an account MCP is open to — an
- * internal owner — so nobody else's Settings changes.
+ * MCP connections: the server URL to give an agent, every agent holding
+ * access (each one disconnectable), and what they have lately changed (each
+ * change undoable). Drawn only for an account MCP is open to — an internal
+ * owner — so nobody else's Settings changes.
  */
 export function AgentsSection() {
   const status = useQuery(api.mcp.oauth.myConnections, {});
@@ -32,8 +35,9 @@ export function AgentsSection() {
             <div className="nt-set-body-col">
               <div className="nt-set-name">MCP server</div>
               <p className="nt-set-note">
-                Add this URL as a custom connector in Claude, or to any MCP client. It can list and read your
-                own pages that are served on NML, and nothing else — it cannot change anything.
+                Add this URL as a custom connector in Claude, or to any MCP client. It reaches only your own
+                pages that are served on NML: it can read them and, if you allow it when connecting, edit them.
+                Every edit shows on the page and can be undone.
               </p>
               {status.serverUrl && <ServerUrl url={status.serverUrl} />}
               {!status.enabled && <p className="nt-set-problem">MCP is turned off on this deployment right now.</p>}
@@ -46,7 +50,89 @@ export function AgentsSection() {
           </li>
         ))}
       </ul>
+      <AgentEdits />
     </section>
+  );
+}
+
+const AGO = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+
+/** "3 minutes ago", from a timestamp the render already has. */
+function ago(at: number, now: number): string {
+  const seconds = Math.round((at - now) / 1000);
+  if (seconds > -45) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes > -60) return AGO.format(minutes, "minute");
+  const hours = Math.round(minutes / 60);
+  if (hours > -24) return AGO.format(hours, "hour");
+  return WHEN.format(at);
+}
+
+const UNDO_FAILURES: Record<string, string> = {
+  "changed-since": "The page has changed there since, so undoing would take that work too.",
+  inexact: "This edit can no longer be undone exactly.",
+  expired: "Too old to undo.",
+  "already-undone": "Already undone.",
+};
+
+function AgentEdits() {
+  const edits = useQuery(api.mcp.docs.recentEdits, {});
+  const undo = useAction(api.mcp.edit.undoMine);
+  const [busy, setBusy] = useState<Id<"mcpEdits"> | null>(null);
+  const [failure, setFailure] = useState<{ editId: Id<"mcpEdits">; text: string } | null>(null);
+  // One clock per render of the list, read where it is needed rather than kept.
+  const [now] = useState(() => Date.now());
+  if (!edits?.length) return null;
+
+  const run = async (editId: Id<"mcpEdits">) => {
+    setBusy(editId);
+    setFailure(null);
+    try {
+      const result = await undo({ editId });
+      if (result.status === "refused") setFailure({ editId, text: UNDO_FAILURES[result.reason] ?? "It could not be undone." });
+    } catch {
+      setFailure({ editId, text: "It could not be undone. Try again in a moment." });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <>
+      <h3 className="nt-set-label nt-mcp-sublabel">Recent agent edits</h3>
+      <ul className="nt-set-list">
+        {edits.map((edit) => (
+          <li key={edit.editId}>
+            <div className="nt-set-row">
+              <span className="nt-set-glyph" aria-hidden />
+              <div className="nt-set-body-col">
+                <div className="nt-set-name">
+                  <Link href={`/p/${edit.projectId}?page=${edit.pageId}`} className="hover:underline">
+                    {edit.pageTitle || "Untitled"}
+                  </Link>
+                </div>
+                <div className="nt-set-meta">
+                  {edit.clientName} · {editSummary(edit.counts)} · {ago(edit.createdAt, now)}
+                  {edit.undoneAt ? " · undone" : ""}
+                </div>
+                {failure?.editId === edit.editId && (
+                  <p role="alert" className="nt-set-problem">
+                    {failure.text}
+                  </p>
+                )}
+              </div>
+              {edit.undoable && !edit.undoneAt && (
+                <div className="nt-set-actions">
+                  <button type="button" onClick={() => run(edit.editId)} disabled={busy !== null} className="nt-row px-2.5">
+                    {busy === edit.editId ? "Undoing…" : "Undo"}
+                  </button>
+                </div>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }
 
@@ -74,11 +160,13 @@ function ServerUrl({ url }: { url: string }) {
 function ConnectionRow({
   grantId,
   clientName,
+  canEdit,
   createdAt,
   lastUsedAt,
 }: {
   grantId: Id<"mcpGrants">;
   clientName: string;
+  canEdit: boolean;
   createdAt: number;
   lastUsedAt?: number;
 }) {
@@ -107,7 +195,7 @@ function ConnectionRow({
       <div className="nt-set-body-col">
         <div className="nt-set-name">{clientName}</div>
         <div className="nt-set-meta">
-          Connected {WHEN.format(createdAt)}
+          {canEdit ? "Can read and edit" : "Read only"} · Connected {WHEN.format(createdAt)}
           {lastUsedAt ? ` · last used ${WHEN.format(lastUsedAt)}` : " · not used yet"}
         </div>
       </div>

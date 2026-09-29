@@ -5,6 +5,12 @@ import { StandInProvider } from "../app/components/StandIn";
 import { Authed } from "../app/components/Authed";
 import { Consent } from "../app/components/mcp/Consent";
 import { Settings } from "../app/components/settings/Settings";
+import { Editor } from "../app/components/editor/Editor";
+import { EditorRegistryProvider } from "../app/components/editor/EditorRegistry";
+import { OpenPageProvider } from "../app/components/OpenPageContext";
+import { ReviewProvider } from "../app/components/ReviewContext";
+import type { Id } from "../convex/_generated/dataModel";
+import "@blocknote/mantine/style.css";
 
 /**
  * The in-browser half of mcp.fullstack.mjs.
@@ -12,6 +18,9 @@ import { Settings } from "../app/components/settings/Settings";
  * `/mcp/authorize` and `/settings` are the app's real pages — the consent a
  * person answers when an agent signs in, and the Agents section that lists and
  * ends connections — under the real providers, talking to the real backend.
+ * `/editor` is the real `Editor` on one page, as the page surface mounts it:
+ * the served BlockNote surface over canonical NML, live on the backend's Yjs
+ * log, with the agent-edit bar an MCP edit raises.
  *
  * `/host` is not the app: it stands in for Claude, the MCP Apps host. It frames
  * the app HTML the server served (`resources/read`) in a sandboxed iframe with
@@ -117,6 +126,22 @@ function Page() {
     return (
       <Authed>
         <Consent request={new URLSearchParams(search).get("request")} />
+      </Authed>
+    );
+  }
+  if (pathname === "/editor") {
+    const q = new URLSearchParams(search);
+    return (
+      <Authed>
+        <EditorRegistryProvider>
+          <OpenPageProvider>
+            <ReviewProvider projectId={q.get("project") as Id<"projects">}>
+              <div id="editor-host" className="nt-editor-host" style={{ maxWidth: 760, margin: "40px auto" }}>
+                <Editor docId={q.get("doc")!} pageId={q.get("page") as Id<"pages">} title={q.get("title") ?? ""} yjs />
+              </div>
+            </ReviewProvider>
+          </OpenPageProvider>
+        </EditorRegistryProvider>
       </Authed>
     );
   }

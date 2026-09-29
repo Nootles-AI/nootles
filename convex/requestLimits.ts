@@ -37,6 +37,7 @@ export const bucketValidator = v.union(
   v.literal("externalLookup"),
   v.literal("uploadGrant"),
   v.literal("mcpRequest"),
+  v.literal("mcpEdit"),
 );
 
 /**
@@ -186,6 +187,17 @@ export const REQUEST_LIMITS = {
     rate: 60,
     period: MINUTE,
     capacity: 30,
+  }),
+  /**
+   * An agent's writes (NT-123), on top of `mcpRequest`. A person reviewing an
+   * agent's work reads at their own pace; twenty batches a minute, ten at once,
+   * is far past that and well short of an edit loop rewriting a page to death.
+   */
+  mcpEdit: policy({
+    kind: "token bucket",
+    rate: 20,
+    period: MINUTE,
+    capacity: 10,
   }),
 } satisfies Record<Bucket, Policy>;
 

@@ -51,6 +51,7 @@ crons.interval("purge the trash", { hours: 24 }, internal.trash.purge, {});
 
 /** MCP's lapsed authorization requests and codes, dead grants and unused clients. */
 crons.interval("sweep mcp authorization", { hours: 1 }, internal.mcp.oauth.sweep, {});
+crons.interval("expire mcp edit undo", { hours: 1 }, internal.mcp.docs.expireInverses, {});
 
 /**
  * The audit log's one-year retention, on the same daily clock as the trash —

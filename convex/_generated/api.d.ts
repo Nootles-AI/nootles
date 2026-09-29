@@ -82,6 +82,7 @@ import type * as joinDomains from "../joinDomains.js";
 import type * as limits from "../limits.js";
 import type * as mcp_app from "../mcp/app.js";
 import type * as mcp_docs from "../mcp/docs.js";
+import type * as mcp_edit from "../mcp/edit.js";
 import type * as mcp_http from "../mcp/http.js";
 import type * as mcp_oauth from "../mcp/oauth.js";
 import type * as mcp_protocol from "../mcp/protocol.js";
@@ -207,6 +208,7 @@ declare const fullApi: ApiFromModules<{
   limits: typeof limits;
   "mcp/app": typeof mcp_app;
   "mcp/docs": typeof mcp_docs;
+  "mcp/edit": typeof mcp_edit;
   "mcp/http": typeof mcp_http;
   "mcp/oauth": typeof mcp_oauth;
   "mcp/protocol": typeof mcp_protocol;

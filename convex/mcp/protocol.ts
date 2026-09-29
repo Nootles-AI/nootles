@@ -8,8 +8,8 @@ import { MCP_APP_HTML, MCP_APP_URI, MCP_APP_MIME } from "./app";
  * Streamable HTTP, stateless: every POST carries one message (or a batch, for
  * the older revisions that allowed them) and gets its answer in the response
  * body. There is no session and no server-initiated stream; nothing here needs
- * one. Tools only read, so nothing an agent does over MCP can change a document
- * or reach a model provider.
+ * one. No tool reaches a model provider. `edit_doc` and `undo_edit` write, and
+ * only through a grant holding `docs:write` (NT-123).
  */
 
 export const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"] as const;
@@ -45,9 +45,40 @@ export type DocRead =
     }
   | { status: "refused"; reason: "not-found" | "not-served" | "too-large" | "corrupt"; detail?: string };
 
+type DocRef = { docId: string; pageId: string; projectId: string; title: string; projectTitle: string };
+export type EditChange = { kind: "added" | "changed" | "removed" | "moved"; id: string; type: string; text: string };
+
+export type DocEdit =
+  | { status: "applied"; editId: string; doc: DocRef; changes: EditChange[]; created: Record<string, string>; blockCount: number }
+  | { status: "replayed"; editId: string; doc: DocRef }
+  | { status: "rejected"; code: string; message: string; operationIndex?: number }
+  | { status: "refused"; reason: "not-found" | "not-served" | "too-large" | "no-write" | "busy" | "rate-limited"; detail?: string };
+
+export type DocUndo =
+  | { status: "undone"; docId: string; pageId: string; projectId: string; title: string }
+  | {
+      status: "refused";
+      reason:
+        | "not-found"
+        | "not-served"
+        | "no-write"
+        | "already-undone"
+        | "expired"
+        | "too-large"
+        | "changed-since"
+        | "inexact"
+        | "busy"
+        | "rate-limited";
+      ids?: string[];
+    };
+
 export type McpBackend = {
   listDocs(args: { query?: string; limit: number }): Promise<DocListing>;
   readDoc(args: { ref: string; focusBlockId?: string; window?: number }): Promise<DocRead>;
+  editDoc(args: { ref: string; operations: unknown; idempotencyKey?: string }): Promise<DocEdit>;
+  undoEdit(args: { editId: string }): Promise<DocUndo>;
+  /** Whether this connection was granted `docs:write`. */
+  canWrite: boolean;
   /** Where "Open in Nootles" goes; null when the deployment has no app URL. */
   appUrl: string | null;
 };
@@ -65,10 +96,11 @@ const INVALID_PARAMS = -32602;
 
 const INSTRUCTIONS = [
   "Nootles is a planning tool whose pages mix structured text with diagrams.",
-  "These tools read the connected person's own Nootles pages that are served from the canonical NML document tree.",
+  "These tools work on the connected person's own Nootles pages that are served from the canonical NML document tree.",
   "Call list_docs to see what is available, then read_doc with a docId.",
-  "read_doc returns every block tagged ⟦id⟧; ids are stable across reads, so cite blocks by id.",
-  "Access is read-only: nothing here can change a document.",
+  "read_doc returns every block tagged ⟦id⟧; ids are stable across reads, so cite and edit blocks by id.",
+  "edit_doc changes a page through typed operations on those ids; read the page first, keep each edit to one coherent change, and tell the person what you changed.",
+  "Every edit shows on the page at once, is attributed to you, and can be undone by the person or with undo_edit.",
 ].join(" ");
 
 const LIST_TOOL = {
@@ -112,13 +144,120 @@ const READ_TOOL = {
   _meta: { ui: { resourceUri: MCP_APP_URI } },
 };
 
-export const TOOLS = [LIST_TOOL, READ_TOOL];
+const RUNS = {
+  description:
+    'Inline content: a plain string, or a list of runs — {"type":"text","text":"…","marks":["bold"|"italic"|"underline"|"strike"|"code"]}, ' +
+    '{"type":"link","href":"https://…","content":[text runs]}, {"type":"math","latex":"…"}, {"type":"pageRef","pageId":"…","title":"…"}, ' +
+    '{"type":"checkbox","checked":true}.',
+  anyOf: [{ type: "string" }, { type: "array", items: { type: "object" } }],
+};
+
+const POSITION = {
+  type: "object",
+  description: 'Where: {"at":"after","ref":"<id>"}, {"at":"before","ref":"<id>"}, {"at":"docStart"} or {"at":"docEnd"}.',
+  properties: { at: { type: "string", enum: ["after", "before", "docStart", "docEnd"] }, ref: { type: "string" } },
+  required: ["at"],
+};
+
+const NEW_BLOCK = {
+  type: "object",
+  description:
+    "A block to create. tempId is any name you choose; the result maps it to the block's real id, and later operations in the " +
+    "same edit may use it as a ref. Types: paragraph, heading (props.level 1–3), bulletListItem, numberedListItem, checkListItem " +
+    "(props.checked), toggleListItem, quote, codeBlock (props.language, props.code), mathBlock, table (rows), divider, image/video/audio/file " +
+    "(props.url, props.caption). children nests list items under this one.",
+  properties: {
+    tempId: { type: "string" },
+    type: { type: "string" },
+    props: { type: "object" },
+    content: RUNS,
+    rows: { type: "array", description: "Table cells: rows of cells, each cell inline content.", items: { type: "array" } },
+    headerRows: { type: "integer", minimum: 0 },
+    children: { type: "array", items: { type: "object" } },
+  },
+  required: ["tempId", "type"],
+};
+
+const EDIT_TOOL = {
+  name: "edit_doc",
+  title: "Edit a Nootles document",
+  description:
+    "Change one Nootles document with a list of operations, applied together as one edit: all of them or none. Address blocks by the " +
+    "⟦id⟧ read_doc shows; read the document first. The edit appears at once in any open copy of the page, is marked as yours, and " +
+    "the person can undo it (so can you, with undo_edit and the editId this returns). Operations:\n" +
+    '- {"kind":"setBlockContent","blockId","content"} — replace a block\'s text.\n' +
+    '- {"kind":"insertBlocks","at":position,"blocks":[new blocks]} — add blocks.\n' +
+    '- {"kind":"updateBlockProps","blockId","props"} — e.g. {"checked":true}, {"level":2}, {"language":"ts","code":"…"}.\n' +
+    '- {"kind":"moveBlock","blockId","to":position} and {"kind":"removeBlock","blockId"}.\n' +
+    '- {"kind":"setTableRows","blockId","rows","headerRows"?}, {"kind":"setMathRows","blockId","rows":["latex",…]}, ' +
+    '{"kind":"updateMathRow","blockId","rowIndex","latex"}.\n' +
+    "Diagrams, albums and storyboards are read-only here. If an operation cannot apply (a missing id, a wrong block type) nothing " +
+    "changes and the error says which operation failed.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      doc: { type: "string", description: "A docId from list_docs, a page id, or a Nootles page URL." },
+      operations: {
+        type: "array",
+        minItems: 1,
+        maxItems: 100,
+        description: "Applied in order, as one edit.",
+        items: {
+          type: "object",
+          properties: {
+            kind: {
+              type: "string",
+              enum: ["insertBlocks", "setBlockContent", "updateBlockProps", "moveBlock", "removeBlock", "setTableRows", "setMathRows", "updateMathRow"],
+            },
+            blockId: { type: "string" },
+            at: POSITION,
+            to: POSITION,
+            blocks: { type: "array", items: NEW_BLOCK },
+            content: RUNS,
+            props: { type: "object" },
+            rows: { type: "array" },
+            headerRows: { type: "integer", minimum: 0 },
+            rowIndex: { type: "integer", minimum: 0 },
+            latex: { type: "string" },
+          },
+          required: ["kind"],
+        },
+      },
+      idempotency_key: {
+        type: "string",
+        description: "Optional. Retrying with the same key never applies the edit twice.",
+      },
+    },
+    required: ["doc", "operations"],
+    additionalProperties: false,
+  },
+  annotations: { title: "Edit a Nootles document", readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+  _meta: { ui: { resourceUri: MCP_APP_URI } },
+};
+
+const UNDO_TOOL = {
+  name: "undo_edit",
+  title: "Undo a Nootles edit",
+  description:
+    "Take back one edit_doc edit exactly, by the editId it returned. Refused, with nothing changed, if the person has since edited " +
+    "what that edit touched — undoing would take their work too. Edits stay undoable for 7 days.",
+  inputSchema: {
+    type: "object",
+    properties: { edit_id: { type: "string", description: "The editId an edit_doc result gave." } },
+    required: ["edit_id"],
+    additionalProperties: false,
+  },
+  annotations: { title: "Undo a Nootles edit", readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  _meta: { ui: { resourceUri: MCP_APP_URI } },
+};
+
+export const TOOLS = [LIST_TOOL, READ_TOOL, EDIT_TOOL, UNDO_TOOL];
 
 const APP_RESOURCE = {
   uri: MCP_APP_URI,
   name: "nootles_documents",
   title: "Nootles documents",
-  description: "The card list_docs and read_doc results are shown in.",
+  description: "The card Nootles tool results are shown in.",
   mimeType: MCP_APP_MIME,
 };
 
@@ -195,6 +334,88 @@ async function readDoc(args: Record<string, unknown>, backend: McpBackend) {
   };
 }
 
+const READ_ONLY =
+  "This connection can only read. To let it edit, disconnect Nootles in your MCP client (or in Nootles Settings → Agents), " +
+  "connect again, and leave “Allow edits” on.";
+
+const EDIT_REFUSALS: Record<Extract<DocEdit, { status: "refused" }>["reason"], string> = {
+  ...REFUSALS,
+  "no-write": READ_ONLY,
+  busy: "The page kept changing while the edit was being made, so nothing was changed. Read it again and retry.",
+  "rate-limited": "Too many edits in a short time, so nothing was changed. Wait a little, then retry.",
+};
+
+const VERB: Record<EditChange["kind"], string> = { added: "Added", changed: "Changed", removed: "Removed", moved: "Moved" };
+
+async function editDoc(args: Record<string, unknown>, backend: McpBackend) {
+  if (typeof args.doc !== "string" || !args.doc.trim()) return null;
+  if (!backend.canWrite) return toolError(READ_ONLY);
+  const idempotencyKey = typeof args.idempotency_key === "string" && args.idempotency_key ? args.idempotency_key.slice(0, 200) : undefined;
+  const edit = await backend.editDoc({ ref: args.doc, operations: args.operations, idempotencyKey });
+  if (edit.status === "refused") {
+    const wait = edit.reason === "rate-limited" && edit.detail ? ` (about ${edit.detail}s)` : "";
+    return toolError(EDIT_REFUSALS[edit.reason] + wait);
+  }
+  if (edit.status === "rejected") {
+    const where = edit.operationIndex !== undefined ? ` (operation ${edit.operationIndex})` : "";
+    return toolError(`Nothing was changed: ${edit.message}${where}. [${edit.code}]`);
+  }
+  const url = pageUrl(backend.appUrl, edit.doc);
+  if (edit.status === "replayed") {
+    return {
+      content: [{ type: "text", text: `That edit was already made (editId: ${edit.editId}); nothing new was changed.` }],
+      structuredContent: { kind: "edit", replayed: true, editId: edit.editId, doc: { ...edit.doc, url }, changes: [], created: {} },
+    };
+  }
+  const created = Object.entries(edit.created);
+  const lines = [
+    `Edited "${edit.doc.title || "Untitled"}" — ${edit.changes.length} change${edit.changes.length === 1 ? "" : "s"}. editId: ${edit.editId}`,
+    ...edit.changes.map((c) => `- ${VERB[c.kind]} ⟦${c.id}⟧ ${c.type}${c.text ? `: ${c.text}` : ""}`),
+    ...(created.length ? ["", `New block ids: ${created.map(([temp, id]) => `${temp} → ${id}`).join(", ")}`] : []),
+    "",
+    "The person sees this on the page and can undo it; so can you, with undo_edit.",
+  ];
+  return {
+    content: [{ type: "text", text: lines.join("\n") }],
+    structuredContent: {
+      kind: "edit",
+      editId: edit.editId,
+      doc: { ...edit.doc, url },
+      changes: edit.changes,
+      created: edit.created,
+      blockCount: edit.blockCount,
+    },
+  };
+}
+
+const UNDO_REFUSALS: Record<Extract<DocUndo, { status: "refused" }>["reason"], string> = {
+  "not-found": "No edit of yours has that editId.",
+  "not-served": REFUSALS["not-served"],
+  "no-write": READ_ONLY,
+  "already-undone": "That edit was already undone.",
+  expired: "That edit is too old to undo; edits stay undoable for 7 days.",
+  "too-large": REFUSALS["too-large"],
+  "changed-since": "Nothing was changed: the page has been edited since, where this edit touched, and undoing it would take that work too. Make a new edit instead.",
+  inexact: "Nothing was changed: this edit can no longer be taken back exactly. Make a new edit instead.",
+  busy: "The page kept changing while undoing, so nothing was changed. Try again.",
+  "rate-limited": "Too many edits in a short time, so nothing was changed. Wait a little, then retry.",
+};
+
+async function undoEdit(args: Record<string, unknown>, backend: McpBackend) {
+  if (typeof args.edit_id !== "string" || !args.edit_id.trim()) return null;
+  if (!backend.canWrite) return toolError(READ_ONLY);
+  const undo = await backend.undoEdit({ editId: args.edit_id.trim() });
+  if (undo.status === "refused") {
+    const ids = undo.ids?.length ? ` Blocks: ${undo.ids.map((id) => `⟦${id}⟧`).join(", ")}.` : "";
+    return toolError(UNDO_REFUSALS[undo.reason] + ids);
+  }
+  const url = pageUrl(backend.appUrl, undo);
+  return {
+    content: [{ type: "text", text: `Undone. "${undo.title || "Untitled"}" is back to how it was before that edit.` }],
+    structuredContent: { kind: "undo", editId: args.edit_id.trim(), doc: { docId: undo.docId, pageId: undo.pageId, projectId: undo.projectId, title: undo.title, url } },
+  };
+}
+
 function negotiate(requested: unknown): string {
   return typeof requested === "string" && (PROTOCOL_VERSIONS as readonly string[]).includes(requested)
     ? requested
@@ -245,6 +466,16 @@ async function dispatch(request: Request, backend: McpBackend): Promise<unknown>
       if (params.name === READ_TOOL.name) {
         const result = await readDoc(args, backend);
         if (!result) throw new RpcError(INVALID_PARAMS, "read_doc needs `doc`: a docId, page id or page URL.");
+        return result;
+      }
+      if (params.name === EDIT_TOOL.name) {
+        const result = await editDoc(args, backend);
+        if (!result) throw new RpcError(INVALID_PARAMS, "edit_doc needs `doc`: a docId, page id or page URL.");
+        return result;
+      }
+      if (params.name === UNDO_TOOL.name) {
+        const result = await undoEdit(args, backend);
+        if (!result) throw new RpcError(INVALID_PARAMS, "undo_edit needs `edit_id`: the editId an edit_doc result gave.");
         return result;
       }
       throw new RpcError(INVALID_PARAMS, `Unknown tool: ${String(params.name)}`);
