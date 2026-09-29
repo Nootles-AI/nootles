@@ -41,7 +41,8 @@
     "test:comments:fullstack": "node tests/comments-browser.mjs --fullstack",
     "test:album:fullstack": "node tests/album-index.fullstack.mjs",
     "test:links:expiry": "node tests/link-expiry.fullstack.mjs",
-    "test:affiliates:fullstack": "node tests/affiliates.fullstack.mjs"
+    "test:affiliates:fullstack": "node tests/affiliates.fullstack.mjs",
+    "test:mcp:fullstack": "node tests/mcp.fullstack.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.63",
@@ -98,6 +99,7 @@
     "@iconify-json/lucide": "^1.2.123",
     "@iconify-json/material-symbols": "^1.2.89",
     "@iconify-json/ph": "^1.2.2",
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "@tailwindcss/postcss": "^4",
     "@types/katex": "^0.16.8",
     "@types/node": "^20",

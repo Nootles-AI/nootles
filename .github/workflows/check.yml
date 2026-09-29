@@ -134,6 +134,13 @@ jobs:
         env:
           COMMENTS_BROWSER_CHANNEL: chromium
           CONVEX_LOCAL_BACKEND_BINARY: /home/runner/.cache/convex/binaries/${{ env.CONVEX_LOCAL_BACKEND }}/convex-local-backend
+      # And for an agent connecting over MCP and reading served pages (NT-121):
+      # the official MCP SDK client doing OAuth against the real endpoints.
+      - run: npm run test:mcp:fullstack
+        if: ${{ !cancelled() }}
+        env:
+          COMMENTS_BROWSER_CHANNEL: chromium
+          CONVEX_LOCAL_BACKEND_BINARY: /home/runner/.cache/convex/binaries/${{ env.CONVEX_LOCAL_BACKEND }}/convex-local-backend
       - uses: actions/upload-artifact@v4
         if: always()
         with:

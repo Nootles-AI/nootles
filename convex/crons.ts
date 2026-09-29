@@ -49,6 +49,9 @@ crons.interval("lapse stale identity stamps", { hours: 1 }, internal.identity.ex
  */
 crons.interval("purge the trash", { hours: 24 }, internal.trash.purge, {});
 
+/** MCP's lapsed authorization requests and codes, dead grants and unused clients. */
+crons.interval("sweep mcp authorization", { hours: 1 }, internal.mcp.oauth.sweep, {});
+
 /**
  * The audit log's one-year retention, on the same daily clock as the trash —
  * a separate job so neither purge failing holds the other up.

@@ -1,0 +1,205 @@
+"use node";
+
+import { v, type Infer } from "convex/values";
+import { DOMParser } from "linkedom";
+import * as Y from "yjs";
+import { internal } from "../_generated/api";
+import { internalAction, type ActionCtx } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import { project } from "@/app/lib/ai/projection";
+import { nmlToAnyBlocks } from "@/app/lib/nml/model/projection";
+import { decodeNmlDocument } from "@/app/lib/nml/yjs";
+import type { NmlBlock, NmlDocument } from "@/app/lib/nml/schema";
+import { nmlOutline, nmlSnippet } from "@/app/lib/mcp/outline";
+import { docSummary, material as materialValidator } from "./docs";
+
+/**
+ * MCP Phase 3 — the model read of a served document, on the server.
+ *
+ * The stored update history (read cheaply in the isolate by `docs.readMaterial`)
+ * is rebuilt into a Y.Doc here and decoded from its canonical `nml` root: never
+ * the `prosemirror` compatibility root, never an HTML reader. The text is
+ * `project()` over the NML adapter — the same stable-ID grammar every AI lane
+ * reads, so a `⟦id⟧` an agent sees here is the id an editor, a checkpoint and a
+ * future `edit_doc` all address. The outline beside it is for the card a person
+ * sees, derived from the same decode.
+ *
+ * Node, for the reason `nmlVerify.ts` gives: rebuilding a document near the v1
+ * limits needs more heap than an isolate has. And the projection reads canvas,
+ * album, storyboard and location markup back through their parsers, which want
+ * a `DOMParser`; linkedom stands in for the browser's, as in `diagramBand.ts`.
+ */
+
+(globalThis as { DOMParser?: unknown }).DOMParser ??= DOMParser;
+
+/** Past this the agent gets the start and is told how to ask for the rest. */
+export const MAX_TEXT_CHARS = 200_000;
+
+function rebuild(updates: ArrayBuffer[]): NmlDocument {
+  const doc = new Y.Doc();
+  try {
+    for (const update of updates) Y.applyUpdate(doc, new Uint8Array(update));
+    return decodeNmlDocument(doc);
+  } finally {
+    doc.destroy();
+  }
+}
+
+function storageIds(blocks: NmlBlock[], out = new Set<string>()): Set<string> {
+  for (const block of blocks) {
+    if (
+      (block.type === "image" || block.type === "video" || block.type === "audio" || block.type === "file") &&
+      block.props.source?.kind === "storage"
+    ) {
+      out.add(block.props.source.storageId);
+    }
+    storageIds(block.children, out);
+  }
+  return out;
+}
+
+/** Signed URLs for uploaded media, so a projected image line points somewhere real. */
+async function mediaUrls(ctx: ActionCtx, document: NmlDocument): Promise<Map<string, string>> {
+  const urls = new Map<string, string>();
+  for (const id of storageIds(document.blocks)) {
+    const url = await ctx.storage.getUrl(id as Id<"_storage">).catch(() => null);
+    if (url) urls.set(id, url);
+  }
+  return urls;
+}
+
+const outlineBlock = v.object({
+  id: v.string(),
+  type: v.string(),
+  depth: v.number(),
+  text: v.string(),
+  level: v.optional(v.number()),
+  checked: v.optional(v.boolean()),
+  language: v.optional(v.string()),
+});
+
+const refusal = v.object({
+  status: v.literal("refused"),
+  reason: v.union(v.literal("not-found"), v.literal("not-served"), v.literal("too-large"), v.literal("corrupt")),
+  detail: v.optional(v.string()),
+});
+
+const readResult = v.union(
+  v.object({
+    status: v.literal("ok"),
+    doc: docSummary,
+    text: v.string(),
+    truncated: v.boolean(),
+    blockCount: v.number(),
+    outline: v.object({ blocks: v.array(outlineBlock), total: v.number(), truncated: v.boolean() }),
+  }),
+  refusal,
+);
+
+export const readDoc = internalAction({
+  args: {
+    subject: v.string(),
+    grantId: v.id("mcpGrants"),
+    ref: v.string(),
+    focusBlockId: v.optional(v.string()),
+    window: v.optional(v.number()),
+  },
+  returns: readResult,
+  handler: async (ctx, args): Promise<Infer<typeof readResult>> => {
+    const material: Infer<typeof materialValidator> = await ctx.runQuery(internal.mcp.docs.readMaterial, { subject: args.subject, ref: args.ref });
+    if (material.status !== "ok") return material;
+    let document: NmlDocument;
+    try {
+      document = rebuild(material.updates);
+    } catch {
+      // Served means verified, so this is a root damaged since — say so, never guess.
+      return { status: "refused" as const, reason: "corrupt" as const };
+    }
+    const urls = await mediaUrls(ctx, document);
+    let blocks;
+    try {
+      blocks = nmlToAnyBlocks(document, { resolveStorageUrl: (id) => urls.get(id) });
+    } catch {
+      return { status: "refused" as const, reason: "corrupt" as const };
+    }
+    const windowed =
+      args.focusBlockId !== undefined
+        ? { cursorBlockId: args.focusBlockId, window: Math.max(0, Math.min(50, Math.floor(args.window ?? 5))) }
+        : {};
+    const { text: projected, index } = project(blocks, windowed);
+    // `project` marks the focus block for a model writing at a caret; an agent
+    // asked for a region needs the region, not a caret.
+    const text = projected.replace("   ◀ CURSOR IS HERE", "");
+    const truncated = text.length > MAX_TEXT_CHARS;
+    const outline = nmlOutline(document);
+    await ctx.runMutation(internal.mcp.docs.recordRead, {
+      subject: args.subject,
+      grantId: args.grantId,
+      pageId: material.doc.pageId,
+      projectId: material.doc.projectId,
+      blocks: outline.total,
+    });
+    return {
+      status: "ok" as const,
+      doc: material.doc,
+      text: truncated ? text.slice(0, MAX_TEXT_CHARS) : text,
+      truncated,
+      blockCount: index.blocks.size,
+      outline,
+    };
+  },
+});
+
+/** At most this many documents are opened to find their first words. */
+export const SNIPPET_DOCS = 25;
+
+const listResult = v.object({
+  total: v.number(),
+  docs: v.array(
+    v.object({
+      docId: v.string(),
+      pageId: v.id("pages"),
+      projectId: v.id("projects"),
+      title: v.string(),
+      projectTitle: v.string(),
+      updatedAt: v.number(),
+      snippet: v.optional(v.string()),
+      blockCount: v.optional(v.number()),
+    }),
+  ),
+});
+
+export const listDocs = internalAction({
+  args: { subject: v.string(), query: v.optional(v.string()), limit: v.number() },
+  returns: listResult,
+  handler: async (ctx, args): Promise<Infer<typeof listResult>> => {
+    const all: Infer<typeof docSummary>[] = await ctx.runQuery(internal.mcp.docs.servedDocs, { subject: args.subject });
+    const needle = args.query?.trim().toLowerCase();
+    const matching = needle
+      ? all.filter((d) => d.title.toLowerCase().includes(needle) || d.projectTitle.toLowerCase().includes(needle))
+      : all;
+    const limit = Math.max(1, Math.min(100, Math.floor(args.limit)));
+    const docs = [];
+    for (const [i, doc] of matching.slice(0, limit).entries()) {
+      if (i >= SNIPPET_DOCS) {
+        docs.push(doc);
+        continue;
+      }
+      const read: Infer<typeof materialValidator> = await ctx.runQuery(internal.mcp.docs.readMaterial, {
+        subject: args.subject,
+        ref: doc.docId,
+      });
+      if (read.status !== "ok") {
+        docs.push(doc);
+        continue;
+      }
+      try {
+        const document = rebuild(read.updates);
+        docs.push({ ...doc, snippet: nmlSnippet(document, { title: doc.title }), blockCount: nmlOutline(document, { maxBlocks: 0 }).total });
+      } catch {
+        docs.push(doc);
+      }
+    }
+    return { total: matching.length, docs };
+  },
+});

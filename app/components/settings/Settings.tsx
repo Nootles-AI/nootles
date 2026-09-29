@@ -11,6 +11,7 @@ import { X } from "@/app/components/Icons";
 import { NotionMark } from "@/app/components/NotionMark";
 import { useAccountSettingsName } from "@/app/components/workspaces/useAccountSettingsName";
 import { useNotionAvailable } from "@/app/components/notion/NotionAvailable";
+import { AgentsSection } from "./Agents";
 import {
   describeOutcome,
   useNotionOutcome,
@@ -19,7 +20,8 @@ import {
 import "./settings.css";
 
 /**
- * The account's standing arrangements — for now, the one connection it holds.
+ * The account's standing arrangements: its Notion connection and, for an
+ * account MCP is open to, the agents it has let read its pages.
  *
  * A page with a URL rather than a tab in a dialog, because a connection is
  * something you come back to months later to check or to end, and the only
@@ -80,6 +82,7 @@ export function Settings() {
             </ul>
           )}
         </section>
+        <AgentsSection />
       </main>
     </div>
   );
