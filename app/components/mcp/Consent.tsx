@@ -9,9 +9,9 @@ import "../settings/settings.css";
 import "./mcp.css";
 
 const REFUSALS = {
-  "not-internal": "Connecting agents is limited to Nootles’ internal accounts for now.",
-  "mcp-off": "Connecting agents is turned off right now. Try again later.",
-  "stand-in": "You are viewing this account as someone else, so an agent cannot be connected to it.",
+  "not-internal": "Only internal accounts can connect agents for now.",
+  "mcp-off": "Connecting agents is off right now.",
+  "stand-in": "You can’t connect an agent while standing in for someone.",
 } as const;
 
 /**
@@ -42,11 +42,11 @@ export function Consent({ request }: { request: string | null }) {
       }
       setProblem(
         outcome.reason === "expired"
-          ? "This request has expired. Start the connection again from your agent."
+          ? "This request expired. Try again from your agent."
           : REFUSALS[outcome.reason],
       );
     } catch {
-      setProblem("That did not go through. Try again in a moment.");
+      setProblem("That didn’t work. Try again.");
     } finally {
       setBusy(null);
     }
@@ -64,7 +64,7 @@ export function Consent({ request }: { request: string | null }) {
       }
       window.location.assign("/");
     } catch {
-      setProblem("That did not go through. Try again in a moment.");
+      setProblem("That didn’t work. Try again.");
     } finally {
       setBusy(null);
     }
@@ -80,17 +80,16 @@ export function Consent({ request }: { request: string | null }) {
       <main className="nt-set-body nt-mcp-consent" aria-busy={pending === undefined}>
         {!request || pending?.status === "missing" ? (
           <>
-            <h1 className="nt-set-title">This link has expired</h1>
+            <h1 className="nt-set-title">Link expired</h1>
             <p className="nt-set-note nt-mcp-lede">
-              A connection request lasts ten minutes and can be answered once. Start the connection again
-              from your agent to get a fresh one.
+              Try connecting again from your agent.
             </p>
           </>
         ) : pending ? (
           <>
             <h1 className="nt-set-title">Connect {pending.clientName}?</h1>
             <p className="nt-set-note nt-mcp-lede">
-              <span className="nt-mcp-client">{pending.clientName}</span> is asking to read your Nootles pages.
+              <span className="nt-mcp-client">{pending.clientName}</span> wants to read your pages.
             </p>
 
             <ul className="nt-set-list nt-mcp-card">
@@ -98,26 +97,24 @@ export function Consent({ request }: { request: string | null }) {
                 <span className="nt-mcp-mark is-yes" aria-hidden>
                   ✓
                 </span>
-                <span>
-                  See and read <strong>your own pages</strong> that are served from the NML document tree
-                </span>
+                <span>See and read your own pages</span>
               </li>
               <li className="nt-mcp-item">
                 <span className="nt-mcp-mark" aria-hidden>
                   ✕
                 </span>
-                <span>Change, create or delete anything — access is read-only</span>
+                <span>Edit anything</span>
               </li>
               <li className="nt-mcp-item">
                 <span className="nt-mcp-mark" aria-hidden>
                   ✕
                 </span>
-                <span>See pages in a team workspace, pages shared with you, or pages not yet on NML</span>
+                <span>See team or shared pages</span>
               </li>
             </ul>
 
             <p className="nt-set-meta nt-mcp-where">
-              Answers go to <span className="nt-mcp-origin">{pending.redirectOrigin}</span>
+              Returns to <span className="nt-mcp-origin">{pending.redirectOrigin}</span>
             </p>
 
             {pending.refusal && (
@@ -143,13 +140,13 @@ export function Consent({ request }: { request: string | null }) {
                   disabled={busy !== null || leaving}
                   className="nt-row nt-solid px-3 font-medium"
                 >
-                  {leaving ? `Returning to ${pending.clientName}…` : busy === "allow" ? "Connecting…" : "Allow read access"}
+                  {leaving ? `Returning to ${pending.clientName}…` : busy === "allow" ? "Connecting…" : "Allow"}
                 </button>
               )}
             </div>
             {!pending.refusal && (
               <p className="nt-set-note nt-mcp-foot">
-                You can disconnect it at any time from{" "}
+                Disconnect anytime in{" "}
                 <Link href="/settings" className="underline">
                   Settings
                 </Link>

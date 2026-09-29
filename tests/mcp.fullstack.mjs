@@ -305,7 +305,7 @@ try {
     authorization.origin,
   ], ["S256", MCP_URL.href, SITE]);
   check("the consent page names the agent", shown.title, "Connect Claude (e2e)?");
-  check("…and where the answer goes", shown.where, `Answers go to ${new URL(CALLBACK).origin}`);
+  check("…and where the answer goes", shown.where, `Returns to ${new URL(CALLBACK).origin}`);
   check("…and offers Allow to an internal owner", Boolean(shown.allow) && shown.refusal === null, true);
   check("Allow comes back with a code, the client's own state and our issuer", [Boolean(back.code), back.state, back.iss], [true, claude.sentState, SITE]);
   check("the agent holds a bearer token and a refresh token", [claude.tokens()?.token_type?.toLowerCase(), Boolean(claude.tokens()?.refresh_token)], ["bearer", true]);
