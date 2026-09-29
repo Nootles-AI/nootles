@@ -1,9 +1,13 @@
 # Affiliate links — implementation plan
 
-Status: **in progress, NT-119** (2026-09-28). The backend core — schema, `recordClick`,
-`attribute`, `attributeByCode`, `convex/affiliateRules.ts` — is the first PR; the admin
-functions, checkout metadata and code attribution the second (see "As built" below); the
-`/r` route, ops and the privacy copy follow. Defaults below may still change.
+Status: **implemented, NT-119** (live 2026-09-28). Backend core
+[#236](https://github.com/Nootles-AI/nootles/pull/236), the `/r` route and claim
+[#237](https://github.com/Nootles-AI/nootles/pull/237), admin functions, checkout metadata and
+code attribution [#238](https://github.com/Nootles-AI/nootles/pull/238), ops `/affiliates`
+([nootles-ops#10](https://github.com/Nootles-AI/nootles-ops/pull/10)) and the privacy copy
+([nootles-site#1](https://github.com/Nootles-AI/nootles-site/pull/1)). Where this plan and the
+code differ, the code and `agent-wiki/architecture/data-and-auth.md` win. Defaults below may
+still change.
 
 ## As built: admin, checkout and codes
 
