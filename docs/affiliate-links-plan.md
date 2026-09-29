@@ -1,8 +1,33 @@
 # Affiliate links — implementation plan
 
 Status: **in progress, NT-119** (2026-09-28). The backend core — schema, `recordClick`,
-`attribute`, `attributeByCode`, `convex/affiliateRules.ts` — is the first PR; admin functions
-and checkout, the `/r` route, ops and the privacy copy follow. Defaults below may still change.
+`attribute`, `attributeByCode`, `convex/affiliateRules.ts` — is the first PR; the admin
+functions, checkout metadata and code attribution the second (see "As built" below); the
+`/r` route, ops and the privacy copy follow. Defaults below may still change.
+
+## As built: admin, checkout and codes
+
+- **Totals without counting.** A link's all-time clicks and unique visitors are kept in its own
+  `affiliateTotals` row by `recordClick`, and `affiliates.signups` by `attribute`/`attributeByCode`,
+  so `affiliateList` reads one row per link and never counts (Convex has no count). A click never
+  writes the affiliate row, which every attribution reads. Absent is zero; nothing was recorded
+  before them.
+- **Stats page through the attributions** (`affiliateFunnelPage`, 100 at a time) and derive
+  every milestone from `profiles`, `billingAccounts` and `entitlementOf` when asked. Paying is
+  `entitlement.source === "subscription"`, exactly `revenue`'s test, and MRR uses the price
+  lookup the two now share (`stripePrices`, `monthlyOf`).
+- **Team.** A workspace paying through its own subscription counts for the affiliate of the
+  person who completed its checkout: `workspaceBilling.buyerId`, written from the session's
+  `client_reference_id` when `checkout.session.completed` arrives. A plan bought before that
+  falls back to whoever last opened its checkout (the `billing.checkout` audit entry), then its
+  creator (`teamBilling.teamBuyer`). `teamMrr` is seats × the seat price; metered usage has no
+  price to count.
+- **The detail chart** takes an optional `today` from the reader's clock: a query's clock is read
+  once and cached, so without it a quiet link's 90 days would stop moving.
+- **Code attribution** rides the Stripe webhook's `checkout.session.completed`: the session's
+  `discounts[].promotion_code`, and its `client_reference_id`, which both checkouts now set to
+  the buyer. Sessions opened before that fall back to the workspace's buyer or the Stripe
+  customer's `userId`.
 
 ## Operator decisions (2026-09-28)
 

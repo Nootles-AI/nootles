@@ -2,9 +2,16 @@ import { ConvexError, v } from "convex/values";
 import StripeSDK from "stripe";
 import { StripeSubscriptions } from "@convex-dev/stripe";
 import { api, components, internal } from "./_generated/api";
-import { action, internalMutation, query } from "./_generated/server";
+import {
+  action,
+  internalAction,
+  internalMutation,
+  internalQuery,
+  query,
+  type ActionCtx,
+} from "./_generated/server";
 import { ensureAccount, isLiveStatus, type Entitlement } from "./entitlements";
-import { isTeamPrice, teamBillingConfigured, teamPrices } from "./teamBilling";
+import { isTeamPrice, teamBillingConfigured, teamBuyer, teamPrices } from "./teamBilling";
 
 /**
  * Paying, and stopping paying.
@@ -105,6 +112,16 @@ export const teamSeatPrice = action({
 });
 
 /**
+ * `{ affiliate: slug }` when the account was brought by an affiliate, so the
+ * subscription carries it into Stripe's dashboard too; nothing otherwise, not
+ * even the key.
+ */
+async function affiliateTag(ctx: ActionCtx, ownerId: string): Promise<{ affiliate?: string }> {
+  const slug = await ctx.runQuery(internal.affiliates.slugFor, { ownerId });
+  return slug ? { affiliate: slug } : {};
+}
+
+/**
  * Opens checkout. Returns the URL to send the browser to.
  *
  * `allow_promotion_codes` is what makes discount codes work at all — the field
@@ -149,6 +166,7 @@ export const startCheckout = action({
       userId: identity.subject,
       stripeCustomerId: customerId,
     });
+    const affiliate = await affiliateTag(ctx, identity.subject);
 
     const session = await stripe.createCheckoutSession(ctx, {
       priceId: priceFor(args.interval),
@@ -158,8 +176,8 @@ export const startCheckout = action({
       cancelUrl: `${appUrl()}/upgrade?checkout=cancelled`,
       // How the webhook knows whose subscription this is — the component reads
       // the same field to link its own rows.
-      subscriptionMetadata: { userId: identity.subject },
-      params: { allow_promotion_codes: true },
+      subscriptionMetadata: { userId: identity.subject, ...affiliate },
+      params: { allow_promotion_codes: true, client_reference_id: identity.subject },
     });
     if (!session.url) throw new ConvexError("Stripe returned no checkout URL.");
     return { url: session.url };
@@ -217,6 +235,7 @@ export const startTeamCheckout = action({
     if (!prices || !teamBillingConfigured()) {
       throw new ConvexError("The Team plan isn’t available yet.");
     }
+    // Refuses a stand-in, and anyone short of the workspace's admins.
     const desk = await ctx.runQuery(internal.teamBilling.desk, args);
     if (desk.live) throw new ConvexError(`${desk.name} is already on the Team plan.`);
     // Stripe still bills an unpaid or paused subscription's seats; a second
@@ -241,6 +260,10 @@ export const startTeamCheckout = action({
       });
     }
 
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new ConvexError("Not signed in");
+    const buyer = identity.subject;
+    const affiliate = await affiliateTag(ctx, buyer);
     const back = `${appUrl()}/w/${desk.slug}/settings/billing`;
     const session = await stripe.createCheckoutSession(ctx, {
       priceId: prices.seat,
@@ -248,11 +271,15 @@ export const startTeamCheckout = action({
       mode: "subscription",
       successUrl: `${back}?checkout=done`,
       cancelUrl: `${back}?checkout=cancelled`,
-      metadata: { orgId },
-      subscriptionMetadata: { orgId },
+      metadata: { orgId, ...affiliate },
+      subscriptionMetadata: { orgId, ...affiliate },
       params: {
         line_items: [{ price: prices.seat, quantity: desk.seats }, { price: prices.usage }],
         allow_promotion_codes: true,
+        // Who pressed the button, for a promotion code's attribution
+        // (`attributeCheckout`) — never a `userId`, which the personal mirror
+        // would read as this person's own plan.
+        client_reference_id: buyer,
       },
     });
     if (!session.url) throw new ConvexError("Couldn’t open checkout. Try again in a moment.");
@@ -394,5 +421,154 @@ export const plan = query({
       manageable: !!customer,
       sellable: !!process.env.STRIPE_PRICE_MONTHLY && !!process.env.APP_URL,
     };
+  },
+});
+
+// ---- Affiliate promotion codes --------------------------------------------
+
+/**
+ * A completed checkout that took a promotion code, as the webhook hands it
+ * over — or null for every other event, which is nearly all of them.
+ *
+ * The session names its codes in `discounts`. A session that shows money off
+ * but no `discounts` is read back once from Stripe (`lookup`); a session with
+ * nothing off is never read, so an ordinary checkout costs no call at all.
+ * `ownerId` is the `client_reference_id` checkout sets: the buyer, for Pro and
+ * Team alike.
+ */
+export type CheckoutDiscount = {
+  sessionId: string;
+  promotionCodeIds: string[];
+  lookup: boolean;
+  ownerId?: string;
+  orgId?: string;
+  customerId?: string;
+  /** When the checkout completed, in milliseconds. */
+  at: number;
+};
+
+type IdOrObject = string | { id?: string } | null | undefined;
+const idOf = (ref: IdOrObject) => (typeof ref === "string" ? ref : (ref?.id ?? null));
+
+export function checkoutDiscountOf(event: {
+  type: string;
+  created: number;
+  data: { object: unknown };
+}): CheckoutDiscount | null {
+  if (event.type !== "checkout.session.completed") return null;
+  const session = event.data.object as {
+    id: string;
+    client_reference_id?: string | null;
+    customer?: IdOrObject;
+    metadata?: Record<string, string> | null;
+    discounts?: { promotion_code?: IdOrObject }[] | null;
+    total_details?: { amount_discount?: number } | null;
+  };
+  const discounts = session.discounts ?? [];
+  const promotionCodeIds = discounts.flatMap((d) => {
+    const id = idOf(d.promotion_code);
+    return id ? [id] : [];
+  });
+  // Money off with no discounts listed is the one case worth asking Stripe
+  // about; discounts listed without a code are a coupon applied by hand.
+  const lookup =
+    promotionCodeIds.length === 0 &&
+    discounts.length === 0 &&
+    (session.total_details?.amount_discount ?? 0) > 0;
+  if (!promotionCodeIds.length && !lookup) return null;
+  return {
+    sessionId: session.id,
+    promotionCodeIds,
+    lookup,
+    ...(session.client_reference_id ? { ownerId: session.client_reference_id } : {}),
+    ...(session.metadata?.orgId ? { orgId: session.metadata.orgId } : {}),
+    ...(idOf(session.customer) ? { customerId: idOf(session.customer)! } : {}),
+    at: event.created * 1000,
+  };
+}
+
+/** A completed Team checkout's workspace and the person who bought it, for `teamBilling.recordBuyer`. */
+export function teamBuyerOf(event: {
+  type: string;
+  data: { object: unknown };
+}): { orgId: string; buyerId: string } | null {
+  if (event.type !== "checkout.session.completed") return null;
+  const session = event.data.object as {
+    client_reference_id?: string | null;
+    metadata?: Record<string, string> | null;
+  };
+  const orgId = session.metadata?.orgId;
+  const buyerId = session.client_reference_id;
+  return orgId && buyerId ? { orgId, buyerId } : null;
+}
+
+/**
+ * Who bought through a checkout that carries no `client_reference_id` — one
+ * opened before checkout started setting it: a workspace's buyer
+ * (`teamBuyer`), or the person whose Stripe customer it was.
+ */
+export const checkoutBuyer = internalQuery({
+  args: { orgId: v.optional(v.string()), customerId: v.optional(v.string()) },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    if (args.orgId) {
+      const workspaceId = ctx.db.normalizeId("workspaces", args.orgId);
+      return workspaceId ? await teamBuyer(ctx, workspaceId) : null;
+    }
+    if (!args.customerId) return null;
+    const customer = await ctx.runQuery(components.stripe.public.getCustomer, {
+      stripeCustomerId: args.customerId,
+    });
+    return customer?.metadata?.userId ?? null;
+  },
+});
+
+/**
+ * Credits the affiliate whose promotion code a completed checkout used, when
+ * the buyer is a new account nobody has claimed (`affiliates.attributeByCode`
+ * decides). A link attribution already made always stands.
+ */
+export const attributeCheckout = internalAction({
+  args: {
+    sessionId: v.string(),
+    promotionCodeIds: v.array(v.string()),
+    lookup: v.boolean(),
+    ownerId: v.optional(v.string()),
+    orgId: v.optional(v.string()),
+    customerId: v.optional(v.string()),
+    at: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    let codes = args.promotionCodeIds;
+    if (!codes.length && args.lookup) {
+      const key = process.env.STRIPE_SECRET_KEY;
+      if (!key) return null;
+      const session = await new StripeSDK(key).checkout.sessions.retrieve(args.sessionId, {
+        expand: ["total_details.breakdown"],
+      });
+      codes = (session.total_details?.breakdown?.discounts ?? []).flatMap((d) => {
+        const id = idOf(d.discount.promotion_code);
+        return id ? [id] : [];
+      });
+    }
+    if (!codes.length) return null;
+
+    const ownerId =
+      args.ownerId ??
+      (await ctx.runQuery(internal.billing.checkoutBuyer, {
+        orgId: args.orgId,
+        customerId: args.customerId,
+      }));
+    if (!ownerId) return null;
+    for (const promotionCodeId of codes) {
+      const outcome = await ctx.runMutation(internal.affiliates.attributeByCode, {
+        ownerId,
+        promotionCodeId,
+        at: args.at,
+      });
+      if (outcome.status !== "ignored") break;
+    }
+    return null;
   },
 });

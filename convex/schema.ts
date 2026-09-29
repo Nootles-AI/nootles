@@ -357,6 +357,12 @@ export default defineSchema({
      * that never ran cannot hold the seat count still for good.
      */
     seatSyncPendingAt: v.optional(v.number()),
+    /**
+     * Who completed the checkout that bought the subscription — its session's
+     * `client_reference_id` (`billing.startTeamCheckout`) — so an affiliate's
+     * Team sale stays theirs (`teamBilling.teamBuyer`).
+     */
+    buyerId: v.optional(v.string()),
     updatedAt: v.number(),
   })
     .index("by_workspace", ["workspaceId"])
@@ -1688,6 +1694,13 @@ export default defineSchema({
     promotionCodeId: v.optional(v.string()),
     /** The code as customers type it, for ops. */
     promotionCode: v.optional(v.string()),
+    /**
+     * How many `affiliateAttributions` name this affiliate, kept as they are
+     * written, so the ops list need not count them. Absent is zero. Clicks and
+     * visitors are in `affiliateTotals` instead: a click must not write this
+     * row, which every attribution reads.
+     */
+    signups: v.optional(v.number()),
     createdAt: v.number(),
     disabledAt: v.optional(v.number()),
   })
@@ -1724,6 +1737,19 @@ export default defineSchema({
     clicks: v.number(),
     visitors: v.number(),
   }).index("by_affiliate_and_day", ["affiliateId", "day"]),
+
+  /**
+   * A link's counted clicks and unique visitors (its `affiliateVisits` rows),
+   * all time, kept by `affiliates.recordClick` as it writes them, so the ops
+   * list reads one row per link instead of counting. Its own row rather than
+   * fields on `affiliates`, which every attribution reads and a burst of
+   * clicks would otherwise keep rewriting.
+   */
+  affiliateTotals: defineTable({
+    affiliateId: v.id("affiliates"),
+    clicks: v.number(),
+    visitors: v.number(),
+  }).index("by_affiliate", ["affiliateId"]),
 
   /**
    * Which affiliate brought an account — at most one per account, written once
