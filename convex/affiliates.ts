@@ -4,6 +4,7 @@ import {
   internalMutation,
   internalQuery,
   mutation,
+  type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
 import {
@@ -69,7 +70,9 @@ function destinationOf(affiliate: Doc<"affiliates"> | null): string {
  * `affiliateDays.visitors` counts a visitor once per day: on their first click
  * for this affiliate, or their first since the UTC day turned. Their visit's
  * `lastAt` still holds the previous click when this one lands, which is how
- * that is known without another row.
+ * that is known without another row. The link's all-time totals go to
+ * `affiliateTotals`; the affiliate's own row is never written here, since
+ * every attribution reads it.
  */
 export const recordClick = mutation({
   args: {
@@ -148,6 +151,19 @@ export const recordClick = mutation({
         clicks: 1,
         visitors: 1,
       });
+    }
+
+    const totals = await ctx.db
+      .query("affiliateTotals")
+      .withIndex("by_affiliate", (q) => q.eq("affiliateId", affiliate._id))
+      .unique();
+    if (totals) {
+      await ctx.db.patch(totals._id, {
+        clicks: totals.clicks + 1,
+        visitors: totals.visitors + (visit ? 0 : 1),
+      });
+    } else {
+      await ctx.db.insert("affiliateTotals", { affiliateId: affiliate._id, clicks: 1, visitors: 1 });
     }
     return { destination, counted: true };
   },
@@ -263,9 +279,14 @@ export const attribute = mutation({
       attributedAt: now,
       via: "link",
     });
+    await countSignup(ctx, affiliate);
     return { status: "attributed", affiliate: affiliate.slug };
   },
 });
+
+async function countSignup(ctx: MutationCtx, affiliate: Doc<"affiliates">) {
+  await ctx.db.patch(affiliate._id, { signups: (affiliate.signups ?? 0) + 1 });
+}
 
 /** The slug of the affiliate an account is attributed to, for checkout's metadata. */
 export const slugFor = internalQuery({
@@ -308,6 +329,7 @@ export const attributeByCode = internalMutation({
       attributedAt: Date.now(),
       via: "code",
     });
+    await countSignup(ctx, affiliate);
     return { status: "attributed", affiliate: affiliate.slug };
   },
 });

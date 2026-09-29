@@ -11,7 +11,7 @@ import {
   type QueryCtx,
 } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { record } from "./audit";
+import { categoryOf, record } from "./audit";
 import { atLeast, requireWorkspaceRole, workspaceRole, type WorkspaceRole } from "./auth";
 import { isLiveStatus, workspaceStanding, workspaceSubscriptionLive } from "./entitlements";
 
@@ -185,6 +185,42 @@ export const desk = internalQuery({
       live: workspaceSubscriptionLive(billing, Date.now()),
       open: subscriptionOpen(billing),
     };
+  },
+});
+
+/**
+ * Who bought a workspace's Team plan, whose affiliate the sale counts for: the
+ * person who completed its checkout (`buyerId`, from the webhook), or for a
+ * plan bought before that was kept, whoever last opened its checkout as the
+ * audit log recorded them — or its creator, once that entry has aged out.
+ */
+export async function teamBuyer(ctx: QueryCtx, workspaceId: Id<"workspaces">): Promise<string | null> {
+  const billing = await billingOf(ctx, workspaceId);
+  if (billing?.buyerId) return billing.buyerId;
+  const checkout = await ctx.db
+    .query("auditEvents")
+    .withIndex("by_workspace_category_at", (q) =>
+      q.eq("workspaceId", workspaceId).eq("category", categoryOf("billing.checkout")),
+    )
+    .order("desc")
+    .filter((q) => q.eq(q.field("action"), "billing.checkout"))
+    .first();
+  if (checkout) return checkout.actorId;
+  return (await ctx.db.get(workspaceId))?.createdBy ?? null;
+}
+
+/**
+ * Keeps who completed a workspace's checkout (`teamBuyer`). A checkout for a
+ * workspace this deployment has no billing row for is not ours to record.
+ */
+export const recordBuyer = internalMutation({
+  args: { orgId: v.string(), buyerId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const workspaceId = ctx.db.normalizeId("workspaces", args.orgId);
+    const billing = workspaceId && (await billingOf(ctx, workspaceId));
+    if (billing) await ctx.db.patch(billing._id, { buyerId: args.buyerId });
+    return null;
   },
 });
 

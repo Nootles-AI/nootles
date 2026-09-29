@@ -1,4 +1,4 @@
-import { ConvexError, v } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 import StripeSDK from "stripe";
 import { internal } from "./_generated/api";
 import {
@@ -9,10 +9,18 @@ import {
   query,
 } from "./_generated/server";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 import { requireAdmin } from "./admin";
 import { record } from "./audit";
 import { normalizeCode } from "./accessCodes";
+import {
+  AFFILIATE_SLUG_MAX,
+  AFFILIATE_SLUG_MIN,
+  DEFAULT_DESTINATION,
+  dayKey,
+  isAllowedDestination,
+  normalizeAffiliateSlug,
+} from "./affiliateRules";
 import {
   entitlementOf,
   ensureAccount,
@@ -22,6 +30,7 @@ import {
 } from "./entitlements";
 import { isFeature, isPlanName, PLAN_OVERRIDE, PLANS } from "./plans";
 import { normalizeSlug } from "./slugs";
+import { teamBuyer, teamPrices } from "./teamBilling";
 
 /**
  * Billing as the operator sees it: who is paying, who was let in for free, and
@@ -544,6 +553,40 @@ export const billingRoster = internalQuery({
 
 const CENTS_PER_MONTH = 1;
 
+/** A Stripe price as the money reports read it. */
+type StripePrice = { amount: number; currency: string; interval: string | null };
+
+/**
+ * Each distinct price among `ids`, read from Stripe once. A price Stripe will
+ * not return, or one with no fixed amount, is left out: whoever pays it is
+ * counted as unpriced rather than failing the whole report. Stripe is not
+ * asked at all when there is nothing to price.
+ */
+async function stripePrices(ids: Iterable<string | null>): Promise<Map<string, StripePrice>> {
+  const unique = [...new Set(ids)].filter((id) => id !== null);
+  const prices = new Map<string, StripePrice>();
+  if (unique.length) {
+    const stripe = stripeSdk();
+    const found = await Promise.all(unique.map((id) => stripe.prices.retrieve(id).catch(() => null)));
+    unique.forEach((id, i) => {
+      const price = found[i];
+      if (price?.unit_amount != null) {
+        prices.set(id, {
+          amount: price.unit_amount,
+          currency: price.currency,
+          interval: price.recurring?.interval ?? null,
+        });
+      }
+    });
+  }
+  return prices;
+}
+
+/** One period's charge as a month of it: annual divided by twelve, as MRR counts it. */
+function monthlyOf(amount: number, interval: string | null): number {
+  return interval === "year" ? Math.round(amount / 12) : amount * CENTS_PER_MONTH;
+}
+
 /**
  * What each customer actually pays, and the monthly total.
  *
@@ -581,19 +624,7 @@ export const revenue = action({
     await ctx.runQuery(internal.adminBilling.checkAdmin, { token: args.token });
     const roster = await ctx.runQuery(internal.adminBilling.billingRoster, {});
 
-    const priceIds: string[] = [
-      ...new Set(roster.map((r) => r.priceId).filter((id) => id !== null)),
-    ];
-    const prices = new Map<string, { amount: number; currency: string }>();
-    if (priceIds.length) {
-      const stripe = stripeSdk();
-      for (const id of priceIds) {
-        const found = await stripe.prices.retrieve(id).catch(() => null);
-        if (found?.unit_amount != null) {
-          prices.set(id, { amount: found.unit_amount, currency: found.currency });
-        }
-      }
-    }
+    const prices = await stripePrices(roster.map((r) => r.priceId));
 
     const paying = roster
       .filter((row) => row.entitlement.source === "subscription")
@@ -611,12 +642,7 @@ export const revenue = action({
           amount: price?.amount ?? null,
           currency: price?.currency ?? null,
           /** The same, normalized to a month, so the column adds up. */
-          monthly:
-            price === null
-              ? null
-              : row.interval === "year"
-                ? Math.round(price.amount / 12)
-                : price.amount * CENTS_PER_MONTH,
+          monthly: price === null ? null : monthlyOf(price.amount, row.interval),
         };
       })
       .sort((a, b) => (b.monthly ?? 0) - (a.monthly ?? 0));
@@ -833,5 +859,566 @@ export const discountSetActive = action({
     await ctx.runQuery(internal.adminBilling.checkAdmin, { token: args.token });
     await stripeSdk().promotionCodes.update(args.id, { active: args.active });
     return null;
+  },
+});
+
+// ---- Affiliates -----------------------------------------------------------
+
+/**
+ * Influencers' `/r/<slug>` links, and what each one produced — measurement
+ * only (`docs/affiliate-links-plan.md`). The clicks and the attribution are
+ * `affiliates.ts`; this is the operator's side.
+ *
+ * Nothing past the attribution is stored against an affiliate. Whether an
+ * account onboarded, met the paywall, opened checkout or pays is read off
+ * `profiles`, `billingAccounts` and `entitlementOf` when asked, the same
+ * sources `funnel` and `billingRoster` read, so these numbers and the billing
+ * page's cannot disagree.
+ */
+
+/** An affiliate as the list and the detail page show it. */
+export type AffiliateRow = {
+  _id: Id<"affiliates">;
+  slug: string;
+  name: string;
+  note?: string;
+  destination: string;
+  ownerId?: string;
+  ownerEmail?: string;
+  promotionCodeId?: string;
+  promotionCode?: string;
+  createdAt: number;
+  disabledAt?: number;
+  clicks: number;
+  visitors: number;
+  signups: number;
+};
+
+/** A link's counted clicks and unique visitors, all time (`affiliateTotals`). */
+async function clickTotals(ctx: QueryCtx, affiliateId: Id<"affiliates">) {
+  const totals = await ctx.db
+    .query("affiliateTotals")
+    .withIndex("by_affiliate", (q) => q.eq("affiliateId", affiliateId))
+    .unique();
+  return { clicks: totals?.clicks ?? 0, visitors: totals?.visitors ?? 0 };
+}
+
+async function affiliateRow(ctx: QueryCtx, row: Doc<"affiliates">): Promise<AffiliateRow> {
+  const owner = row.ownerId ? await who(ctx, row.ownerId) : null;
+  return {
+    _id: row._id,
+    slug: row.slug,
+    name: row.name,
+    note: row.note,
+    destination: row.destination,
+    ownerId: row.ownerId,
+    ownerEmail: owner?.email ?? undefined,
+    promotionCodeId: row.promotionCodeId,
+    promotionCode: row.promotionCode,
+    createdAt: row.createdAt,
+    disabledAt: row.disabledAt,
+    ...(await clickTotals(ctx, row._id)),
+    signups: row.signups ?? 0,
+  };
+}
+
+async function affiliateOrThrow(ctx: QueryCtx, id: Id<"affiliates">) {
+  const row = await ctx.db.get(id);
+  if (!row) throw new ConvexError("There is no such affiliate.");
+  return row;
+}
+
+function checkedDestination(raw: string): string {
+  const destination = raw.trim();
+  if (!isAllowedDestination(destination)) {
+    throw new ConvexError(
+      "A link can only send people to https://nootles.com, www.nootles.com or app.nootles.com.",
+    );
+  }
+  return destination;
+}
+
+/** How far one attributed account got, read where billing reads it. */
+async function milestonesOf(ctx: QueryCtx, ownerId: string) {
+  const [profile, account, entitlement] = await Promise.all([
+    ctx.db
+      .query("profiles")
+      .withIndex("by_owner", (q) => q.eq("ownerId", ownerId))
+      .unique(),
+    ctx.db
+      .query("billingAccounts")
+      .withIndex("by_owner", (q) => q.eq("ownerId", ownerId))
+      .unique(),
+    entitlementOf(ctx, ownerId),
+  ]);
+  // Paying exactly as `revenue` counts it: a subscription is what lets them in.
+  const paying = entitlement.source === "subscription";
+  return {
+    email: profile?.email ?? null,
+    name: profile?.name ?? null,
+    onboarded: profile !== null && profile.status !== "surveying",
+    walled: account?.walls !== undefined,
+    reachedCheckout: account?.checkoutAt !== undefined,
+    paying,
+    priceId: paying ? (account?.subscription?.priceId ?? null) : null,
+    interval: paying ? (account?.subscription?.interval ?? null) : null,
+  };
+}
+
+/**
+ * Every workspace paying for Team through its own subscription — an operator's
+ * plan grant is not a sale — and the person who bought it (`teamBuyer`), whose
+ * affiliate the sale counts for.
+ */
+async function paidTeams(ctx: QueryCtx) {
+  const rows = await ctx.db.query("workspaceBilling").take(CAP);
+  const teams: { workspaceId: Id<"workspaces">; buyer: string; seats: number }[] = [];
+  for (const row of rows) {
+    if ((await workspaceStanding(ctx, row.workspaceId)).source !== "subscription") continue;
+    const buyer = await teamBuyer(ctx, row.workspaceId);
+    if (buyer) teams.push({ workspaceId: row.workspaceId, buyer, seats: row.seats });
+  }
+  return teams;
+}
+
+/** Newest first. */
+export const affiliateList = query({
+  args: { token: v.string() },
+  handler: async (ctx, args): Promise<AffiliateRow[]> => {
+    await requireAdmin(ctx, args.token);
+    const rows = await ctx.db.query("affiliates").order("desc").take(CAP);
+    return await Promise.all(rows.map((row) => affiliateRow(ctx, row)));
+  },
+});
+
+/**
+ * A new link. The slug is normalized as a click's is (`normalizeAffiliateSlug`)
+ * and cannot be changed afterwards — it is printed in bios and videos. The
+ * destination defaults to the marketing site and is held to the route's own
+ * rule, so an operator cannot make an open redirect by typing one.
+ */
+export const affiliateCreate = mutation({
+  args: {
+    token: v.string(),
+    slug: v.string(),
+    name: v.string(),
+    note: v.optional(v.string()),
+    destination: v.optional(v.string()),
+    /** The affiliate's own Nootles account, so their link cannot claim them. */
+    ownerId: v.optional(v.string()),
+  },
+  returns: v.id("affiliates"),
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    const slug = normalizeAffiliateSlug(args.slug);
+    if (!slug) {
+      throw new ConvexError(
+        `“${args.slug.trim()}” can’t be a link: use ${AFFILIATE_SLUG_MIN}–${AFFILIATE_SLUG_MAX} letters, digits or dashes, and not a word Nootles uses itself.`,
+      );
+    }
+    const name = args.name.trim();
+    if (!name) throw new ConvexError("An affiliate needs a name — who is it?");
+    const clash = await ctx.db
+      .query("affiliates")
+      .withIndex("by_slug", (q) => q.eq("slug", slug))
+      .first();
+    if (clash) throw new ConvexError(`/r/${slug} already belongs to ${clash.name}.`);
+
+    return await ctx.db.insert("affiliates", {
+      slug,
+      name,
+      note: args.note?.trim() || undefined,
+      destination: args.destination?.trim()
+        ? checkedDestination(args.destination)
+        : DEFAULT_DESTINATION,
+      ownerId: args.ownerId?.trim() || undefined,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+/**
+ * Changes what an affiliate is called, where their link lands, and whose it
+ * is. An absent field is left alone; an empty note, or a null owner, clears
+ * it. The slug is not here: links already out in the world must keep working.
+ */
+export const affiliateUpdate = mutation({
+  args: {
+    token: v.string(),
+    id: v.id("affiliates"),
+    name: v.optional(v.string()),
+    note: v.optional(v.string()),
+    destination: v.optional(v.string()),
+    ownerId: v.optional(v.union(v.string(), v.null())),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    await affiliateOrThrow(ctx, args.id);
+    const patch: Partial<Doc<"affiliates">> = {};
+    if (args.name !== undefined) {
+      patch.name = args.name.trim();
+      if (!patch.name) throw new ConvexError("An affiliate needs a name — who is it?");
+    }
+    if (args.note !== undefined) patch.note = args.note.trim() || undefined;
+    if (args.destination !== undefined) patch.destination = checkedDestination(args.destination);
+    if (args.ownerId !== undefined) patch.ownerId = args.ownerId?.trim() || undefined;
+    await ctx.db.patch(args.id, patch);
+    return null;
+  },
+});
+
+/**
+ * Stops a link counting, or starts it again. Clicks then land on the default
+ * destination and nobody new is attributed; what it already brought stays, and
+ * so do the accounts it brought. Disabling twice keeps the first date.
+ */
+export const affiliateSetDisabled = mutation({
+  args: { token: v.string(), id: v.id("affiliates"), disabled: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    const row = await affiliateOrThrow(ctx, args.id);
+    if (!args.disabled && row.disabledAt && row.promotionCodeId) {
+      await refuseCodeClash(ctx, args.id, row.promotionCodeId, row.promotionCode ?? row.promotionCodeId);
+    }
+    await ctx.db.patch(args.id, {
+      disabledAt: args.disabled ? (row.disabledAt ?? Date.now()) : undefined,
+    });
+    return null;
+  },
+});
+
+/**
+ * A checkout's code must name one enabled affiliate, or `attributeByCode`
+ * would be choosing between them. A disabled one's code is free to hand on —
+ * and then that one cannot be enabled again while it clashes.
+ */
+async function refuseCodeClash(
+  ctx: QueryCtx,
+  id: Id<"affiliates">,
+  promotionCodeId: string,
+  promotionCode: string,
+) {
+  for await (const other of ctx.db
+    .query("affiliates")
+    .withIndex("by_promotion_code_id", (q) => q.eq("promotionCodeId", promotionCodeId))) {
+    if (other._id !== id && !other.disabledAt) {
+      throw new ConvexError(`${promotionCode} is already ${other.name}’s code.`);
+    }
+  }
+}
+
+const promotion = v.object({ promotionCodeId: v.string(), promotionCode: v.string() });
+
+/** Writes the link {@link affiliateLinkPromotion} resolved, or clears it. */
+export const affiliateSetPromotion = internalMutation({
+  args: { id: v.id("affiliates"), promotion: v.union(promotion, v.null()) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await affiliateOrThrow(ctx, args.id);
+    const linked = args.promotion;
+    if (linked) await refuseCodeClash(ctx, args.id, linked.promotionCodeId, linked.promotionCode);
+    await ctx.db.patch(args.id, {
+      promotionCodeId: linked?.promotionCodeId,
+      promotionCode: linked?.promotionCode,
+    });
+    return null;
+  },
+});
+
+/**
+ * Hands an affiliate a Stripe promotion code — one made under Discounts — so a
+ * checkout that redeems it is theirs even without the link. Found by the code
+ * as customers type it, active or not; `null` takes it away again.
+ */
+export const affiliateLinkPromotion = action({
+  args: { token: v.string(), id: v.id("affiliates"), code: v.union(v.string(), v.null()) },
+  returns: v.union(promotion, v.null()),
+  handler: async (ctx, args): Promise<Infer<typeof promotion> | null> => {
+    await ctx.runQuery(internal.adminBilling.checkAdmin, { token: args.token });
+    if (args.code === null) {
+      await ctx.runMutation(internal.adminBilling.affiliateSetPromotion, {
+        id: args.id,
+        promotion: null,
+      });
+      return null;
+    }
+    const typed = args.code.trim();
+    if (!typed) throw new ConvexError("Type the code as customers type it.");
+    const [found] = (await stripeSdk().promotionCodes.list({ code: typed, limit: 1 })).data;
+    if (!found) {
+      throw new ConvexError(`Stripe has no promotion code “${typed}”. Make it under Discounts first.`);
+    }
+    const linked = { promotionCodeId: found.id, promotionCode: found.code };
+    await ctx.runMutation(internal.adminBilling.affiliateSetPromotion, {
+      id: args.id,
+      promotion: linked,
+    });
+    return linked;
+  },
+});
+
+type AffiliateWithTotals = { affiliate: Doc<"affiliates">; clicks: number; visitors: number };
+
+/** The affiliates and their click totals, for {@link affiliateStats}. */
+export const affiliateRows = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<AffiliateWithTotals[]> => {
+    const rows = await ctx.db.query("affiliates").order("desc").take(CAP);
+    return await Promise.all(
+      rows.map(async (affiliate) => ({ affiliate, ...(await clickTotals(ctx, affiliate._id)) })),
+    );
+  },
+});
+
+/** {@link paidTeams}, for {@link affiliateStats}. */
+export const affiliatePaidTeams = internalQuery({
+  args: {},
+  handler: async (ctx) => await paidTeams(ctx),
+});
+
+/**
+ * One page of an affiliate's attributed accounts, each with how far it got.
+ * Paged, because a successful link brings more accounts than one query may
+ * read the billing of.
+ */
+export const affiliateFunnelPage = internalQuery({
+  args: { affiliateId: v.id("affiliates"), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query("affiliateAttributions")
+      .withIndex("by_affiliate_and_attributed_at", (q) => q.eq("affiliateId", args.affiliateId))
+      .paginate({ cursor: args.cursor, numItems: 100 });
+    return {
+      accounts: await Promise.all(
+        page.page.map(async (row) => ({
+          ownerId: row.ownerId,
+          via: row.via,
+          ...(await milestonesOf(ctx, row.ownerId)),
+        })),
+      ),
+      isDone: page.isDone,
+      continueCursor: page.continueCursor,
+    };
+  },
+});
+
+/**
+ * Each affiliate's funnel, click to paying, and what it is worth a month.
+ *
+ * `signups` splits into `viaLink` and `viaCode`; `onboarded`, `walled`,
+ * `reachedCheckout` and `paying` each count the signups that got that far.
+ * `mrr` is in the currency's smallest unit, priced exactly as `revenue`
+ * prices it. A Team plan bought by an attributed person counts in its own
+ * columns — `teamPaying` workspaces, and their seats at the seat price as
+ * `teamMrr` (metered usage has no price to count). `promotionRedemptions` is
+ * Stripe's own count for a linked code, whoever redeemed it.
+ */
+export type AffiliateStatsRow = {
+  id: Id<"affiliates">;
+  slug: string;
+  name: string;
+  disabledAt?: number;
+  clicks: number;
+  visitors: number;
+  signups: number;
+  viaLink: number;
+  viaCode: number;
+  onboarded: number;
+  walled: number;
+  reachedCheckout: number;
+  paying: number;
+  mrr: number;
+  teamPaying: number;
+  teamMrr: number;
+  promotionRedemptions?: number;
+};
+
+export type AffiliateStats = {
+  rows: AffiliateStatsRow[];
+  currency: string | null;
+  /** Paying accounts and Team workspaces whose price Stripe could not give. */
+  unpriced: number;
+  generatedAt: number;
+};
+
+export const affiliateStats = action({
+  args: { token: v.string() },
+  handler: async (ctx, args): Promise<AffiliateStats> => {
+    await ctx.runQuery(internal.adminBilling.checkAdmin, { token: args.token });
+    const [affiliates, teams]: [
+      AffiliateWithTotals[],
+      { workspaceId: Id<"workspaces">; buyer: string; seats: number }[],
+    ] = await Promise.all([
+      ctx.runQuery(internal.adminBilling.affiliateRows, {}),
+      ctx.runQuery(internal.adminBilling.affiliatePaidTeams, {}),
+    ]);
+
+    type Account = { ownerId: string; via: "link" | "code" } & Awaited<ReturnType<typeof milestonesOf>>;
+    // Each link's pages in turn, the links side by side.
+    const funnels = await Promise.all(
+      affiliates.map(async (totals) => {
+        const accounts: Account[] = [];
+        let cursor: string | null = null;
+        for (;;) {
+          const page: { accounts: Account[]; isDone: boolean; continueCursor: string } =
+            await ctx.runQuery(internal.adminBilling.affiliateFunnelPage, {
+              affiliateId: totals.affiliate._id,
+              cursor,
+            });
+          accounts.push(...page.accounts);
+          if (page.isDone) break;
+          cursor = page.continueCursor;
+        }
+        const owners = new Set(accounts.map((a) => a.ownerId));
+        return { ...totals, accounts, teams: teams.filter((team) => owners.has(team.buyer)) };
+      }),
+    );
+
+    const seatPrice = teamPrices()?.seat ?? null;
+    const prices = await stripePrices([
+      ...funnels.flatMap((f) => f.accounts.map((a) => a.priceId)),
+      ...(funnels.some((f) => f.teams.length) ? [seatPrice] : []),
+    ]);
+    const redemptions = new Map<string, number>();
+    const codes = [
+      ...new Set(affiliates.flatMap((a) => (a.affiliate.promotionCodeId ? [a.affiliate.promotionCodeId] : []))),
+    ];
+    if (codes.length) {
+      const stripe = stripeSdk();
+      const found = await Promise.all(
+        codes.map((code) => stripe.promotionCodes.retrieve(code).catch(() => null)),
+      );
+      codes.forEach((code, i) => {
+        const promotion = found[i];
+        if (promotion) redemptions.set(code, promotion.times_redeemed);
+      });
+    }
+
+    let currency: string | null = null;
+    let unpriced = 0;
+    const rows = funnels.map(({ affiliate, clicks, visitors, accounts, teams: bought }): AffiliateStatsRow => {
+      const count = (pick: (a: (typeof accounts)[number]) => boolean) => accounts.filter(pick).length;
+      let mrr = 0;
+      for (const account of accounts) {
+        if (!account.paying) continue;
+        const price = account.priceId ? prices.get(account.priceId) : undefined;
+        if (!price) {
+          unpriced++;
+          continue;
+        }
+        currency ??= price.currency;
+        mrr += monthlyOf(price.amount, account.interval);
+      }
+      let teamMrr = 0;
+      const seat = seatPrice ? prices.get(seatPrice) : undefined;
+      for (const team of bought) {
+        if (!seat) {
+          unpriced++;
+          continue;
+        }
+        currency ??= seat.currency;
+        teamMrr += monthlyOf(seat.amount * team.seats, seat.interval);
+      }
+      const redeemed = affiliate.promotionCodeId
+        ? redemptions.get(affiliate.promotionCodeId)
+        : undefined;
+      return {
+        id: affiliate._id,
+        slug: affiliate.slug,
+        name: affiliate.name,
+        disabledAt: affiliate.disabledAt,
+        clicks,
+        visitors,
+        signups: accounts.length,
+        viaLink: count((a) => a.via === "link"),
+        viaCode: count((a) => a.via === "code"),
+        onboarded: count((a) => a.onboarded),
+        walled: count((a) => a.walled),
+        reachedCheckout: count((a) => a.reachedCheckout),
+        paying: count((a) => a.paying),
+        mrr,
+        teamPaying: bought.length,
+        teamMrr,
+        ...(redeemed === undefined ? {} : { promotionRedemptions: redeemed }),
+      };
+    });
+    return { rows, currency, unpriced, generatedAt: Date.now() };
+  },
+});
+
+/** How many days of clicks the detail page charts, today included. */
+const DETAIL_DAYS = 90;
+/** How many of the newest attributed accounts it lists; `signups` counts them all. */
+const DETAIL_ACCOUNTS = 200;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DAY_KEY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * One affiliate: its row, its last {@link DETAIL_DAYS} days of clicks (every
+ * day present, oldest first, a quiet day as zeros), and the newest
+ * {@link DETAIL_ACCOUNTS} accounts it brought, each with how far it got.
+ * `team` is whether that person bought a Team plan that is being paid for.
+ *
+ * `today` (UTC `YYYY-MM-DD`) is the day the chart ends on, from the reader's
+ * clock. Without it the server's is used — but a query's clock is read once
+ * and its result cached until a row it read changes, so a quiet link's chart
+ * would stop on the day it was first asked for.
+ */
+export const affiliateDetail = query({
+  args: { token: v.string(), id: v.id("affiliates"), today: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    await requireAdmin(ctx, args.token);
+    const row = await affiliateOrThrow(ctx, args.id);
+
+    const end =
+      args.today && DAY_KEY.test(args.today) && !Number.isNaN(Date.parse(`${args.today}T00:00:00Z`))
+        ? Date.parse(`${args.today}T00:00:00Z`)
+        : Date.now();
+    const window = Array.from({ length: DETAIL_DAYS }, (_, i) =>
+      dayKey(end - (DETAIL_DAYS - 1 - i) * DAY_MS),
+    );
+    const counted = await ctx.db
+      .query("affiliateDays")
+      .withIndex("by_affiliate_and_day", (q) =>
+        q.eq("affiliateId", args.id).gte("day", window[0]),
+      )
+      .take(DETAIL_DAYS + 1);
+    const byDay = new Map(counted.map((d) => [d.day, d]));
+    const days = window.map((day) => ({
+      day,
+      clicks: byDay.get(day)?.clicks ?? 0,
+      visitors: byDay.get(day)?.visitors ?? 0,
+    }));
+
+    const buyers = new Set((await paidTeams(ctx)).map((team) => team.buyer));
+    const attributions = await ctx.db
+      .query("affiliateAttributions")
+      .withIndex("by_affiliate_and_attributed_at", (q) => q.eq("affiliateId", args.id))
+      .order("desc")
+      .take(DETAIL_ACCOUNTS);
+    const accounts = await Promise.all(
+      attributions.map(async (a) => {
+        const { email, name, onboarded, walled, reachedCheckout, paying } = await milestonesOf(
+          ctx,
+          a.ownerId,
+        );
+        return {
+          ownerId: a.ownerId,
+          email,
+          name,
+          via: a.via,
+          attributedAt: a.attributedAt,
+          clickedAt: a.clickedAt,
+          onboarded,
+          walled,
+          reachedCheckout,
+          paying,
+          team: buyers.has(a.ownerId),
+        };
+      }),
+    );
+    return { affiliate: await affiliateRow(ctx, row), days, accounts };
   },
 });

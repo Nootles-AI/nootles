@@ -1,6 +1,9 @@
-import { httpRouter } from "convex/server";
+import { httpRouter, type GenericActionCtx } from "convex/server";
 import { registerRoutes } from "@convex-dev/stripe";
+import type Stripe from "stripe";
 import { components, internal } from "./_generated/api";
+import type { DataModel } from "./_generated/dataModel";
+import { checkoutDiscountOf, teamBuyerOf } from "./billing";
 import { httpAction } from "./_generated/server";
 import { deliver, signatureValid } from "./github/webhook";
 import { clerkWebhook } from "./identity";
@@ -76,25 +79,53 @@ http.route({ path: "/clerk/webhook", method: "POST", handler: clerkWebhook });
  * payment recovered and a plan changed all move where an account stands, and
  * enumerating which ones do is a list that would go stale silently. Re-reading
  * one account is cheap enough not to need the distinction.
+ *
+ * Exported so what it routes where can be tested without a signed delivery.
  */
-registerRoutes(http, components.stripe, {
-  onEvent: async (ctx, event) => {
-    const object = event.data.object as { metadata?: Record<string, string> | null };
-    // A workspace's customer, checkout and subscription name it as `orgId`
-    // (`billing.startTeamCheckout`), and are never anybody's own: its mirror
-    // is `teamBilling.mirror`, which reads Stripe for both of its items.
-    if (object.metadata?.orgId) {
-      const target = workspaceEventOf(object);
-      if (target) await ctx.runAction(internal.teamBilling.mirror, target);
-      return;
+export async function onStripeEvent(
+  ctx: Pick<GenericActionCtx<DataModel>, "runAction" | "runMutation">,
+  event: Stripe.Event,
+): Promise<void> {
+  // Affiliate bookkeeping: who bought a workspace's plan, and a checkout that
+  // took an affiliate's promotion code. Measurement, so it never fails the
+  // delivery: a webhook that returned 500 over a referral would hold back the
+  // mirror below until Stripe retried.
+  // Each on its own, so one failing cannot cost the other.
+  const buyer = teamBuyerOf(event);
+  const discount = checkoutDiscountOf(event);
+  const sessionId = (event.data.object as { id?: string }).id;
+  if (buyer) {
+    try {
+      await ctx.runMutation(internal.teamBilling.recordBuyer, buyer);
+    } catch (error) {
+      console.error(`[affiliates] checkout ${sessionId}: buyer not recorded:`, error);
     }
-    // Written by `billing.startCheckout` as `subscriptionMetadata`, which is
-    // also how the component links its own rows to a user.
-    const userId = object.metadata?.userId;
-    if (!userId) return;
-    await ctx.runMutation(internal.billing.mirrorSubscription, { userId });
-  },
-});
+  }
+  if (discount) {
+    try {
+      await ctx.runAction(internal.billing.attributeCheckout, discount);
+    } catch (error) {
+      console.error(`[affiliates] checkout ${sessionId}: code not attributed:`, error);
+    }
+  }
+
+  const object = event.data.object as { metadata?: Record<string, string> | null };
+  // A workspace's customer, checkout and subscription name it as `orgId`
+  // (`billing.startTeamCheckout`), and are never anybody's own: its mirror
+  // is `teamBilling.mirror`, which reads Stripe for both of its items.
+  if (object.metadata?.orgId) {
+    const target = workspaceEventOf(object);
+    if (target) await ctx.runAction(internal.teamBilling.mirror, target);
+    return;
+  }
+  // Written by `billing.startCheckout` as `subscriptionMetadata`, which is
+  // also how the component links its own rows to a user.
+  const userId = object.metadata?.userId;
+  if (!userId) return;
+  await ctx.runMutation(internal.billing.mirrorSubscription, { userId });
+}
+
+registerRoutes(http, components.stripe, { onEvent: onStripeEvent });
 
 /**
  * The GitHub App's webhook (docs/github-app.md). Here rather than in Next

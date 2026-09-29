@@ -229,3 +229,22 @@ change in the dashboard a minute later.
   exceptions in `workspaceEntitlements` (section 5).
 - **Team subscriptions, seats and usage** — `convex/teamBilling.ts`, mirrored
   into `workspaceBilling` (section 7).
+- **Affiliates** (measurement only, nothing is paid out) — ops → Affiliates,
+  `adminBilling.ts`'s Affiliates section; plan in `docs/affiliate-links-plan.md`.
+  Where they touch billing:
+  - Checkout (`startCheckout`, `startTeamCheckout`) adds `affiliate: <slug>` to
+    the subscription's metadata (and the Team session's) when the buyer was
+    attributed, and sets the session's `client_reference_id` to the buyer's
+    subject for both plans. No key at all when nobody referred them.
+  - A `checkout.session.completed` that took a promotion code linked to an
+    affiliate attributes the buyer `via: "code"` (`billing.attributeCheckout`
+    → `affiliates.attributeByCode`), if nobody claimed them first and they were
+    new within 30 days. The codes are read off the event's `discounts`; Stripe
+    is asked once only when money came off and no discount is listed, and never
+    for an ordinary checkout. A failure there is logged and never fails the
+    delivery.
+  - `affiliateStats` prices paying accounts with the same Stripe price lookup
+    as `revenue` (`stripePrices`), and a Team plan by its seats at the seat
+    price, credited to whoever completed its checkout (`workspaceBilling.buyerId`,
+    recorded by the webhook; `teamBilling.teamBuyer`).
+
