@@ -60,6 +60,7 @@ import { completionExtension } from "./ai/completionExtension";
 import { hintExtension } from "./ai/hintText";
 import { reviewExtension } from "./ai/reviewExtension";
 import { ReviewOverlay } from "./ai/ReviewOverlay";
+import { AgentEditBar } from "@/app/components/mcp/AgentEditBar";
 import { track } from "@/app/lib/telemetry";
 import { serializeStoryboard } from "./storyboard/serialize";
 import { emptyStoryboard } from "./storyboard/types";
@@ -910,6 +911,7 @@ function EditorSurface({
         />
       )}
       {!readOnly && pageId && <ReviewOverlay editor={editor} pageId={pageId} />}
+      {served && !readOnly && <AgentEditBar docId={docId} />}
       {pageId && <CommentDecorationsBridge editor={editor} />}
       {!readOnly && reformat.state && (
         <ReformatBar

@@ -3359,6 +3359,26 @@ body:has(.nt-toolbar-dock.is-page) .nt-reformat-switcher {
 body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar) .nt-reformat-switcher {
   bottom: calc(var(--inset) + 16px + 50px + 10px + 46px);
 }
+/* An agent's MCP edit (NT-123) asks in the same spot, in the same voice. When
+   the chat's own review is up too, that one keeps the spot and this steps above. */
+body:has(.nt-review-bar:not(.nt-agent-bar)) .nt-agent-bar {
+  bottom: 66px;
+}
+body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-agent-bar {
+  bottom: calc(var(--inset) + 16px + 50px + 10px + 46px);
+}
+.nt-agent-bar-failure {
+  white-space: nowrap;
+}
+.nt-agent-bar-who {
+  font-size: var(--text-meta-lg);
+  font-weight: 500;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
 .nt-review-count {
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta);

@@ -176,7 +176,7 @@ export class NmlLegacyMirror {
   private queue: Promise<void> = Promise.resolve();
   private pendingLegacyProjection: PendingLegacyProjection | null = null;
   private legacyDrainScheduled = false;
-  private readonly fallbackRequestPrefix = `${this.doc.clientID}-${++mirrorInstanceSequence}`;
+  private readonly fallbackRequestPrefix: string;
   private request = 0;
   private storageUrls = new Map<string, string>();
   private storageJobs = new Map<string, Promise<void>>();
@@ -191,7 +191,12 @@ export class NmlLegacyMirror {
     private readonly doc: Y.Doc,
     private readonly host: NmlLegacyMirrorHost,
     private readonly options: NmlLegacyMirrorOptions,
-  ) {}
+  ) {
+    // In the constructor, not a field initializer: under define-semantics class
+    // fields (the server bundle's target) initializers run before parameter
+    // properties are assigned, and `this.doc` would still be undefined.
+    this.fallbackRequestPrefix = `${doc.clientID}-${++mirrorInstanceSequence}`;
+  }
 
   start(): this {
     if (this.stopHost) return this;

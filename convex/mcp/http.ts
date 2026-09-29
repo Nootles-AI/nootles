@@ -5,8 +5,11 @@ import { issuer } from "./oauth";
 import { handleMcp, PARSE_ERROR, type McpBackend } from "./protocol";
 import {
   CHALLENGE,
-  SCOPE,
+  ALL_SCOPES,
+  SCOPES,
+  WRITE_SCOPE,
   grantedScope,
+  hasScope,
   mintToken,
   redirectWith,
   sha256Hex,
@@ -69,7 +72,7 @@ export const protectedResource = httpAction(async () =>
     {
       resource: resourceUrl(),
       authorization_servers: [site()],
-      scopes_supported: [SCOPE],
+      scopes_supported: [...SCOPES],
       bearer_methods_supported: ["header"],
       resource_name: "Nootles",
     },
@@ -92,7 +95,7 @@ export const authorizationServer = httpAction(async () =>
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["none", "client_secret_post", "client_secret_basic"],
       revocation_endpoint_auth_methods_supported: ["none", "client_secret_post", "client_secret_basic"],
-      scopes_supported: [SCOPE],
+      scopes_supported: [...SCOPES],
       authorization_response_iss_parameter_supported: true,
     },
     200,
@@ -137,7 +140,7 @@ export const register = httpAction(async (ctx, request) => {
     return registrationError("Only the code response type is supported.");
   }
   if (meta.scope !== undefined && (typeof meta.scope !== "string" || !grantedScope(meta.scope))) {
-    return registrationError(`The only scope is ${SCOPE}.`);
+    return registrationError(`The scopes are ${SCOPES.join(" and ")}.`);
   }
   const rawName = typeof meta.client_name === "string" ? meta.client_name.trim() : "";
   const name = (rawName || "MCP client").slice(0, 80);
@@ -167,7 +170,7 @@ export const register = httpAction(async (ctx, request) => {
       token_endpoint_auth_method: method,
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
-      scope: SCOPE,
+      scope: (typeof meta.scope === "string" && grantedScope(meta.scope)) || ALL_SCOPES,
     },
     201,
     NO_STORE,
@@ -216,7 +219,7 @@ export const authorize = httpAction(async (ctx, request) => {
   if (!challenge || !CHALLENGE.test(challenge)) return fail("invalid_request", "A PKCE code_challenge is required.");
   if (params.get("code_challenge_method") !== "S256") return fail("invalid_request", "code_challenge_method must be S256.");
   const scope = grantedScope(params.get("scope"));
-  if (!scope) return fail("invalid_scope", `The only scope is ${SCOPE}.`);
+  if (!scope) return fail("invalid_scope", `The scopes are ${SCOPES.join(" and ")}.`);
   const resource = params.get("resource");
   if (!acceptsResource(resource)) return fail("invalid_target", "This server only issues tokens for its own /mcp resource.");
 
@@ -344,7 +347,7 @@ export const revoke = httpAction(async (ctx, request) => {
 function challenge(error: string, description: string): Response {
   const attrs = [
     `resource_metadata="${resourceMetadataUrl()}"`,
-    `scope="${SCOPE}"`,
+    `scope="${ALL_SCOPES}"`,
     ...(error ? [`error="${error}"`, `error_description="${description.replace(/"/g, "'")}"`] : []),
   ];
   return json({ error: error || "unauthorized", error_description: description }, 401, {
@@ -352,9 +355,14 @@ function challenge(error: string, description: string): Response {
   });
 }
 
-function backendFor(ctx: ActionCtx, subject: string, grantId: Id<"mcpGrants">): McpBackend {
+function backendFor(
+  ctx: ActionCtx,
+  admitted: { subject: string; grantId: Id<"mcpGrants">; clientName: string; scope: string },
+): McpBackend {
+  const { subject, grantId, clientName } = admitted;
   return {
     appUrl: appUrl(),
+    canWrite: hasScope(admitted.scope, WRITE_SCOPE),
     listDocs: (args) => ctx.runAction(internal.mcp.read.listDocs, { subject, ...args }),
     readDoc: (args) =>
       ctx.runAction(internal.mcp.read.readDoc, {
@@ -364,6 +372,16 @@ function backendFor(ctx: ActionCtx, subject: string, grantId: Id<"mcpGrants">): 
         focusBlockId: args.focusBlockId,
         window: args.window,
       }),
+    editDoc: (args) =>
+      ctx.runAction(internal.mcp.edit.editDoc, {
+        subject,
+        grantId,
+        clientName,
+        ref: args.ref,
+        operations: args.operations,
+        idempotencyKey: args.idempotencyKey,
+      }),
+    undoEdit: (args) => ctx.runAction(internal.mcp.edit.undoEdit, { subject, editId: args.editId, by: "agent", grantId }),
   };
 }
 
@@ -391,7 +409,7 @@ export const mcp = httpAction(async (ctx, request) => {
   } catch {
     return json({ jsonrpc: "2.0", id: null, error: { code: PARSE_ERROR, message: "Parse error" } }, 400);
   }
-  const answer = await handleMcp(body, backendFor(ctx, admitted.subject, admitted.grantId));
+  const answer = await handleMcp(body, backendFor(ctx, admitted));
   if (answer === null) return new Response(null, { status: 202, headers: CORS });
   return json(answer);
 });

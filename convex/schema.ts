@@ -1145,6 +1145,41 @@ export default defineSchema({
     .index("by_refresh_expires", ["refreshExpiresAt"]),
 
   /**
+   * One agent edit over MCP (NT-123): what it touched, and how to take it back.
+   * Ids, counts and fingerprints (hashes of a node's state either side of the
+   * edit) — never what anything said. The inverse is the one piece of content,
+   * and it is not a record: it is the undo itself, kept in file storage for
+   * `EDIT_UNDO_DAYS` and deleted once used or expired, the same trust class as
+   * the document's own update log.
+   */
+  mcpEdits: defineTable({
+    subject: v.string(),
+    grantId: v.id("mcpGrants"),
+    clientName: v.string(),
+    docId: v.string(),
+    pageId: v.id("pages"),
+    projectId: v.id("projects"),
+    batchId: v.string(),
+    idempotencyKey: v.string(),
+    /** SHA-256 of the operations, so a reused key with different operations is refused. */
+    opsHash: v.string(),
+    counts: v.object({ added: v.number(), changed: v.number(), removed: v.number(), moved: v.number() }),
+    /** The top-level ids of what changed, for the page to point at. At most 200. */
+    changedIds: v.array(v.string()),
+    touched: v.array(v.object({ id: v.string(), before: v.union(v.string(), v.null()), after: v.union(v.string(), v.null()) })),
+    inverse: v.optional(v.id("_storage")),
+    createdAt: v.number(),
+    undoneAt: v.optional(v.number()),
+    undoneBy: v.optional(v.union(v.literal("agent"), v.literal("person"))),
+    /** The person said "Keep" on the page: no longer offered there. */
+    keptAt: v.optional(v.number()),
+  })
+    .index("by_doc_and_created", ["docId", "createdAt"])
+    .index("by_subject_and_created", ["subject", "createdAt"])
+    .index("by_subject_and_key", ["subject", "idempotencyKey"])
+    .index("by_created", ["createdAt"]),
+
+  /**
    * Who is on a document right now — one row per open session, carrying the
    * encoded y-protocols awareness state (cursor positions, selections) plus
    * the little the facepile needs denormalized so it never decodes Yjs.

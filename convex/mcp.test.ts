@@ -8,6 +8,7 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { agentOwnsPage } from "./auth";
+import { readStoredUpdates } from "./ydoc";
 import { executeNmlCommands, type NmlBlock } from "@/app/lib/nml";
 import { decodeNmlDocument, writeNmlDocument } from "@/app/lib/nml/yjs";
 import { parseScene } from "@/app/components/editor/canvas/scene/parse";
@@ -160,8 +161,8 @@ async function authorizeUrl(clientId: string, overrides: Record<string, string |
 }
 
 /** Authorize → the consent page's key, as the browser would land with it. */
-async function consentKey(t: TestConvex<typeof schema>, clientId: string) {
-  const res = await t.fetch(await authorizeUrl(clientId));
+async function consentKey(t: TestConvex<typeof schema>, clientId: string, overrides: Record<string, string | null> = {}) {
+  const res = await t.fetch(await authorizeUrl(clientId, overrides));
   expect(res.status).toBe(302);
   const location = new URL(res.headers.get("location")!);
   expect(location.origin + location.pathname).toBe(`${APP}/mcp/authorize`);
@@ -177,11 +178,14 @@ async function exchange(t: TestConvex<typeof schema>, form: Record<string, strin
   return { res, body: (await res.json()) as Record<string, string | number> };
 }
 
-/** The whole dance for `who`: register, authorize, consent, exchange. */
-async function connect(t: TestConvex<typeof schema>, who = ME) {
+/**
+ * The whole dance for `who`: register, authorize, consent, exchange. Read-only
+ * unless `scope` asks to write, and the person leaves edits allowed.
+ */
+async function connect(t: TestConvex<typeof schema>, who = ME, opts: { scope?: string | null; allowEdits?: boolean } = {}) {
   const { body: client } = await registerClient(t);
-  const request = await consentKey(t, client.client_id);
-  const outcome = await t.withIdentity(who).action(api.mcp.oauth.approve, { request });
+  const request = await consentKey(t, client.client_id, opts.scope === undefined ? {} : { scope: opts.scope });
+  const outcome = await t.withIdentity(who).action(api.mcp.oauth.approve, { request, allowEdits: opts.allowEdits });
   if (outcome.status !== "redirect") throw new Error(`consent refused: ${outcome.reason}`);
   const back = new URL(outcome.redirectTo);
   expect(back.origin + back.pathname).toBe(REDIRECT);
@@ -196,7 +200,13 @@ async function connect(t: TestConvex<typeof schema>, who = ME) {
     resource: `${SITE}/mcp`,
   });
   expect(res.status).toBe(200);
-  return { clientId: client.client_id, access: body.access_token as string, refresh: body.refresh_token as string, code: back.searchParams.get("code")! };
+  return {
+    clientId: client.client_id,
+    access: body.access_token as string,
+    refresh: body.refresh_token as string,
+    code: back.searchParams.get("code")!,
+    scope: body.scope as string,
+  };
 }
 
 let nextId = 1;
@@ -221,7 +231,7 @@ describe("discovery", () => {
     const t = harness();
     for (const path of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp"]) {
       const prm = (await (await t.fetch(path)).json()) as Record<string, unknown>;
-      expect(prm).toMatchObject({ resource: `${SITE}/mcp`, authorization_servers: [SITE], scopes_supported: ["docs:read"] });
+      expect(prm).toMatchObject({ resource: `${SITE}/mcp`, authorization_servers: [SITE], scopes_supported: ["docs:read", "docs:write"] });
     }
     const as = (await (await t.fetch("/.well-known/oauth-authorization-server")).json()) as Record<string, unknown>;
     expect(as).toMatchObject({
@@ -270,7 +280,7 @@ describe("registration", () => {
       { token_endpoint_auth_method: "private_key_jwt" },
       { grant_types: ["client_credentials"] },
       { response_types: ["token"] },
-      { scope: "docs:write" },
+      { scope: "docs:admin" },
     ]) {
       const { res } = await registerClient(t, bad);
       expect(res.status, JSON.stringify(bad)).toBe(400);
@@ -313,7 +323,7 @@ describe("authorize and consent", () => {
       [{ response_type: "token" }, "unsupported_response_type"],
       [{ code_challenge: null }, "invalid_request"],
       [{ code_challenge_method: "plain" }, "invalid_request"],
-      [{ scope: "docs:write" }, "invalid_scope"],
+      [{ scope: "docs:admin" }, "invalid_scope"],
       [{ resource: "https://other.example/mcp" }, "invalid_target"],
     ];
     for (const [override, error] of cases) {
@@ -513,7 +523,7 @@ describe("/mcp", () => {
     const { res } = await rpc(t, null, "initialize", { protocolVersion: "2025-06-18" });
     expect(res.status).toBe(401);
     expect(res.headers.get("www-authenticate")).toBe(
-      `Bearer resource_metadata="${SITE}/.well-known/oauth-protected-resource/mcp", scope="docs:read"`,
+      `Bearer resource_metadata="${SITE}/.well-known/oauth-protected-resource/mcp", scope="docs:read docs:write"`,
     );
     expect((await rpc(t, "nta_forged", "ping")).res.status).toBe(401);
   });
@@ -531,7 +541,7 @@ describe("/mcp", () => {
     });
     expect(initialized.status).toBe(202);
     const tools = await rpc(t, access, "tools/list");
-    expect(tools.body!.result.tools.map((x: { name: string }) => x.name)).toEqual(["list_docs", "read_doc"]);
+    expect(tools.body!.result.tools.map((x: { name: string }) => x.name)).toEqual(["list_docs", "read_doc", "edit_doc", "undo_edit"]);
     const app = await rpc(t, access, "resources/read", { uri: "ui://nootles/documents.html" });
     expect(app.body!.result.contents[0].text).toMatch(/^<!doctype html>/);
     expect((await t.fetch("/mcp", { method: "GET", headers: { authorization: `Bearer ${access}` } })).status).toBe(405);
@@ -755,6 +765,248 @@ describe("/mcp", () => {
     expect(read).toMatchObject({ actorId: ME.subject, subjectKind: "page", subjectId: doc.pageId });
     expect(read.meta).toMatchObject({ counts: { blocks: 6 } });
     expect(JSON.stringify(read)).not.toContain("Ship it");
+  });
+});
+
+// ---- Writing (NT-123) -----------------------------------------------------------------------
+
+/** The backend's stored document, rebuilt: both roots. */
+async function stored(t: TestConvex<typeof schema>, docId: string) {
+  const updates = await t.run(async (ctx) => {
+    const read = await readStoredUpdates(ctx, docId);
+    if (!read || "tooLarge" in read) throw new Error("unreadable");
+    return read.updates;
+  });
+  const doc = new Y.Doc();
+  for (const u of updates) Y.applyUpdate(doc, new Uint8Array(u));
+  const out = { nml: decodeNmlDocument(doc), legacy: doc.getXmlFragment("prosemirror").toString(), receipts: [...doc.getMap("nmlCommandReceipts").keys()] };
+  doc.destroy();
+  return out;
+}
+
+const seqOf = (t: TestConvex<typeof schema>, docId: string) =>
+  t.run(async (ctx) => (await ctx.db.query("ydocs").withIndex("by_doc", (q) => q.eq("docId", docId)).unique())!.seq);
+
+/** The owner typing in an open served editor: an executor batch appended as their flush. */
+async function humanEdit(t: TestConvex<typeof schema>, docId: string, commands: Parameters<typeof executeNmlCommands>[0]["commands"]) {
+  const updates = await t.run(async (ctx) => {
+    const read = await readStoredUpdates(ctx, docId);
+    if (!read || "tooLarge" in read) throw new Error("unreadable");
+    return read.updates;
+  });
+  const doc = new Y.Doc();
+  for (const u of updates) Y.applyUpdate(doc, new Uint8Array(u));
+  const start = Y.encodeStateVector(doc);
+  await executeNmlCommands({
+    doc,
+    documentId: docId,
+    commands,
+    origin: { version: 1, transactionId: crypto.randomUUID(), actor: { kind: "human", userId: ME.subject }, command: "type" },
+    idempotencyKey: crypto.randomUUID(),
+    authorize: () => true,
+  });
+  await t.withIdentity(ME).mutation(api.ydoc.append, { docId, update: bytes(Y.encodeStateAsUpdate(doc, start)) });
+  doc.destroy();
+}
+
+const topTexts = (nml: { blocks: NmlBlock[] }) =>
+  nml.blocks.map((b) => ("content" in b ? b.content.map((c) => (c.type === "text" ? c.text : "")).join("") : b.type));
+
+describe("edit_doc and undo_edit", () => {
+  test("consent grants edits only when asked for and left on", async () => {
+    const t = harness();
+    await enable(t);
+    expect((await connect(t)).scope).toBe("docs:read");
+    expect((await connect(t, ME, { scope: "docs:read docs:write" })).scope).toBe("docs:read docs:write");
+    expect((await connect(t, ME, { scope: null })).scope).toBe("docs:read docs:write");
+    expect((await connect(t, ME, { scope: "docs:read docs:write", allowEdits: false })).scope).toBe("docs:read");
+    const connections = await t.withIdentity(ME).query(api.mcp.oauth.myConnections, {});
+    expect(connections!.connections.map((c) => c.canEdit)).toEqual([false, true, true, false]);
+  });
+
+  test("an edit lands live on canonical NML and the compatibility root, one attributed batch, and reads back", async () => {
+    const t = harness();
+    await enable(t);
+    const doc = await servedDoc(t, ME, "Launch plan", PLAN);
+    const { access } = await connect(t, ME, { scope: null });
+    const before = await seqOf(t, doc.docId);
+    const { body } = await callTool(t, access, "edit_doc", {
+      doc: doc.docId,
+      operations: [
+        { kind: "setBlockContent", blockId: "p1", content: [{ type: "text", text: "Ship it ", marks: [] }, { type: "text", text: "today", marks: ["bold"] }] },
+        { kind: "insertBlocks", at: { at: "after", ref: "p1" }, blocks: [{ tempId: "risk", type: "checkListItem", content: "Write the MCP docs" }] },
+        { kind: "updateBlockProps", blockId: "c1", props: { checked: false } },
+      ],
+    });
+    const result = body!.result;
+    expect(result.isError).toBeUndefined();
+    const newId = result.structuredContent.created.risk as string;
+    expect(newId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(result.content[0].text).toContain(`Added ⟦${newId}⟧ checkListItem: Write the MCP docs`);
+    expect(result.structuredContent.changes.map((c: { kind: string; id: string }) => [c.kind, c.id])).toEqual([
+      ["changed", "p1"],
+      ["added", newId],
+      ["changed", "c1"],
+    ]);
+    expect(await seqOf(t, doc.docId)).toBe(before + 1);
+
+    const after = await stored(t, doc.docId);
+    expect(topTexts(after.nml)).toEqual(["Launch plan", "Ship it today", "Write the MCP docs", "Beta", "codeBlock", "canvas"]);
+    expect(after.nml.blocks[2].id).toBe(newId);
+    expect(after.legacy).toContain("Write the MCP docs");
+    expect(after.legacy).toContain("today");
+    expect(after.receipts.filter((k) => k.startsWith("mcp:"))).toHaveLength(1);
+
+    const reread = await callTool(t, access, "read_doc", { doc: doc.docId });
+    expect(reread.body!.result.content[0].text).toContain(`⟦${newId}⟧ - [ ] Write the MCP docs`);
+    expect(reread.body!.result.content[0].text).toContain("⟦p1⟧ Ship it **today**");
+
+    const [edit] = await t.run(async (ctx) => await ctx.db.query("mcpEdits").collect());
+    expect(edit).toMatchObject({ subject: ME.subject, clientName: "Claude", docId: doc.docId, counts: { added: 1, changed: 2, removed: 0, moved: 0 } });
+    expect(JSON.stringify(edit)).not.toMatch(/Ship|MCP docs|today/);
+    const audit = await t.run(async (ctx) => await ctx.db.query("auditEvents").withIndex("by_project_at", (q) => q.eq("projectId", doc.projectId)).collect());
+    const line = audit.find((a) => a.action === "mcp.edit")!;
+    expect(line).toMatchObject({ actorId: ME.subject, subjectKind: "page", subjectId: doc.pageId, meta: { counts: { added: 1, changed: 2 } } });
+    expect(JSON.stringify(line)).not.toMatch(/Ship|MCP docs/);
+  });
+
+  test("undo_edit restores exactly, once; the person's Undo works from the page; strangers cannot", async () => {
+    const t = harness();
+    await enable(t);
+    const doc = await servedDoc(t, ME, "Launch plan", PLAN);
+    const original = (await stored(t, doc.docId)).nml;
+    const { access } = await connect(t, ME, { scope: null });
+    const edit = async (ops: unknown[]) => (await callTool(t, access, "edit_doc", { doc: doc.docId, operations: ops })).body!.result;
+    const first = await edit([{ kind: "removeBlock", blockId: "l1" }, { kind: "moveBlock", blockId: "code1", to: { at: "docStart" } }]);
+    const undone = await callTool(t, access, "undo_edit", { edit_id: first.structuredContent.editId });
+    expect(undone.body!.result.content[0].text).toMatch(/^Undone\./);
+    const restored = await stored(t, doc.docId);
+    expect(restored.nml).toEqual(original);
+    expect(restored.legacy).toContain("Invite testers");
+    const again = await callTool(t, access, "undo_edit", { edit_id: first.structuredContent.editId });
+    expect(again.body!.result).toMatchObject({ isError: true, content: [{ text: "That edit was already undone." }] });
+
+    const second = await edit([{ kind: "setBlockContent", blockId: "p1", content: "Agent words" }]);
+    const pending = await t.withIdentity(ME).query(api.mcp.docs.pendingOnPage, { docId: doc.docId });
+    expect(pending).toMatchObject({ editId: second.structuredContent.editId, clientName: "Claude", counts: { changed: 1 } });
+    expect(await t.withIdentity(STRANGER).query(api.mcp.docs.pendingOnPage, { docId: doc.docId })).toBeNull();
+    expect(await t.withIdentity(STRANGER).action(api.mcp.edit.undoMine, { editId: second.structuredContent.editId })).toMatchObject({
+      status: "refused",
+      reason: "not-found",
+    });
+    expect(await t.withIdentity(ME).action(api.mcp.edit.undoMine, { editId: second.structuredContent.editId })).toMatchObject({ status: "undone" });
+    expect(topTexts((await stored(t, doc.docId)).nml)[1]).toBe("Ship it on Friday.");
+    expect(await t.withIdentity(ME).query(api.mcp.docs.pendingOnPage, { docId: doc.docId })).toBeNull();
+    const undos = await t.run(async (ctx) => (await ctx.db.query("auditEvents").collect()).filter((a) => a.action === "mcp.undo"));
+    expect(undos.map((u) => (u.meta?.ids as Record<string, string>).by)).toEqual(["agent", "person"]);
+    expect(await t.run(async (ctx) => (await ctx.db.system.query("_storage").collect()).length)).toBe(0);
+  });
+
+  test("an undo that would take a person's later work is refused, and theirs elsewhere is kept", async () => {
+    const t = harness();
+    await enable(t);
+    const doc = await servedDoc(t, ME, "Launch plan", PLAN);
+    const { access } = await connect(t, ME, { scope: null });
+    const a = (await callTool(t, access, "edit_doc", { doc: doc.docId, operations: [{ kind: "setBlockContent", blockId: "p1", content: "Agent A" }] })).body!.result;
+    const b = (await callTool(t, access, "edit_doc", { doc: doc.docId, operations: [{ kind: "setBlockContent", blockId: "h1", content: "Agent title" }] })).body!.result;
+    await humanEdit(t, doc.docId, [{ type: "replaceInline", nodeId: "p1", range: { from: 0, to: 5 }, content: [text("Human")] }]);
+    const refused = await callTool(t, access, "undo_edit", { edit_id: a.structuredContent.editId });
+    expect(refused.body!.result.isError).toBe(true);
+    expect(refused.body!.result.content[0].text).toMatch(/edited since.*⟦p1⟧/);
+    expect(topTexts((await stored(t, doc.docId)).nml)[1]).toBe("Human A");
+    const ok = await callTool(t, access, "undo_edit", { edit_id: b.structuredContent.editId });
+    expect(ok.body!.result.isError).toBeUndefined();
+    expect(topTexts((await stored(t, doc.docId)).nml).slice(0, 2)).toEqual(["Launch plan", "Human A"]);
+  });
+
+  test("read-only grants, legacy pages, other people's pages and bad operations change nothing", async () => {
+    const t = harness();
+    await enable(t);
+    await enable(t, STRANGER.subject);
+    const doc = await servedDoc(t, ME, "Launch plan", PLAN);
+    const legacy = await legacyDoc(t, ME, "Scratch");
+    const theirs = await servedDoc(t, STRANGER, "Secret", [para("s1", "stranger's secret")]);
+    const readOnly = (await connect(t)).access;
+    const writer = (await connect(t, ME, { scope: null })).access;
+    const seqs = async () => [await seqOf(t, doc.docId), await seqOf(t, legacy.docId), await seqOf(t, theirs.docId)];
+    const before = await seqs();
+    const op = [{ kind: "setBlockContent", blockId: "p1", content: "x" }];
+
+    const ro = await callTool(t, readOnly, "edit_doc", { doc: doc.docId, operations: op });
+    expect(ro.body!.result.content[0].text).toMatch(/can only read/);
+    const onLegacy = await callTool(t, writer, "edit_doc", { doc: legacy.docId, operations: op });
+    expect(onLegacy.body!.result.content[0].text).toMatch(/not served/);
+    const onTheirs = await callTool(t, writer, "edit_doc", { doc: theirs.docId, operations: [{ kind: "removeBlock", blockId: "s1" }] });
+    expect(onTheirs.body!.result.content[0].text).toMatch(/No document you own/);
+    const missing = await callTool(t, writer, "edit_doc", { doc: doc.docId, operations: [op[0], { kind: "removeBlock", blockId: "nope" }] });
+    expect(missing.body!.result).toMatchObject({ isError: true });
+    expect(missing.body!.result.content[0].text).toMatch(/^Nothing was changed: .*\(operation 1\)/);
+    const malformed = await callTool(t, writer, "edit_doc", { doc: doc.docId, operations: [{ kind: "setBlockContent" }] });
+    expect(malformed.body!.result.content[0].text).toMatch(/operations\.0\.blockId/);
+    const diagram = await callTool(t, writer, "edit_doc", { doc: doc.docId, operations: [{ kind: "setBlockContent", blockId: "d1", content: "x" }] });
+    expect(diagram.body!.result.isError).toBe(true);
+
+    expect(await seqs()).toEqual(before);
+    expect(await t.run(async (ctx) => (await ctx.db.query("mcpEdits").collect()).length)).toBe(0);
+    expect(await t.run(async (ctx) => (await ctx.db.system.query("_storage").collect()).length)).toBe(0);
+  });
+
+  test("a retried edit with the same key is made once; the key cannot be reused for different operations", async () => {
+    const t = harness();
+    await enable(t);
+    const doc = await servedDoc(t, ME, "Launch plan", PLAN);
+    const { access } = await connect(t, ME, { scope: null });
+    const ops = [{ kind: "insertBlocks", at: { at: "docEnd" }, blocks: [{ tempId: "n", type: "paragraph", content: "Once" }] }];
+    const first = (await callTool(t, access, "edit_doc", { doc: doc.docId, operations: ops, idempotency_key: "k-1" })).body!.result;
+    const retry = (await callTool(t, access, "edit_doc", { doc: doc.docId, operations: ops, idempotency_key: "k-1" })).body!.result;
+    expect(retry.content[0].text).toContain(`already made (editId: ${first.structuredContent.editId})`);
+    expect(topTexts((await stored(t, doc.docId)).nml).filter((x) => x === "Once")).toHaveLength(1);
+    const reused = (await callTool(t, access, "edit_doc", { doc: doc.docId, operations: [{ kind: "removeBlock", blockId: "p1" }], idempotency_key: "k-1" })).body!.result;
+    expect(reused.content[0].text).toMatch(/idempotency_key was already used/);
+  });
+
+  test("a commit computed against an old log position is refused as stale", async () => {
+    const t = harness();
+    await enable(t);
+    const doc = await servedDoc(t, ME, "Launch plan", PLAN);
+    const { access } = await connect(t, ME, { scope: null });
+    await callTool(t, access, "list_docs");
+    const grantId = (await t.run(async (ctx) => await ctx.db.query("mcpGrants").first()))!._id;
+    const inverse = await t.run(async (ctx) => await ctx.storage.store(new Blob([new Uint8Array([0])])));
+    const seq = await seqOf(t, doc.docId);
+    const commit = (at: number) =>
+      t.mutation(internal.mcp.docs.commitEdit, {
+        subject: ME.subject, grantId, clientName: "Claude", docId: doc.docId, seq: at, chunks: [bytes(new Uint8Array([0, 0]))], inverse,
+        batchId: "b", idempotencyKey: "k", opsHash: "h", counts: { added: 0, changed: 0, removed: 0, moved: 0 }, changedIds: [], touched: [],
+      });
+    expect(await commit(seq - 1)).toEqual({ status: "stale" });
+    await t.mutation(internal.mcp.oauth.revokeGrants, { grantId });
+    expect(await commit(seq)).toEqual({ status: "refused", reason: "no-write" });
+  });
+
+  test("edits are rate-limited apart from reads, and the undo window ends", async () => {
+    vi.stubEnv("RATE_LIMIT_MODE", "enforce");
+    const t = harness();
+    await enable(t);
+    const doc = await servedDoc(t, ME, "Launch plan", PLAN);
+    const { access } = await connect(t, ME, { scope: null });
+    const results = [];
+    for (let i = 0; i < 11; i++) {
+      results.push((await callTool(t, access, "edit_doc", { doc: doc.docId, operations: [{ kind: "setBlockContent", blockId: "p1", content: `v${i}` }] })).body!.result);
+    }
+    expect(results.slice(0, 10).every((r) => !r.isError)).toBe(true);
+    expect(results[10].content[0].text).toMatch(/Too many edits/);
+    expect((await callTool(t, access, "read_doc", { doc: doc.docId })).body!.result.isError).toBeUndefined();
+
+    vi.useFakeTimers({ now: Date.now() + 8 * 24 * 60 * 60 * 1000, toFake: ["Date"] });
+    await t.mutation(internal.mcp.docs.expireInverses, {});
+    const edits = await t.run(async (ctx) => await ctx.db.query("mcpEdits").collect());
+    expect(edits.every((e) => e.inverse === undefined)).toBe(true);
+    expect(await t.run(async (ctx) => (await ctx.db.system.query("_storage").collect()).length)).toBe(0);
+    vi.useRealTimers();
+    vi.stubEnv("RATE_LIMIT_MODE", "off");
+    const expired = await callTool(t, access, "undo_edit", { edit_id: edits[0]._id });
+    expect(expired.body!.result.content[0].text).toMatch(/too old to undo/);
   });
 });
 

@@ -4,8 +4,17 @@
  * an HTTP action and a test alike.
  */
 
-/** The one scope there is: list and read your served documents. */
-export const SCOPE = "docs:read";
+/** List and read your served documents. */
+export const READ_SCOPE = "docs:read";
+/** Edit them, each edit attributed to the agent and undoable (NT-123). */
+export const WRITE_SCOPE = "docs:write";
+export const SCOPES = [READ_SCOPE, WRITE_SCOPE] as const;
+/** What a client that names no scope is asking for: everything, decided at consent. */
+export const ALL_SCOPES = SCOPES.join(" ");
+
+export function hasScope(granted: string, scope: (typeof SCOPES)[number]): boolean {
+  return granted.split(/\s+/).includes(scope);
+}
 
 export const ACCESS_TTL_MS = 60 * 60 * 1000;
 export const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -85,11 +94,22 @@ export function validRedirectUri(uri: string): boolean {
   return url.protocol === "http:" && LOOPBACK.has(url.hostname);
 }
 
-/** `scope` as asked for, narrowed to what exists; absent asks for everything. */
+/**
+ * `scope` as asked for, in canonical order; absent asks for everything. Write
+ * brings read with it — an agent cannot edit what it cannot see. Anything
+ * unknown fails the whole request rather than being quietly dropped.
+ */
 export function grantedScope(requested: string | null | undefined): string | null {
-  if (!requested) return SCOPE;
-  const asked = requested.split(/\s+/).filter(Boolean);
-  return asked.length > 0 && asked.every((s) => s === SCOPE) ? SCOPE : null;
+  if (!requested) return ALL_SCOPES;
+  const asked = new Set(requested.split(/\s+/).filter(Boolean));
+  if (asked.size === 0 || ![...asked].every((s) => (SCOPES as readonly string[]).includes(s))) return null;
+  if (asked.has(WRITE_SCOPE)) asked.add(READ_SCOPE);
+  return SCOPES.filter((s) => asked.has(s)).join(" ");
+}
+
+/** A consent that turned edits off keeps what was asked for, less writing. */
+export function withoutWrite(scope: string): string {
+  return scope.split(/\s+/).filter((s) => s && s !== WRITE_SCOPE).join(" ") || READ_SCOPE;
 }
 
 /** The redirect back to the client, carrying `params` and the client's state. */

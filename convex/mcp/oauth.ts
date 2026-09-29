@@ -24,6 +24,9 @@ import {
   redirectWith,
   sha256Hex,
   timingSafeEqual,
+  WRITE_SCOPE,
+  hasScope,
+  withoutWrite,
 } from "./tokens";
 
 /**
@@ -298,7 +301,8 @@ const issuedCode = v.union(
  * the session this action passes through — a stand-in is refused by both.
  */
 export const approve = action({
-  args: { request: v.string() },
+  /** `allowEdits: false` narrows a request that asked to write down to reading. */
+  args: { request: v.string(), allowEdits: v.optional(v.boolean()) },
   returns: consentOutcome,
   handler: async (ctx, args): Promise<Infer<typeof consentOutcome>> => {
     await requireOwner(ctx);
@@ -306,6 +310,7 @@ export const approve = action({
     const issued: Infer<typeof issuedCode> = await ctx.runMutation(internal.mcp.oauth.issueCode, {
       requestKeyHash: await sha256Hex(args.request),
       codeHash: await sha256Hex(code),
+      allowEdits: args.allowEdits ?? true,
     });
     if (issued.status === "refused") return issued;
     return {
@@ -317,7 +322,7 @@ export const approve = action({
 
 
 export const issueCode = internalMutation({
-  args: { requestKeyHash: v.string(), codeHash: v.string() },
+  args: { requestKeyHash: v.string(), codeHash: v.string(), allowEdits: v.boolean() },
   returns: issuedCode,
   handler: async (ctx, args) => {
     const subject = await requireOwner(ctx);
@@ -336,7 +341,7 @@ export const issueCode = internalMutation({
       clientId: row.clientId,
       redirectUri: row.redirectUri,
       codeChallenge: row.codeChallenge,
-      scope: row.scope,
+      scope: args.allowEdits ? row.scope : withoutWrite(row.scope),
       resource: row.resource,
       expiresAt: Date.now() + CODE_TTL_MS,
     });
@@ -571,6 +576,22 @@ export const admitBearer = internalMutation({
   },
 });
 
+/**
+ * A write's last look at the grant behind it, inside the transaction that
+ * writes: the token was checked when the request came in, but an edit takes
+ * long enough for a disconnect, the switch or the allowlist to land meanwhile.
+ */
+export async function grantMayWrite(
+  ctx: QueryCtx,
+  grantId: Id<"mcpGrants">,
+  subject: string,
+): Promise<boolean> {
+  const grant = await ctx.db.get(grantId);
+  if (!grant || grant.subject !== subject || grant.revokedAt !== undefined) return false;
+  if (!hasScope(grant.scope, WRITE_SCOPE)) return false;
+  return (await ineligibility(ctx, subject)) === null;
+}
+
 // ---- The person's own connections ---------------------------------------------------
 
 export const myConnections = query({
@@ -586,6 +607,7 @@ export const myConnections = query({
         v.object({
           grantId: v.id("mcpGrants"),
           clientName: v.string(),
+          canEdit: v.boolean(),
           createdAt: v.number(),
           lastUsedAt: v.optional(v.number()),
         }),
@@ -605,7 +627,13 @@ export const myConnections = query({
       serverUrl: process.env.CONVEX_SITE_URL ? `${process.env.CONVEX_SITE_URL.replace(/\/$/, "")}/mcp` : null,
       connections: grants
         .filter((g) => g.revokedAt === undefined)
-        .map((g) => ({ grantId: g._id, clientName: g.clientName, createdAt: g.createdAt, lastUsedAt: g.lastUsedAt })),
+        .map((g) => ({
+          grantId: g._id,
+          clientName: g.clientName,
+          canEdit: hasScope(g.scope, WRITE_SCOPE),
+          createdAt: g.createdAt,
+          lastUsedAt: g.lastUsedAt,
+        })),
     };
   },
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { grantedScope, mintToken, pkceMatches, redirectWith, sha256Hex, SCOPE, validRedirectUri } from "./tokens";
+import { grantedScope, hasScope, mintToken, pkceMatches, redirectWith, sha256Hex, validRedirectUri, withoutWrite } from "./tokens";
 
 async function challengeOf(verifier: string) {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)));
@@ -48,13 +48,18 @@ describe("tokens", () => {
     expect(validRedirectUri("https://x.example/" + "a".repeat(2100))).toBe(false);
   });
 
-  test("scope is docs:read or nothing", () => {
-    expect(grantedScope(undefined)).toBe(SCOPE);
-    expect(grantedScope("")).toBe(SCOPE);
-    expect(grantedScope("docs:read")).toBe(SCOPE);
-    expect(grantedScope("docs:read docs:read")).toBe(SCOPE);
-    expect(grantedScope("docs:write")).toBeNull();
-    expect(grantedScope("docs:read docs:write")).toBeNull();
+  test("scopes: read, write (which brings read), or nothing", () => {
+    expect(grantedScope(undefined)).toBe("docs:read docs:write");
+    expect(grantedScope("")).toBe("docs:read docs:write");
+    expect(grantedScope("docs:read")).toBe("docs:read");
+    expect(grantedScope("docs:read docs:read")).toBe("docs:read");
+    expect(grantedScope("docs:write")).toBe("docs:read docs:write");
+    expect(grantedScope("docs:write  docs:read")).toBe("docs:read docs:write");
+    expect(grantedScope("docs:read docs:admin")).toBeNull();
+    expect(grantedScope("openid")).toBeNull();
+    expect(withoutWrite("docs:read docs:write")).toBe("docs:read");
+    expect(withoutWrite("docs:write")).toBe("docs:read");
+    expect([hasScope("docs:read docs:write", "docs:write"), hasScope("docs:read", "docs:write")]).toEqual([true, false]);
   });
 
   test("redirectWith keeps the client's query and appends state last", () => {

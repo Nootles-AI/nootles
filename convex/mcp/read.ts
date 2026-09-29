@@ -35,7 +35,7 @@ import { docSummary, material as materialValidator } from "./docs";
 /** Past this the agent gets the start and is told how to ask for the rest. */
 export const MAX_TEXT_CHARS = 200_000;
 
-function rebuild(updates: ArrayBuffer[]): NmlDocument {
+export function rebuild(updates: ArrayBuffer[]): NmlDocument {
   const doc = new Y.Doc();
   try {
     for (const update of updates) Y.applyUpdate(doc, new Uint8Array(update));
@@ -59,7 +59,7 @@ function storageIds(blocks: NmlBlock[], out = new Set<string>()): Set<string> {
 }
 
 /** Signed URLs for uploaded media, so a projected image line points somewhere real. */
-async function mediaUrls(ctx: ActionCtx, document: NmlDocument): Promise<Map<string, string>> {
+export async function mediaUrls(ctx: ActionCtx, document: NmlDocument): Promise<Map<string, string>> {
   const urls = new Map<string, string>();
   for (const id of storageIds(document.blocks)) {
     const url = await ctx.storage.getUrl(id as Id<"_storage">).catch(() => null);

@@ -33,6 +33,21 @@
   font-weight: 500;
 }
 
+/* The one line a person decides on the page, rather than reads. The box is
+   drawn in ink: a permission switch is not an accent. */
+.nt-mcp-choice {
+  cursor: pointer;
+  color: var(--muted);
+}
+.nt-mcp-choice input {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 3px 1px 0;
+  accent-color: var(--foreground);
+  cursor: pointer;
+}
+
 /* The two answers differ in value, not hue: a granted line carries the
    foreground, a withheld one stays muted — neutral like the rest of Settings. */
 .nt-mcp-mark {
@@ -85,4 +100,8 @@
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta-lg);
   color: var(--foreground);
+}
+
+.nt-mcp-sublabel {
+  margin-top: 20px;
 }
