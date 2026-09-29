@@ -50,6 +50,9 @@ function destinationOf(affiliate: Doc<"affiliates"> | null): string {
 /**
  * A click on an affiliate's link, from the `/r/<slug>` route: where to send
  * the visitor, and — when the route signed it — one more click counted.
+ * `counted` says which, so the route moves the visitor's `nt_ref` cookie only
+ * for a click that can later be attributed, and never lets one that cannot
+ * (a disabled link, a mismatched secret) replace one that can.
  *
  * Public because the route calls it signed out, before anyone has an account.
  * That is why it needs the signature: only the Next server holds
@@ -75,12 +78,12 @@ export const recordClick = mutation({
     signedAt: v.number(),
     signature: v.string(),
   },
-  returns: v.object({ destination: v.string() }),
+  returns: v.object({ destination: v.string(), counted: v.boolean() }),
   handler: async (ctx, args) => {
     const slug = normalizeAffiliateSlug(args.slug);
     const affiliate = slug ? await affiliateBySlug(ctx, slug) : null;
     const destination = destinationOf(affiliate);
-    if (!affiliate || affiliate.disabledAt) return { destination };
+    if (!affiliate || affiliate.disabledAt) return { destination, counted: false };
 
     const secret = clickSecret(process.env.AFFILIATE_CLICK_SECRET);
     const now = Date.now();
@@ -104,7 +107,7 @@ export const recordClick = mutation({
     }
     if (refused) {
       console.warn(`[affiliates] click on ${affiliate.slug} not counted: ${refused}`);
-      return { destination };
+      return { destination, counted: false };
     }
 
     const today = dayKey(now);
@@ -146,7 +149,7 @@ export const recordClick = mutation({
         visitors: 1,
       });
     }
-    return { destination };
+    return { destination, counted: true };
   },
 });
 

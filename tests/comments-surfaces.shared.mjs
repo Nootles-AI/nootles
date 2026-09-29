@@ -73,9 +73,10 @@ const PROBE = path.join(repo, "tests", "comments-surfaces.probe.tsx");
  * `probe: false` keeps each page's real editor; `rewrite` maps a repo-relative
  * source path to a function over its text, for a harness that counts inside a
  * component without the component knowing; `fixtures` replaces a stand-in
- * module's source by name (`clerk`, `navigation`, …).
+ * module's source by name (`clerk`, `navigation`, …), and `aliases` swaps
+ * any other bare import for one of them (`{ "posthog-js": "posthog" }`).
  */
-export async function bundleSurfaces(entry, output, { probe = true, rewrite = {}, fixtures = {} } = {}) {
+export async function bundleSurfaces(entry, output, { probe = true, rewrite = {}, fixtures = {}, aliases = {} } = {}) {
   const name = path.basename(entry, ".tsx");
   const sources = { ...FIXTURES, ...fixtures };
   await build({
@@ -93,6 +94,9 @@ export async function bundleSurfaces(entry, output, { probe = true, rewrite = {}
       builder.onResolve({ filter: /^next\/dynamic$/ }, to("dynamic"));
       builder.onResolve({ filter: /^next\/image$/ }, to("image"));
       builder.onResolve({ filter: /^@sentry\/nextjs$/ }, to("sentry"));
+      for (const [specifier, fixture] of Object.entries(aliases)) {
+        builder.onResolve({ filter: new RegExp(`^${specifier.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}$`) }, to(fixture));
+      }
       if (probe) {
         builder.onResolve({ filter: /^\.\/editor\/Editor$/ }, (args) => (args.importer.endsWith(PAGE_SURFACE) ? { path: PROBE } : undefined));
         builder.onResolve({ filter: /^\.\/SharedEditor$/ }, (args) => (args.importer.endsWith(SHARED_PROJECT) ? { path: PROBE } : undefined));

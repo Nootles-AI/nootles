@@ -4,8 +4,9 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
  * Next 16 renamed the `middleware` convention to `proxy` — Clerk's own docs
  * still say `middleware.ts`, which this version no longer picks up.
  *
- * Everything is private except the two pages the sign-in round trip needs. The
- * API routes are in scope deliberately: they spend the model key, so they are
+ * Everything is private except the pages the sign-in round trip needs and
+ * the few URLs listed below that must work before anyone signs in. The API
+ * routes are in scope deliberately: they spend the model key, so they are
  * protected here as well as re-checking identity themselves.
  */
 const isPublic = createRouteMatcher([
@@ -19,6 +20,10 @@ const isPublic = createRouteMatcher([
   // A place card's photographs, which a shared page has to be able to draw.
   // Bytes only, and only ever from Google Places — see the route's own note.
   "/api/places/photo(.*)",
+  // Affiliate links. Whoever clicks one has no account yet — that is the
+  // point of them — and the route only counts the click, leaves a cookie and
+  // redirects to one of our own sites.
+  "/r/(.*)",
   // Where an operator's stand-in token is caught. Public because it has to run
   // BEFORE any redirect: the token rides in the fragment, and a fragment does
   // not survive a bounce through Clerk and back. It reaches the cookie first,

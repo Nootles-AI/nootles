@@ -91,7 +91,10 @@ describe("recordClick", () => {
     const t = convexTest(schema, modules);
     const id = await affiliate(t, { slug: "jane" });
 
-    expect(await click(t, "jane")).toEqual({ destination: "https://nootles.com/for/writers" });
+    expect(await click(t, "jane")).toEqual({
+      destination: "https://nootles.com/for/writers",
+      counted: true,
+    });
 
     expect(await visits(t)).toMatchObject([
       { affiliateId: id, visitorId: VISITOR, firstAt: T0, lastAt: T0, clicks: 1 },
@@ -114,6 +117,7 @@ describe("recordClick", () => {
 
     expect(await click(t, "jane", VISITOR, opts)).toEqual({
       destination: "https://nootles.com/for/writers",
+      counted: false,
     });
     expect(await visits(t)).toEqual([]);
     expect(await days(t)).toEqual([]);
@@ -159,7 +163,10 @@ describe("recordClick", () => {
     const t = convexTest(schema, modules);
     await affiliate(t, { slug: "jane" });
 
-    expect(await click(t, "jane")).toEqual({ destination: "https://nootles.com/for/writers" });
+    expect(await click(t, "jane")).toEqual({
+      destination: "https://nootles.com/for/writers",
+      counted: false,
+    });
     expect(await visits(t)).toEqual([]);
     expect(await days(t)).toEqual([]);
     expect(warn).toHaveBeenCalledWith(expect.stringMatching(/no secret/));
@@ -170,7 +177,7 @@ describe("recordClick", () => {
     const t = convexTest(schema, modules);
     await affiliate(t, { slug: "jane" });
 
-    await click(t, "jane", "visitor-1");
+    expect((await click(t, "jane", "visitor-1")).counted).toBe(false);
     expect(await visits(t)).toEqual([]);
   });
 
@@ -178,10 +185,10 @@ describe("recordClick", () => {
     const t = convexTest(schema, modules);
     await affiliate(t, { slug: "gone", disabledAt: T0 - DAY });
 
-    expect(await click(t, "nobody")).toEqual({ destination: DEFAULT_DESTINATION });
-    expect(await click(t, "gone")).toEqual({ destination: DEFAULT_DESTINATION });
-    expect(await click(t, "x")).toEqual({ destination: DEFAULT_DESTINATION });
-    expect(await click(t, "admin")).toEqual({ destination: DEFAULT_DESTINATION });
+    expect(await click(t, "nobody")).toEqual({ destination: DEFAULT_DESTINATION, counted: false });
+    expect(await click(t, "gone")).toEqual({ destination: DEFAULT_DESTINATION, counted: false });
+    expect(await click(t, "x")).toEqual({ destination: DEFAULT_DESTINATION, counted: false });
+    expect(await click(t, "admin")).toEqual({ destination: DEFAULT_DESTINATION, counted: false });
     expect(await visits(t)).toEqual([]);
     expect(await days(t)).toEqual([]);
   });
@@ -200,7 +207,7 @@ describe("recordClick", () => {
         signedAt,
         signature,
       }),
-    ).toEqual({ destination: "https://nootles.com/for/writers" });
+    ).toEqual({ destination: "https://nootles.com/for/writers", counted: true });
     expect(await visits(t)).toHaveLength(1);
 
     // Signing the raw segment instead does not verify.
@@ -220,7 +227,7 @@ describe("recordClick", () => {
     const t = convexTest(schema, modules);
     await affiliate(t, { slug: "jane", destination });
 
-    expect(await click(t, "jane")).toEqual({ destination: DEFAULT_DESTINATION });
+    expect(await click(t, "jane")).toEqual({ destination: DEFAULT_DESTINATION, counted: true });
     // The click is still the affiliate's.
     expect(await visits(t)).toHaveLength(1);
   });

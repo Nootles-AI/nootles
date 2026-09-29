@@ -127,6 +127,11 @@ jobs:
         env:
           COMMENTS_BROWSER_CHANNEL: chromium
           CONVEX_LOCAL_BACKEND_BINARY: /home/runner/.cache/convex/binaries/${{ env.CONVEX_LOCAL_BACKEND }}/convex-local-backend
+      # And for an affiliate link, from the click to the account it brings (NT-119).
+      - run: npm run test:affiliates:fullstack
+        env:
+          COMMENTS_BROWSER_CHANNEL: chromium
+          CONVEX_LOCAL_BACKEND_BINARY: /home/runner/.cache/convex/binaries/${{ env.CONVEX_LOCAL_BACKEND }}/convex-local-backend
       - uses: actions/upload-artifact@v4
         if: always()
         with:
