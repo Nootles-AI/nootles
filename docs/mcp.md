@@ -3,7 +3,7 @@
 **Status:** live for the internal cohort. Reading shipped in NT-121 (Phase 3 of the
 [internal-MCP plan](../../agent-wiki/architecture/nml-internal-mcp-plan.md)). Editing shipped in
 NT-123 (Phase 4), along with the write side of Phases 5–7: the `docs:write` scope, undo, and the
-edit e2e.
+edit e2e. Page and project management shipped in NT-124, and new pages are now born on NML.
 
 Nootles runs an [MCP](https://modelcontextprotocol.io) server. An agent such as Claude connects to
 it, and you approve it once in Nootles. From then on it can list your pages and read them. If you
@@ -22,6 +22,14 @@ left **Allow edits** on, it can also edit them. Every edit:
 | Open a page by docId, page id, or a Nootles page URL | Touch a page that is not yet on NML (legacy): it is never listed, and reading or editing it is refused |
 | With edit access: change text, add, move and remove blocks, tick to-dos, rewrite tables, code and math | Edit diagrams, albums or storyboards (they read as outlines only) |
 | Undo its own edits | Undo over your work: an undo that would take your later edits is refused |
+| Search your served pages, list your projects | Delete anything for good: `trash_page` moves a page to the Trash, where you can restore it |
+| Create projects and pages, rename them, move pages to the Trash | Go over your plan's project limit |
+
+**New pages start served (NT-124).** While serving is on, a page an internal owner creates starts
+on NML already. This covers pages made in the app, a new project's first page, and pages made over
+MCP: an empty canonical root is written at birth and recorded as verified, so there is no migration
+step. A Notion import still fills its new pages through `ydoc.init`. A born page nobody has written
+to yet is handed back to the ordinary birth for that, and migrates on first open as before.
 
 "Served" means the page has migrated to NML, the server has verified it on its own, and the
 master serve switch is on: `nmlMigration.servedAuthority`, the same gate the editor uses. Opening a
@@ -155,6 +163,33 @@ changed.
 **Retries.** Retrying with the same `idempotency_key` never applies the edit twice. Reusing a key
 for different operations is refused.
 
+### `list_projects`, `search_docs`
+
+- `list_projects` takes `{}`. It returns your personal projects, most recently active first, with
+  page counts: all pages, and how many are readable here.
+- `search_docs` takes `{ query, limit?: 1–50 (10) }`. It is a case-insensitive search over titles
+  and every block's text: headings, lists, tables, code and diagram labels. Each hit names the page
+  and the matching blocks by `⟦id⟧`, so `read_doc` with `focus_block_id` opens right there.
+- Search has no content index. It decodes pages, reads the 100 most recently edited, and says so
+  when there are more.
+
+### `create_project`, `create_page`, `rename`, `trash_page`
+
+All four need edit access and spend the edit budget. Each writes one audit row (ids only).
+
+- `create_project` takes `{ title, description?, page_title? }`.
+  - It makes a personal project with one blank page, as the app's New project does, including the
+    description as project context.
+  - It is refused past the plan's project limit.
+- `create_page` takes `{ project, title?, operations? }`.
+  - `project` is a projectId or an exact title.
+  - The page is added at the end, born on NML, and readable and editable at once.
+  - `operations` are `edit_doc` operations applied to the new page in the same call. A new page
+    starts with one empty paragraph, so write above it with `insertBlocks` at `docStart`.
+- `rename` takes `{ target: "page" | "project", ref, title }`.
+- `trash_page` takes `{ doc }`. It is the sidebar's Delete: the page moves to the Trash and can be
+  restored there.
+
 ### `undo_edit`
 
 `{ edit_id }` takes one edit back exactly. It is refused, with nothing changed, if the page has
@@ -200,6 +235,8 @@ Agent ──POST /mcp (Bearer)──▶ convex/mcp/http.ts ──admitBearer─�
                                    │
                                    ├─ list_docs ─▶ mcp/read.listDocs ─▶ mcp/docs.servedDocs (owned ∧ personal ∧ served)
                                    ├─ read_doc  ─▶ mcp/read.readDoc  ─▶ mcp/docs.readMaterial ─▶ Y.Doc ─▶ decodeNmlDocument ─▶ project()
+                                   ├─ search_docs ─▶ mcp/read.searchDocs (decode + outline match)
+                                   ├─ list_projects / create_project / create_page / rename / trash_page ─▶ mcp/manage.*
                                    ├─ edit_doc  ─▶ mcp/edit.editDoc  ─▶ readMaterial (+seq) ─▶ lib/mcp/edits.prepareEdit ─▶ mcp/docs.commitEdit
                                    └─ undo_edit ─▶ mcp/edit.undoEdit ─▶ mcp/docs.undoMaterial ─▶ lib/mcp/edits.prepareUndo ─▶ mcp/docs.commitUndo
 ```
@@ -272,6 +309,8 @@ are hashes; no content is stored.
   - `read_doc` → `mcp.read`: which page, which grant, how many blocks.
   - `edit_doc` → `mcp.edit`: which page, which grant, which edit, and counts added/changed/removed/moved.
   - An undo → `mcp.undo`: which edit, and whether the agent or the person undid it.
+  - `mcp.createProject`, `mcp.createPage`, `mcp.renamePage`, `mcp.renameProject`, `mcp.trashPage`:
+    which page or project, and which grant.
 - **Spend.** No model provider is behind any tool; MCP spends nothing.
 
 Tables (all content-free):
@@ -332,6 +371,7 @@ for Stripe) and the built-in `CONVEX_SITE_URL`.
 
 ## Not yet
 
+- Restoring from the Trash over MCP (the person restores in the app).
 - Canvas-specific tools. Diagrams, albums and storyboards are read-only over MCP.
 - A per-hunk review overlay for agent edits. Today an edit lands at once and is undone as a whole.
 - Anyone outside the internal cohort, which needs that overlay first.

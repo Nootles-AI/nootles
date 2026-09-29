@@ -195,9 +195,6 @@ try {
   const seed = await import(pathToFileURL(seedFile).href);
 
   // ── The world: switches as an operator sets them, pages as people make them ─
-  await run("nmlMigration:setNmlServe", { enabled: true });
-  await run("nmlMigration:addInternalOwner", { subject: ARYAN.userId, note: "e2e" });
-  await run("mcp/oauth:setMcpEnabled", { enabled: true });
 
   async function page(who, projectId, title) {
     const pageId = await as(who).mutation(anyApi.pages.create, { projectId, title });
@@ -238,9 +235,15 @@ try {
   const retro = await page("aryan", roadmap, "Retro");
   const scratch = await page("aryan", roadmap, "Scratch (legacy)");
   const reading = await page("aryan", personal, "Reading list");
-  for (const [doc, blocks] of [[launch, LAUNCH], [retro, RETRO], [reading, READING]]) await serve("aryan", doc, blocks);
   const theirs = await as("stranger").mutation(anyApi.projects.create, { title: "Stranger's" });
   const secret = await page("stranger", theirs, "Secret plans");
+  // Made before the switches, as pages with legacy content were: since NT-124 a
+  // page made while serving is on for its owner is born on NML, and these carry
+  // content to migrate. Section j covers the born kind.
+  await run("nmlMigration:setNmlServe", { enabled: true });
+  await run("nmlMigration:addInternalOwner", { subject: ARYAN.userId, note: "e2e" });
+  await run("mcp/oauth:setMcpEnabled", { enabled: true });
+  for (const [doc, blocks] of [[launch, LAUNCH], [retro, RETRO], [reading, READING]]) await serve("aryan", doc, blocks);
   await as("stranger").mutation(anyApi.nmlMigration.addToCohort, { scope: "project", key: theirs });
   await serve("stranger", secret, SECRET);
   console.log("world: 3 served pages for Aryan, 1 legacy, 1 served for a stranger");
@@ -327,7 +330,10 @@ try {
   // ── b. It lists and reads ──────────────────────────────────────────────────
   console.log("\nb. Claude lists and reads");
   const tools = await client.listTools();
-  check("two read tools and two write tools", tools.tools.map((t) => [t.name, t.annotations?.readOnlyHint]), [["list_docs", true], ["read_doc", true], ["edit_doc", false], ["undo_edit", false]]);
+  check("four read tools and six write tools", tools.tools.map((t) => [t.name, t.annotations?.readOnlyHint]), [
+    ["list_docs", true], ["read_doc", true], ["search_docs", true], ["list_projects", true], ["edit_doc", false], ["undo_edit", false],
+    ["create_project", false], ["create_page", false], ["rename", false], ["trash_page", false],
+  ]);
   check("the token it holds may read and edit", claude.tokens()?.scope, "docs:read docs:write");
   const resources = await client.listResources();
   check("the card is a listed MCP App resource", resources.resources.map((r) => [r.uri, r.mimeType]), [["ui://nootles/documents.html", "text/html;profile=mcp-app"]]);
@@ -630,6 +636,88 @@ try {
   await agentsTab.page.screenshot({ path: path.join(shots, "settings-agent-edits.png"), fullPage: true });
   await agentsTab.context.close();
 
+  // ── j. Born on NML, and the workspace verbs ────────────────────────────────
+  console.log("\nj. New pages start on NML; Claude makes, finds, renames and trashes");
+  const bornPageId = await as("aryan").mutation(anyApi.pages.create, { projectId: roadmap, title: "Born today" });
+  const born = await as("aryan").query(anyApi.pages.get, { pageId: bornPageId });
+  check("a page Aryan makes is served from its first moment", (await as("aryan").query(anyApi.nmlMigration.nmlAuthority, { docId: born.docId })).serve, true);
+  const bornTab = await tab(ARYAN, "editor: born", `/editor?doc=${born.docId}&page=${bornPageId}&project=${roadmap}&title=Born%20today`, { width: 1100, height: 800 });
+  const bornServed = await bornTab.page.waitForSelector('#editor-host [data-nml-served="true"] .bn-editor', { timeout: 30_000 }).then(() => true, () => false);
+  check("…so the editor opens straight onto the served surface", bornServed, true);
+  const firstBlock = await bornTab.page.$("#editor-host .bn-block-outer .bn-inline-content");
+  const firstBox = await firstBlock.boundingBox();
+  await bornTab.page.mouse.click(firstBox.x + 4, firstBox.y + firstBox.height / 2);
+  await bornTab.page.keyboard.type("Written on a born page");
+  let bornText = "";
+  for (let i = 0; i < 60 && !bornText.includes("Written on a born page"); i++) {
+    await wait(250);
+    bornText = JSON.stringify(seed.decode(await stored("aryan", born.docId)).blocks);
+  }
+  check("…and what he types lands on the canonical tree", bornText.includes("Written on a born page"), true);
+  check("…with no migration ever elected for it", (await table("nmlDocState")).find((r) => r.docId === born.docId)?.bornNml, true);
+  await bornTab.context.close();
+
+  const projectsList = await agent.callTool({ name: "list_projects", arguments: {} });
+  check("list_projects shows Aryan's projects with their counts", /Roadmap — \d+ pages/.test(projectsList.content[0].text) && !projectsList.content[0].text.includes("Stranger"), true);
+  const projectsCard = await host("card: projects", projectsList, {}, "light", agent);
+  await projectsCard.frame.waitForSelector(".item .title");
+  check("…and the card lists them", (await projectsCard.frame.$$eval(".item .title", (els) => els.map((e) => e.textContent))).includes("Roadmap"), true);
+  await projectsCard.page.screenshot({ path: path.join(shots, "card-projects.png"), fullPage: true });
+  await projectsCard.context.close();
+
+  const full = await agent.callTool({ name: "create_project", arguments: { title: "Offsite" } });
+  check("create_project keeps to the plan: the free plan's two projects are used", [full.isError, /no room for another project/.test(full.content[0].text)], [true, true]);
+  // What an operator does for an internal account: a VIP pass (`billingAccounts.vip`).
+  await admin.mutation(makeFunctionReference("_system/frontend/addDocument"), { table: "billingAccounts", documents: [{
+    ownerId: ARYAN.userId, vip: true, vipNote: "e2e internal", vipSetAt: Date.now(), acceptedCompletions: 0, chatConversations: 0, createdAt: Date.now(),
+  }] });
+  const offsite = await agent.callTool({ name: "create_project", arguments: { title: "Offsite", description: "Team offsite in March", page_title: "Agenda" } });
+  check("create_project makes a project with a first page", /Created project "Offsite" with a blank page\. docId: \S+/.test(offsite.content[0].text), true);
+  const travel = await agent.callTool({ name: "create_page", arguments: {
+    project: "Offsite",
+    title: "Travel",
+    operations: [{ kind: "insertBlocks", at: { at: "docStart" }, blocks: [
+      { tempId: "h", type: "heading", props: { level: 2 }, content: "Flights" },
+      { tempId: "c", type: "checkListItem", content: "Book flights to Lisbon" },
+    ] }],
+  } });
+  check("create_page makes a page and fills it in one call", [travel.isError ?? false, /Filled it in \(editId: \S+\)/.test(travel.content[0].text)], [false, true]);
+  const travelDoc = travel.structuredContent.doc;
+  const createdCard = await host("card: created", travel, { project: "Offsite", title: "Travel" }, "light", agent);
+  await createdCard.frame.waitForSelector(".confirm-title");
+  check("the card is a receipt for the new page", [await createdCard.frame.textContent(".confirm-title"), await createdCard.frame.$$eval(".checks .check .text", (els) => els.length)], ["Created Travel", 2]);
+  await createdCard.page.screenshot({ path: path.join(shots, "card-created.png"), fullPage: true });
+  await createdCard.context.close();
+  const travelTab = await tab(ARYAN, "editor: travel", `/editor?doc=${travelDoc.docId}&page=${travelDoc.pageId}&project=${travelDoc.projectId}&title=Travel`, { width: 1100, height: 800 });
+  const travelShown = await travelTab.page.waitForFunction(() =>
+    (document.querySelector('#editor-host [data-nml-served="true"] .bn-editor')?.textContent ?? "").includes("Book flights to Lisbon"), null, { timeout: 30_000 }).then(() => true, () => false);
+  check("Aryan opens Claude's new page in Nootles and sees what it wrote", travelShown, true);
+  await travelTab.page.screenshot({ path: path.join(shots, "editor-created-page.png"), fullPage: true });
+  await travelTab.context.close();
+
+  const search = await agent.callTool({ name: "search_docs", arguments: { query: "lisbon" } });
+  check("search_docs finds it by its words, naming the block", [/"lisbon" is on 1 page/.test(search.content[0].text), search.content[0].text.includes("Book flights to Lisbon")], [true, true]);
+  const searchCard = await host("card: search", search, { query: "lisbon" }, "light", agent);
+  await searchCard.frame.waitForSelector("button.item");
+  await searchCard.frame.click("button.item");
+  await searchCard.frame.waitForSelector(".doc-title");
+  check("a hit in the card opens the page there", [(await searchCard.log()).calls, await searchCard.frame.textContent(".doc-title")], [["read_doc"], "Travel"]);
+  await searchCard.context.close();
+
+  const renamedPage = await agent.callTool({ name: "rename", arguments: { target: "page", ref: travelDoc.docId, title: "Travel plans" } });
+  check("rename renames the page", [renamedPage.content[0].text, (await as("aryan").query(anyApi.pages.get, { pageId: travelDoc.pageId })).title], ['Renamed the page "Travel" to "Travel plans".', "Travel plans"]);
+  const trashed = await agent.callTool({ name: "trash_page", arguments: { doc: travelDoc.docId } });
+  check("trash_page moves it to the Trash", [/Moved "Travel plans" .*Trash/.test(trashed.content[0].text), (await agent.callTool({ name: "list_docs", arguments: { query: "travel" } })).structuredContent.total], [true, 0]);
+  const trashCard = await host("card: trashed", trashed, { doc: travelDoc.docId }, "light", agent);
+  await trashCard.frame.waitForSelector(".confirm-title");
+  check("…and says where to restore it", await trashCard.frame.textContent(".panel-sub"), "Offsite · restore it from Nootles’ Trash");
+  await trashCard.page.screenshot({ path: path.join(shots, "card-trashed.png"), fullPage: true });
+  await trashCard.context.close();
+  const roCreate = await readerConnected.client.callTool({ name: "create_page", arguments: { project: "Roadmap" } });
+  check("a read-only connection cannot create", [roCreate.isError, /can only read/.test(roCreate.content[0].text)], [true, true]);
+  const strangersProject = await agent.callTool({ name: "create_page", arguments: { project: theirs } });
+  check("nor can Claude add a page to the stranger's project", [strangersProject.isError, /No project or page of yours/.test(strangersProject.content[0].text)], [true, true]);
+
   // ── The record ─────────────────────────────────────────────────────────────
   console.log("\nThe record");
   const reads = (await table("auditEvents")).filter((e) => e.action === "mcp.read");
@@ -643,7 +731,7 @@ try {
   check("every edit and undo left a content-free line, and the edit records hold no content", [
     edits.length, editAudit.filter((e) => e.action === "mcp.edit").length, editAudit.filter((e) => e.action === "mcp.undo").length,
     JSON.stringify([edits, editAudit]).includes("edit_doc guide") || JSON.stringify([edits, editAudit]).includes("runbook"),
-  ], [3, 3, 2, false]);
+  ], [4, 4, 2, false]);
   check("the backend fetched nothing from outside", deployment.outbound, []);
 } catch (error) {
   failures.push(`harness: ${error?.stack ?? error}`);

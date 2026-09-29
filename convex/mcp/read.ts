@@ -203,3 +203,77 @@ export const listDocs = internalAction({
     return { total: matching.length, docs };
   },
 });
+
+/** Search opens at most this many documents, most recently edited first. */
+export const SEARCH_DOCS = 100;
+
+const searchResult = v.object({
+  scanned: v.number(),
+  total: v.number(),
+  hits: v.array(
+    v.object({
+      docId: v.string(),
+      pageId: v.id("pages"),
+      projectId: v.id("projects"),
+      title: v.string(),
+      projectTitle: v.string(),
+      matches: v.array(v.object({ blockId: v.string(), type: v.string(), text: v.string() })),
+      /** Matches in this document beyond the few shown. */
+      more: v.number(),
+    }),
+  ),
+});
+
+/** The window of `text` around the first hit of `needle`, so a long block shows where it matched. */
+function around(text: string, needle: string, radius = 80): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  const at = flat.toLowerCase().indexOf(needle);
+  if (at < 0 || flat.length <= radius * 2) return flat.slice(0, radius * 2);
+  const from = Math.max(0, at - radius);
+  const to = Math.min(flat.length, at + needle.length + radius);
+  return `${from > 0 ? "…" : ""}${flat.slice(from, to)}${to < flat.length ? "…" : ""}`;
+}
+
+/**
+ * Text search across the subject's served documents (NT-124): case-insensitive
+ * substring over every block's text — the outline the card shows, so headings,
+ * list items, tables, code and diagram shape labels all count — plus titles.
+ * There is no content index for NML documents, so this decodes each one; it
+ * reads the {@link SEARCH_DOCS} most recently edited and says so when there are more.
+ */
+export const searchDocs = internalAction({
+  args: { subject: v.string(), query: v.string(), limit: v.number() },
+  returns: searchResult,
+  handler: async (ctx, args): Promise<Infer<typeof searchResult>> => {
+    const needle = args.query.trim().toLowerCase();
+    const all: Infer<typeof docSummary>[] = await ctx.runQuery(internal.mcp.docs.servedDocs, { subject: args.subject });
+    const limit = Math.max(1, Math.min(50, Math.floor(args.limit)));
+    const hits: Infer<typeof searchResult>["hits"] = [];
+    const scanned = all.slice(0, SEARCH_DOCS);
+    for (const doc of scanned) {
+      if (hits.length >= limit) break;
+      const read: Infer<typeof materialValidator> = await ctx.runQuery(internal.mcp.docs.readMaterial, { subject: args.subject, ref: doc.docId });
+      if (read.status !== "ok") continue;
+      let document: NmlDocument;
+      try {
+        document = rebuild(read.updates);
+      } catch {
+        continue;
+      }
+      const blocks = nmlOutline(document, { maxBlocks: Number.MAX_SAFE_INTEGER, maxChars: Number.MAX_SAFE_INTEGER }).blocks;
+      const found = blocks.filter((b) => b.text.toLowerCase().includes(needle));
+      const titled = doc.title.toLowerCase().includes(needle);
+      if (!found.length && !titled) continue;
+      hits.push({
+        docId: doc.docId,
+        pageId: doc.pageId,
+        projectId: doc.projectId,
+        title: doc.title,
+        projectTitle: doc.projectTitle,
+        matches: found.slice(0, 3).map((b) => ({ blockId: b.id, type: b.type, text: around(b.text, needle) })),
+        more: Math.max(0, found.length - 3),
+      });
+    }
+    return { scanned: Math.min(scanned.length, all.length), total: all.length, hits };
+  },
+});

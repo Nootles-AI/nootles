@@ -84,6 +84,7 @@ import type * as mcp_app from "../mcp/app.js";
 import type * as mcp_docs from "../mcp/docs.js";
 import type * as mcp_edit from "../mcp/edit.js";
 import type * as mcp_http from "../mcp/http.js";
+import type * as mcp_manage from "../mcp/manage.js";
 import type * as mcp_oauth from "../mcp/oauth.js";
 import type * as mcp_protocol from "../mcp/protocol.js";
 import type * as mcp_read from "../mcp/read.js";
@@ -210,6 +211,7 @@ declare const fullApi: ApiFromModules<{
   "mcp/docs": typeof mcp_docs;
   "mcp/edit": typeof mcp_edit;
   "mcp/http": typeof mcp_http;
+  "mcp/manage": typeof mcp_manage;
   "mcp/oauth": typeof mcp_oauth;
   "mcp/protocol": typeof mcp_protocol;
   "mcp/read": typeof mcp_read;
