@@ -7,6 +7,7 @@ import { checkoutDiscountOf, teamBuyerOf } from "./billing";
 import { httpAction } from "./_generated/server";
 import { deliver, signatureValid } from "./github/webhook";
 import { clerkWebhook } from "./identity";
+import * as mcp from "./mcp/http";
 import { workspaceEventOf } from "./teamBilling";
 
 /**
@@ -41,9 +42,10 @@ http.route({
     return json({
       issuer,
       jwks_uri: `${issuer}/.well-known/jwks.json`,
-      // There is no interactive flow here — tokens are minted by an operator
-      // action, never by a browser redirect — but a discovery document is
-      // required to name an authorization endpoint, so it names one that 404s.
+      // A discovery document must name an authorization endpoint. Stand-in
+      // tokens never use it — an operator action mints them — and the one it
+      // names is MCP's (NT-121, below), whose tokens are opaque and are not
+      // what the JWKS here verifies.
       authorization_endpoint: `${issuer}/oauth/authorize`,
       response_types_supported: ["id_token"],
       subject_types_supported: ["public"],
@@ -61,6 +63,29 @@ http.route({
     json(JSON.parse(process.env.IMPERSONATION_JWKS ?? '{"keys":[]}')),
   ),
 });
+
+/**
+ * MCP (NT-121): the OAuth front door and the server, all in `mcp/http.ts`. The
+ * protected-resource document is served at both the bare and the path-suffixed
+ * well-known address, since clients look in either (RFC 9728 §3.1).
+ */
+for (const path of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp"]) {
+  http.route({ path, method: "GET", handler: mcp.protectedResource });
+  http.route({ path, method: "OPTIONS", handler: mcp.preflight });
+}
+http.route({ path: "/.well-known/oauth-authorization-server", method: "GET", handler: mcp.authorizationServer });
+http.route({ path: "/.well-known/oauth-authorization-server", method: "OPTIONS", handler: mcp.preflight });
+http.route({ path: "/oauth/register", method: "POST", handler: mcp.register });
+http.route({ path: "/oauth/register", method: "OPTIONS", handler: mcp.preflight });
+http.route({ path: "/oauth/authorize", method: "GET", handler: mcp.authorize });
+http.route({ path: "/oauth/token", method: "POST", handler: mcp.token });
+http.route({ path: "/oauth/token", method: "OPTIONS", handler: mcp.preflight });
+http.route({ path: "/oauth/revoke", method: "POST", handler: mcp.revoke });
+http.route({ path: "/oauth/revoke", method: "OPTIONS", handler: mcp.preflight });
+http.route({ path: "/mcp", method: "POST", handler: mcp.mcp });
+http.route({ path: "/mcp", method: "OPTIONS", handler: mcp.preflight });
+http.route({ path: "/mcp", method: "GET", handler: mcp.mcpOther });
+http.route({ path: "/mcp", method: "DELETE", handler: mcp.mcpOther });
 
 /** Clerk's webhook: a change to an account's addresses in Clerk (`identity.ts`). */
 http.route({ path: "/clerk/webhook", method: "POST", handler: clerkWebhook });

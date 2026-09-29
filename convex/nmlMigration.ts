@@ -40,7 +40,7 @@ async function nmlStateRow(ctx: QueryCtx, docId: string) {
  * `.first()`, not `.unique()`: a benign concurrent double-add can leave two rows
  * for one subject, and eligibility must not throw on that.
  */
-async function isInternalOwner(ctx: QueryCtx, subject: string): Promise<boolean> {
+export async function isInternalOwner(ctx: QueryCtx, subject: string): Promise<boolean> {
   const row = await ctx.db
     .query("internalOwners")
     .withIndex("by_subject", (q) => q.eq("subject", subject))
@@ -195,7 +195,7 @@ export const removeInternalOwner = internalMutation({
 });
 
 /** Whether the app is cleared to serve NML at all — the master switch. */
-async function serveEnabled(ctx: QueryCtx): Promise<boolean> {
+export async function serveEnabled(ctx: QueryCtx): Promise<boolean> {
   const row = await ctx.db.query("nmlServeState").first();
   return row?.enabled ?? false;
 }
@@ -380,27 +380,40 @@ export const nmlAuthority = query({
   }),
   handler: async (ctx, args) => {
     await checkRead(ctx, args.docId);
-    const row = await nmlStateRow(ctx, args.docId);
-    if (!row) return { serve: false, reason: "not-migrated" };
-    if (row.status !== "migrated") return { serve: false, reason: "rolled-back" };
-    if (!(await eligible(ctx, args.docId))) return { serve: false, reason: "not-in-cohort" };
-    if (!row.serverVerified) {
-      return { serve: false, reason: row.serverVerifyError ?? "pending-verification" };
-    }
-    if (
-      row.serverSchemaVersion !== NML_SCHEMA_VERSION ||
-      row.serverEncodingVersion !== NML_YJS_ENCODING_VERSION
-    ) {
-      return { serve: false, reason: "unsupported-version" };
-    }
-    return {
-      serve: true,
-      reason: "verified",
-      schemaVersion: row.serverSchemaVersion,
-      encodingVersion: row.serverEncodingVersion,
-    };
+    return await servedAuthority(ctx, args.docId);
   },
 });
+
+/**
+ * `nmlAuthority`'s decision without its read gate, for a caller that has
+ * already authorized the document by other means — MCP, whose agent holds no
+ * Convex identity (`auth.agentOwnsPage`). One function, so the editor and the
+ * agent can never disagree about which documents are served.
+ */
+export async function servedAuthority(
+  ctx: QueryCtx,
+  docId: string,
+): Promise<{ serve: boolean; reason: string; schemaVersion?: number; encodingVersion?: number }> {
+  const row = await nmlStateRow(ctx, docId);
+  if (!row) return { serve: false, reason: "not-migrated" };
+  if (row.status !== "migrated") return { serve: false, reason: "rolled-back" };
+  if (!(await eligible(ctx, docId))) return { serve: false, reason: "not-in-cohort" };
+  if (!row.serverVerified) {
+    return { serve: false, reason: row.serverVerifyError ?? "pending-verification" };
+  }
+  if (
+    row.serverSchemaVersion !== NML_SCHEMA_VERSION ||
+    row.serverEncodingVersion !== NML_YJS_ENCODING_VERSION
+  ) {
+    return { serve: false, reason: "unsupported-version" };
+  }
+  return {
+    serve: true,
+    reason: "verified",
+    schemaVersion: row.serverSchemaVersion,
+    encodingVersion: row.serverEncodingVersion,
+  };
+}
 
 /**
  * The migration record for a document, or null. A mixed-version reader uses the

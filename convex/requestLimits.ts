@@ -36,6 +36,7 @@ export const bucketValidator = v.union(
   v.literal("agentGeneration"),
   v.literal("externalLookup"),
   v.literal("uploadGrant"),
+  v.literal("mcpRequest"),
 );
 
 /**
@@ -173,6 +174,19 @@ export const REQUEST_LIMITS = {
     // in this table answers the same questions.
     capacity: 1000,
   }),
+  /**
+   * An MCP agent's calls (NT-121). No model is behind them — `list_docs` and
+   * `read_doc` read and decode stored documents — so this bounds compute and
+   * database reads, not spend. An agent reads a handful of documents per turn;
+   * a minute of steady reading at one call a second is well past any honest
+   * session, and the capacity lets a turn open ten pages at once.
+   */
+  mcpRequest: policy({
+    kind: "token bucket",
+    rate: 60,
+    period: MINUTE,
+    capacity: 30,
+  }),
 } satisfies Record<Bucket, Policy>;
 
 /**
@@ -282,6 +296,31 @@ export const debit = internalMutation({
     });
     if (!fleet.ok) throw refusal(args.bucket, "global", fleet.retryAfter);
 
+    return null;
+  },
+});
+
+/**
+ * {@link debit} for a caller whose identity is a credential rather than a
+ * Convex session — an MCP bearer token, which `mcp/oauth.ts` resolves to its
+ * subject inside the same transaction that calls this. Internal, so the key is
+ * still never something a client chooses: only code that has just verified a
+ * credential can name one.
+ */
+export const debitFor = internalMutation({
+  args: { bucket: bucketValidator, subject: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const limits = REQUEST_LIMITS[args.bucket];
+    const mine = await limiter.limit(ctx, limitName(args.bucket, "user"), {
+      key: args.subject,
+      config: limits.user,
+    });
+    if (!mine.ok) throw refusal(args.bucket, "user", mine.retryAfter);
+    const fleet = await limiter.limit(ctx, limitName(args.bucket, "global"), {
+      config: limits.global,
+    });
+    if (!fleet.ok) throw refusal(args.bucket, "global", fleet.retryAfter);
     return null;
   },
 });

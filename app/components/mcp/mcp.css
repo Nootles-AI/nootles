@@ -1,0 +1,88 @@
+/* The MCP consent page and the Agents section of Settings. Settings' own
+   chrome and voice (`settings.css`), with the few pieces a permission needs:
+   a narrower column, a list of what is and is not granted, and a way home. */
+
+.nt-mcp-consent {
+  max-width: 520px;
+}
+
+.nt-mcp-lede {
+  margin-top: 8px;
+}
+
+.nt-mcp-client {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.nt-mcp-card {
+  margin-top: 24px;
+}
+
+.nt-mcp-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  font-size: var(--text-ui);
+  line-height: 1.5;
+  color: var(--muted);
+}
+.nt-mcp-item strong {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+/* The two answers differ in value, not hue: a granted line carries the
+   foreground, a withheld one stays muted — neutral like the rest of Settings. */
+.nt-mcp-mark {
+  flex: none;
+  width: 16px;
+  text-align: center;
+  color: var(--muted);
+}
+.nt-mcp-mark.is-yes {
+  color: var(--foreground);
+}
+
+.nt-mcp-where {
+  margin-top: 12px;
+  white-space: normal;
+}
+.nt-mcp-origin {
+  color: var(--foreground);
+}
+
+.nt-mcp-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 20px;
+}
+
+.nt-mcp-foot {
+  margin-top: 20px;
+}
+
+/* ---- Settings: Agents -------------------------------------------------- */
+
+.nt-mcp-url {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 6px;
+}
+.nt-mcp-url code {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: var(--text-meta-lg);
+  color: var(--foreground);
+}

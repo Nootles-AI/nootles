@@ -1042,6 +1042,108 @@ export default defineSchema({
     updatedAt: v.number(),
   }),
 
+  // ---- MCP (NT-121) ---------------------------------------------------------
+  // An OAuth 2.1 authorization server for the `/mcp` endpoint (`convex/mcp/`).
+  // Every secret — request keys, codes, access and refresh tokens, client
+  // secrets — is stored as its SHA-256 only; a database read yields nothing an
+  // agent could present. Nothing here holds document content.
+
+  /**
+   * The master MCP switch, the peer of `nmlServeState`: off (an absent row) by
+   * default, flipped by an operator with `mcp/oauth:setMcpEnabled`. Off, every
+   * token is refused on its next call and nobody can consent to a new one.
+   */
+  mcpState: defineTable({
+    enabled: v.boolean(),
+    updatedAt: v.number(),
+  }),
+
+  /**
+   * A dynamically registered client (RFC 7591) — Claude, an IDE, an inspector.
+   * Anyone may register, so a row admits nobody: a person still has to consent.
+   * `secretHash` only for a confidential client that asked for a secret.
+   */
+  mcpClients: defineTable({
+    clientId: v.string(),
+    name: v.string(),
+    redirectUris: v.array(v.string()),
+    authMethod: v.union(
+      v.literal("none"),
+      v.literal("client_secret_post"),
+      v.literal("client_secret_basic"),
+    ),
+    secretHash: v.optional(v.string()),
+    createdAt: v.number(),
+    /** Last consent or token exchange; a client never used is swept after a day. */
+    lastUsedAt: v.optional(v.number()),
+  })
+    .index("by_client_id", ["clientId"])
+    .index("by_last_used_and_created", ["lastUsedAt", "createdAt"]),
+
+  /**
+   * An authorization request waiting on the consent page. Created by
+   * `/oauth/authorize` once the client, redirect and PKCE challenge check out;
+   * the consent page names it by an opaque key and it lives ten minutes.
+   */
+  mcpAuthRequests: defineTable({
+    keyHash: v.string(),
+    clientId: v.string(),
+    redirectUri: v.string(),
+    codeChallenge: v.string(),
+    state: v.optional(v.string()),
+    scope: v.string(),
+    resource: v.optional(v.string()),
+    expiresAt: v.number(),
+  })
+    .index("by_key_hash", ["keyHash"])
+    .index("by_expires", ["expiresAt"]),
+
+  /**
+   * An authorization code, bound to the person who consented and to the
+   * request's client, redirect and challenge. Single use: `usedAt` stays set so
+   * a replay revokes the grant it minted (OAuth 2.1 §4.1.3).
+   */
+  mcpAuthCodes: defineTable({
+    codeHash: v.string(),
+    subject: v.string(),
+    clientId: v.string(),
+    redirectUri: v.string(),
+    codeChallenge: v.string(),
+    scope: v.string(),
+    resource: v.optional(v.string()),
+    expiresAt: v.number(),
+    usedAt: v.optional(v.number()),
+    grantId: v.optional(v.id("mcpGrants")),
+  })
+    .index("by_code_hash", ["codeHash"])
+    .index("by_expires", ["expiresAt"]),
+
+  /**
+   * One person's standing consent for one client: the current access and
+   * refresh tokens, rotated together on every refresh. `prevRefreshHash` is the
+   * one just rotated away, so presenting it again is recognized as a stolen
+   * token and revokes the grant.
+   */
+  mcpGrants: defineTable({
+    subject: v.string(),
+    clientId: v.string(),
+    clientName: v.string(),
+    scope: v.string(),
+    accessHash: v.string(),
+    accessExpiresAt: v.number(),
+    refreshHash: v.string(),
+    refreshExpiresAt: v.number(),
+    prevRefreshHash: v.optional(v.string()),
+    createdAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_access_hash", ["accessHash"])
+    .index("by_refresh_hash", ["refreshHash"])
+    .index("by_prev_refresh_hash", ["prevRefreshHash"])
+    .index("by_subject", ["subject"])
+    .index("by_refresh_expires", ["refreshExpiresAt"]),
+
   /**
    * Who is on a document right now — one row per open session, carrying the
    * encoded y-protocols awareness state (cursor positions, selections) plus

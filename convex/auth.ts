@@ -990,3 +990,41 @@ export async function requireCommentable(
   }
   throw new Error("Not found");
 }
+
+/**
+ * What an MCP agent may reach, for the Clerk subject its bearer token was
+ * issued to (`mcp/oauth.ts`). The token is not a Convex identity — it is
+ * accepted nowhere but `/mcp` — so these take the subject its verification
+ * resolved rather than reading `ctx.auth`; nothing a client sends names it.
+ *
+ * Owned-only and personal-only, the internal-MCP plan's scope: a page in the
+ * subject's own live personal project. A workspace project is excluded even for
+ * its owner, because there `ownerId` is only the creator (see `seatRole`), and a
+ * page the subject can merely edit through a share is not theirs to hand to an
+ * agent. Whether the page is *served* is the NML gate's question, asked after
+ * this one (`nmlMigration.servedAuthority`).
+ */
+export async function agentOwnsPage(
+  ctx: QueryCtx,
+  subject: string,
+  page: Doc<"pages">,
+): Promise<Doc<"projects"> | null> {
+  if (isTrashed(page)) return null;
+  const project = await ctx.db.get(page.projectId);
+  if (!project || isTrashed(project) || project.workspaceId) return null;
+  return project.ownerId === subject && page.ownerId === subject ? project : null;
+}
+
+/** The subject's live personal projects — where `agentOwnsPage` can say yes. */
+export async function agentProjects(
+  ctx: QueryCtx,
+  subject: string,
+  limit: number,
+): Promise<Doc<"projects">[]> {
+  return await ctx.db
+    .query("projects")
+    .withIndex("by_owner_and_workspace_and_deleted", (q) =>
+      q.eq("ownerId", subject).eq("workspaceId", undefined).eq("deletedAt", undefined),
+    )
+    .take(limit);
+}
