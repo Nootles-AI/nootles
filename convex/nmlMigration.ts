@@ -4,9 +4,11 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { checkRead, checkWrite, pageForDoc } from "./prosemirror";
 import { ownerId, requireManageable, requireOwner } from "./auth";
-import { appendYUpdate, readStoredUpdates } from "./ydoc";
-import { NML_SCHEMA_VERSION } from "@/app/lib/nml/schema";
-import { NML_YJS_ENCODING_VERSION } from "@/app/lib/nml/yjs";
+import * as Y from "yjs";
+import { appendYUpdate, readStoredUpdates, registerYDoc } from "./ydoc";
+import { NML_SCHEMA_VERSION, type NmlDocument } from "@/app/lib/nml/schema";
+import { assertValidDocument } from "@/app/lib/nml/validate";
+import { createNmlYDoc, NML_YJS_ENCODING_VERSION } from "@/app/lib/nml/yjs";
 
 /**
  * Step 12 — the Convex side of persistence and cohort migration.
@@ -309,6 +311,68 @@ export const electMigration = mutation({
     return { elected: true, seq };
   },
 });
+
+/**
+ * A new page's document, registered as Yjs — and, when the page would be
+ * served, born already on NML (NT-124).
+ *
+ * Migration exists to move a document that has content in the legacy root; a
+ * page with no content has nothing to move. So an eligible page is written
+ * directly in its served form: one empty paragraph in the canonical `nml` root
+ * as update #1, and a `migrated` state row recorded as verified in the same
+ * transaction. That verdict is not taken on anyone's word — the server built
+ * the root itself, from a document it has just validated — and the ordinary
+ * Node verifier is still scheduled to re-assert it, so a root that somehow
+ * fails decodes to "not served" exactly as a migrated one would. The
+ * `prosemirror` root starts empty; the first served editor's compatibility
+ * mirror projects into it, as it does after any migration.
+ *
+ * Born served rather than born pending means the page never opens on the legacy
+ * surface: an editor that mounted before verification would take the person's
+ * first words into the root the served mirror then overwrites.
+ *
+ * Callers insert the page row first, since eligibility reads it.
+ */
+export async function registerPageDoc(
+  ctx: MutationCtx,
+  docId: string,
+  createdBy: string,
+): Promise<{ served: boolean }> {
+  if (!(await serveEnabled(ctx)) || !(await eligible(ctx, docId))) {
+    await registerYDoc(ctx, docId);
+    return { served: false };
+  }
+  const document: NmlDocument = {
+    schemaVersion: NML_SCHEMA_VERSION,
+    documentId: docId,
+    blocks: [{ id: crypto.randomUUID(), type: "paragraph", props: {}, content: [], children: [] }],
+  };
+  assertValidDocument(document);
+  const doc = createNmlYDoc(document);
+  const update = Y.encodeStateAsUpdate(doc);
+  doc.destroy();
+  await registerYDoc(ctx, docId, update.buffer.slice(update.byteOffset, update.byteOffset + update.byteLength) as ArrayBuffer);
+  const now = Date.now();
+  await ctx.db.insert("nmlDocState", {
+    docId,
+    status: "migrated",
+    nmlSchemaVersion: NML_SCHEMA_VERSION,
+    nmlEncodingVersion: NML_YJS_ENCODING_VERSION,
+    nmlSeq: 1,
+    equivalenceOk: true,
+    mismatchClasses: [],
+    limitOk: true,
+    migratedAt: now,
+    migratedBy: createdBy,
+    bornNml: true,
+    serverVerified: true,
+    serverVerifiedAt: now,
+    serverSchemaVersion: NML_SCHEMA_VERSION,
+    serverEncodingVersion: NML_YJS_ENCODING_VERSION,
+  });
+  await ctx.scheduler.runAfter(0, internal.nmlVerify.run, { docId });
+  return { served: true };
+}
 
 /**
  * The bytes the Node verifier needs: the document's whole update history, read

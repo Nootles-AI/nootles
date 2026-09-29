@@ -19,6 +19,7 @@ import {
   workspaceRole,
 } from "./auth";
 import { ABOUT, BACKGROUND } from "./ai/questions";
+import { registerPageDoc } from "./nmlMigration";
 import { recordInProject } from "./audit";
 import { requireQuota, requireQuotaIn } from "./entitlements";
 import { attachFile, contextFileRef } from "./files/context";
@@ -27,7 +28,6 @@ import { linkPages, notionPageRef } from "./notion/context";
 import { deletePreview } from "./previews";
 import { personOf } from "./profiles";
 import { repoRef } from "./schema";
-import { registerYDoc } from "./ydoc";
 
 /**
  * The page facts the projects screen draws — how many, which one to preview,
@@ -324,48 +324,7 @@ export const create = mutation({
       await requireQuota(ctx, ownerId, "projects");
     }
     const now = Date.now();
-    const projectId = await ctx.db.insert("projects", {
-      ownerId,
-      title: args.title,
-      description: args.description,
-      createdAt: now,
-      ...(args.workspaceId
-        ? { workspaceId: args.workspaceId, visibility: args.visibility }
-        : {}),
-    });
-    const project = (await ctx.db.get(projectId))!;
-    await recordInProject(
-      ctx,
-      project,
-      {
-        action: "project.create",
-        subjectKind: "project",
-        subjectId: projectId,
-        meta: { visibility: project.visibility ?? "workspace" },
-      },
-      ownerId,
-    );
-
-    // What the user said when they made the project IS the project's context —
-    // the sheet is what primes every LLM request, so anything that stopped at
-    // the project row would never reach a model. Phrased as the Q&A the sheet
-    // holds, the same way first run phrases the survey's answers.
-    const asked: [string, string | undefined][] = [
-      [ABOUT, args.description],
-      [BACKGROUND, args.context],
-    ];
-    for (const [question, said] of asked) {
-      const answer = said?.trim();
-      if (!answer) continue;
-      await ctx.db.insert("contextSheet", {
-        ownerId,
-        projectId,
-        question,
-        answer,
-        source: "human",
-        createdAt: now,
-      });
-    }
+    const projectId = await insertProject(ctx, ownerId, args, now);
 
     // Sources are context too, just the kind that is read rather than written.
     // Attached here, as the maker's, rather than after: once it exists the
@@ -419,7 +378,8 @@ export const create = mutation({
     } else {
       // One blank page so a new project is immediately usable. Empty title so
       // the doc shows its placeholder; the sidebar renders an "Untitled"
-      // fallback. Born on Yjs, as `pages.create` makes one.
+      // fallback. Born as `pages.insertPage` makes one: on Yjs, and on NML when
+      // it would be served.
       const docId = crypto.randomUUID();
       await ctx.db.insert("pages", {
         ownerId,
@@ -431,12 +391,74 @@ export const create = mutation({
         yjs: true,
         createdAt: now,
       });
-      await registerYDoc(ctx, docId);
+      await registerPageDoc(ctx, docId, ownerId);
     }
     await refreshPageSummary(ctx, projectId);
     return projectId;
   },
 });
+
+/**
+ * A project's row, its creation audit line, and what its maker said about it
+ * as context — for a caller that has already authorized the creation and its
+ * quota. `create` and MCP's `create_project` both make projects through this.
+ */
+export async function insertProject(
+  ctx: MutationCtx,
+  ownerId: string,
+  args: {
+    title: string;
+    description?: string;
+    context?: string;
+    workspaceId?: Id<"workspaces">;
+    visibility?: "workspace" | "private";
+  },
+  now: number,
+): Promise<Id<"projects">> {
+  const projectId = await ctx.db.insert("projects", {
+    ownerId,
+    title: args.title,
+    description: args.description,
+    createdAt: now,
+    ...(args.workspaceId
+      ? { workspaceId: args.workspaceId, visibility: args.visibility }
+      : {}),
+  });
+  const project = (await ctx.db.get(projectId))!;
+  await recordInProject(
+    ctx,
+    project,
+    {
+      action: "project.create",
+      subjectKind: "project",
+      subjectId: projectId,
+      meta: { visibility: project.visibility ?? "workspace" },
+    },
+    ownerId,
+  );
+
+  // What the user said when they made the project IS the project's context —
+  // the sheet is what primes every LLM request, so anything that stopped at
+  // the project row would never reach a model. Phrased as the Q&A the sheet
+  // holds, the same way first run phrases the survey's answers.
+  const asked: [string, string | undefined][] = [
+    [ABOUT, args.description],
+    [BACKGROUND, args.context],
+  ];
+  for (const [question, said] of asked) {
+    const answer = said?.trim();
+    if (!answer) continue;
+    await ctx.db.insert("contextSheet", {
+      ownerId,
+      projectId,
+      question,
+      answer,
+      source: "human",
+      createdAt: now,
+    });
+  }
+  return projectId;
+}
 
 /**
  * Everything the projects screen draws, except the thumbnail.

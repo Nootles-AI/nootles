@@ -437,7 +437,8 @@ export const init = mutation({
     // The document channel only: a comments document is born with its root
     // already in it (`comments.ensureDoc`), so no client ever races to init one.
     await checkWrite(ctx, args.docId);
-    const row = await ydocRow(ctx, args.docId);
+    let row = await ydocRow(ctx, args.docId);
+    if (row && row.seq > 0 && (await unbirth(ctx, row))) row = await ydocRow(ctx, args.docId);
     if (row && row.seq > 0) return { migrated: false };
     const born = {
       seq: 1,
@@ -460,6 +461,32 @@ export const init = mutation({
     return { migrated: true };
   },
 });
+
+/**
+ * A page born on NML (`nmlMigration.registerPageDoc`) that nobody has written
+ * to yet, handed back to the ordinary birth — so a caller that fills a new
+ * page with content it built itself (a Notion import, which makes its pages
+ * with `pages.create` and then `init`s them) gets the page it expects rather
+ * than a silent "first writer wins" against an empty root. The content then
+ * migrates on first open, as an imported page always has. Anything written
+ * since the birth (seq past 1, or folded into a snapshot) is left alone.
+ */
+async function unbirth(ctx: MutationCtx, row: Doc<"ydocs">): Promise<boolean> {
+  if (row.seq !== 1 || row.snapshotSeq !== 0) return false;
+  const state = await ctx.db
+    .query("nmlDocState")
+    .withIndex("by_doc", (q) => q.eq("docId", row.docId))
+    .unique();
+  if (!state?.bornNml) return false;
+  const birth = await ctx.db
+    .query("yUpdates")
+    .withIndex("by_doc_and_seq", (q) => q.eq("docId", row.docId).eq("seq", 1))
+    .collect();
+  await Promise.all(birth.map((update) => ctx.db.delete(update._id)));
+  await ctx.db.delete(state._id);
+  await ctx.db.patch(row._id, { seq: 0 });
+  return true;
+}
 
 /**
  * Registers a brand-new doc as Yjs-native before any client has state to

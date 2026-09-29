@@ -22,6 +22,16 @@ function backend(overrides: Partial<McpBackend> = {}): McpBackend {
       }),
     ),
     undoEdit: vi.fn(async (): Promise<DocUndo> => ({ status: "undone", docId: "d-1", pageId: "p1", projectId: "j1", title: "Launch plan" })),
+    listProjects: vi.fn(async () => ({ projects: [{ projectId: "j1", title: "Roadmap", pages: 3, served: 2, updatedAt: 1 }], truncated: false })),
+    searchDocs: vi.fn(async () => ({
+      scanned: 2,
+      total: 2,
+      hits: [{ docId: "d-1", pageId: "p1", projectId: "j1", title: "Launch plan", projectTitle: "Roadmap", matches: [{ blockId: "p1", type: "paragraph", text: "Ship it" }], more: 0 }],
+    })),
+    createProject: vi.fn(async () => ({ status: "created" as const, projectId: "j2", projectTitle: "Offsite", pageId: "p9", docId: "d-9", title: "" })),
+    createPage: vi.fn(async () => ({ status: "created" as const, projectId: "j1", projectTitle: "Roadmap", pageId: "p8", docId: "d-8", title: "Risks" })),
+    rename: vi.fn(async () => ({ status: "renamed" as const, target: "page" as const, id: "d-1", from: "Launch plan", to: "Launch", projectId: "j1", pageId: "p1" })),
+    trashPage: vi.fn(async () => ({ status: "trashed" as const, docId: "d-1", title: "Launch plan", projectTitle: "Roadmap" })),
     listDocs: vi.fn(async () => ({ total: 1, docs: [{ ...DOC, snippet: "Ship it", blockCount: 3 }] })),
     readDoc: vi.fn(
       async (): Promise<DocRead> => ({
@@ -82,8 +92,14 @@ describe("MCP protocol", () => {
     expect(result.tools.map((t) => [t.name, t.annotations.readOnlyHint, t.annotations.destructiveHint])).toEqual([
       ["list_docs", true, false],
       ["read_doc", true, false],
+      ["search_docs", true, false],
+      ["list_projects", true, false],
       ["edit_doc", false, true],
       ["undo_edit", false, true],
+      ["create_project", false, false],
+      ["create_page", false, false],
+      ["rename", false, false],
+      ["trash_page", false, true],
     ]);
     for (const tool of result.tools) {
       expect(tool.annotations.openWorldHint).toBe(false);
@@ -236,5 +252,71 @@ describe("MCP protocol", () => {
     };
     expect(no.result.isError).toBe(true);
     expect(no.result.content[0].text).toMatch(/edited since.*⟦p1⟧/);
+  });
+
+  test("search_docs passes the query and names each hit's page and blocks", async () => {
+    const b = backend();
+    const { result } = (await handleMcp(call(1, "tools/call", { name: "search_docs", arguments: { query: " ship ", limit: 99 } }), b)) as {
+      result: { content: Array<{ text: string }>; structuredContent: { kind: string; hits: Array<{ url: string }> } };
+    };
+    expect(b.searchDocs).toHaveBeenCalledWith({ query: "ship", limit: 50 });
+    expect(result.content[0].text).toContain('"ship" is on 1 page:');
+    expect(result.content[0].text).toContain("⟦p1⟧ Ship it");
+    expect(result.structuredContent).toMatchObject({ kind: "search", hits: [{ url: "https://app.nootles.com/p/j1?page=p1" }] });
+    expect(await handleMcp(call(2, "tools/call", { name: "search_docs", arguments: {} }), b)).toMatchObject({ error: { code: -32602 } });
+  });
+
+  test("list_projects lists projects with their ids and counts", async () => {
+    const { result } = (await handleMcp(call(1, "tools/call", { name: "list_projects", arguments: {} }), backend())) as {
+      result: { content: Array<{ text: string }>; structuredContent: { kind: string } };
+    };
+    expect(result.content[0].text).toContain("1. Roadmap — 3 pages (2 readable here) · projectId: j1");
+    expect(result.structuredContent.kind).toBe("projectList");
+  });
+
+  test("create_page makes the page, then fills it through edit_doc on the new docId", async () => {
+    const b = backend();
+    const operations = [{ kind: "insertBlocks", at: { at: "docStart" }, blocks: [{ tempId: "a", type: "heading", content: "Risks" }] }];
+    const { result } = (await handleMcp(call(1, "tools/call", { name: "create_page", arguments: { project: "Roadmap", title: "Risks", operations } }), b)) as {
+      result: { content: Array<{ text: string }>; structuredContent: { kind: string; what: string; doc: { url: string } } };
+    };
+    expect(b.createPage).toHaveBeenCalledWith({ project: "Roadmap", title: "Risks" });
+    expect(b.editDoc).toHaveBeenCalledWith({ ref: "d-8", operations });
+    expect(result.content[0].text).toContain('Created page "Risks" in "Roadmap". docId: d-8');
+    expect(result.content[0].text).toContain("Filled it in (editId: e1):");
+    expect(result.structuredContent).toMatchObject({ kind: "created", what: "page", doc: { url: "https://app.nootles.com/p/j1?page=p8" } });
+  });
+
+  test("a page whose filling fails is still reported created, as an error that says so", async () => {
+    const b = backend({ editDoc: async () => ({ status: "rejected", code: "missing_node", message: "Block x does not exist" }) });
+    const { result } = (await handleMcp(call(1, "tools/call", { name: "create_page", arguments: { project: "j1", operations: [{ kind: "removeBlock", blockId: "x" }] } }), b)) as {
+      result: { isError: boolean; content: Array<{ text: string }> };
+    };
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/Created page[\s\S]*filling it failed: Block x does not exist/);
+  });
+
+  test("create_project, rename and trash_page answer plainly; every write refuses a read-only connection first", async () => {
+    const b = backend();
+    const made = (await handleMcp(call(1, "tools/call", { name: "create_project", arguments: { title: "Offsite" } }), b)) as { result: { content: Array<{ text: string }> } };
+    expect(made.result.content[0].text).toContain('Created project "Offsite" with a blank page. docId: d-9');
+    const renamed = (await handleMcp(call(2, "tools/call", { name: "rename", arguments: { target: "page", ref: "d-1", title: "Launch" } }), b)) as { result: { content: Array<{ text: string }> } };
+    expect(renamed.result.content[0].text).toBe('Renamed the page "Launch plan" to "Launch".');
+    const trashed = (await handleMcp(call(3, "tools/call", { name: "trash_page", arguments: { doc: "d-1" } }), b)) as { result: { content: Array<{ text: string }> } };
+    expect(trashed.result.content[0].text).toMatch(/Moved "Launch plan".*Trash/);
+    const ro = backend({ canWrite: false });
+    for (const [name, args] of [["create_project", { title: "x" }], ["create_page", { project: "j1" }], ["rename", { target: "page", ref: "d", title: "x" }], ["trash_page", { doc: "d" }]] as const) {
+      const r = (await handleMcp(call(4, "tools/call", { name, arguments: args }), ro)) as { result: { isError: boolean; content: Array<{ text: string }> } };
+      expect(r.result.isError, name).toBe(true);
+      expect(r.result.content[0].text).toMatch(/can only read/);
+    }
+    expect([ro.createProject, ro.createPage, ro.rename, ro.trashPage].every((f) => (f as ReturnType<typeof vi.fn>).mock.calls.length === 0)).toBe(true);
+    for (const reason of ["no-write", "not-found", "not-served", "serving-off", "quota", "rate-limited"] as const) {
+      const r = (await handleMcp(call(5, "tools/call", { name: "trash_page", arguments: { doc: "d" } }), backend({ trashPage: async () => ({ status: "refused", reason }) }))) as {
+        result: { isError: boolean; content: Array<{ text: string }> };
+      };
+      expect(r.result.isError).toBe(true);
+      expect(r.result.content[0].text.length).toBeGreaterThan(20);
+    }
   });
 });

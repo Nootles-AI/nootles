@@ -382,6 +382,12 @@ function backendFor(
         idempotencyKey: args.idempotencyKey,
       }),
     undoEdit: (args) => ctx.runAction(internal.mcp.edit.undoEdit, { subject, editId: args.editId, by: "agent", grantId }),
+    listProjects: () => ctx.runQuery(internal.mcp.manage.listProjects, { subject }),
+    searchDocs: (args) => ctx.runAction(internal.mcp.read.searchDocs, { subject, ...args }),
+    createProject: (args) => ctx.runMutation(internal.mcp.manage.createProject, { subject, grantId, ...args }),
+    createPage: (args) => ctx.runMutation(internal.mcp.manage.createPage, { subject, grantId, ...args }),
+    rename: (args) => ctx.runMutation(internal.mcp.manage.rename, { subject, grantId, ...args }),
+    trashPage: (args) => ctx.runMutation(internal.mcp.manage.trashPage, { subject, grantId, ...args }),
   };
 }
 

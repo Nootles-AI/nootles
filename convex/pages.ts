@@ -9,6 +9,7 @@ import { removePageNode, retitlePageNode } from "./context/pages";
 import { copyPreview, deletePreview } from "./previews";
 import { purgeCommentsDoc, refreshPageSummary, stampProject } from "./projects";
 import { rowIcon } from "./schema";
+import { registerPageDoc } from "./nmlMigration";
 import { registerYDoc } from "./ydoc";
 
 export const listByProject = query({
@@ -94,33 +95,62 @@ export const create = mutation({
     const { ownerId } = await requireEditable(ctx, "projects", args.projectId);
     const createdBy = await requireOwner(ctx);
     if (args.folderId) await folderIn(ctx, args.projectId, args.folderId);
-    const anchor = args.after ? await ctx.db.get(args.after) : null;
-    // An unnamed folder falls back to the anchor's, so "after that page" lands
-    // beside it rather than silently at the top level.
-    const folderId = args.folderId ?? anchor?.folderId;
-    const siblings = await levelRows(ctx, args.projectId, folderId ?? null);
-    const placed = args.after ? orderAfter(siblings, args.after) : null;
-    const docId = crypto.randomUUID();
-    const pageId = await ctx.db.insert("pages", {
+    return await insertPage(ctx, {
+      projectId: args.projectId,
       ownerId,
       createdBy,
-      projectId: args.projectId,
-      // Empty by default so the doc shows its grayed "Untitled" placeholder;
-      // the sidebar renders an "Untitled" fallback for empty titles.
-      title: args.title ?? "",
-      folderId,
-      order: placed ?? endOrder(siblings),
-      docId,
-      yjs: true,
-      createdAt: Date.now(),
+      title: args.title,
+      after: args.after,
+      folderId: args.folderId,
     });
-    // Born on Yjs: the first open syncs an empty doc instead of asking which
-    // pipeline it is on and `init`ing it, round trips paid before the caret.
-    await registerYDoc(ctx, docId);
-    await refreshPageSummary(ctx, args.projectId);
-    return pageId;
   },
 });
+
+/**
+ * A page and its document, for a caller that has authorized the project:
+ * placed after `after` (or at the end of its level), registered on Yjs — and
+ * born on NML when it would be served (`registerPageDoc`). Shared by the app's
+ * `create`, a new project's first page, and MCP's `create_page`, so no path
+ * makes a page any other way.
+ */
+export async function insertPage(
+  ctx: MutationCtx,
+  args: {
+    projectId: Id<"projects">;
+    ownerId: string;
+    createdBy: string;
+    title?: string;
+    after?: Id<"pages">;
+    folderId?: Id<"folders">;
+  },
+): Promise<Id<"pages">> {
+  const anchor = args.after ? await ctx.db.get(args.after) : null;
+  // An unnamed folder falls back to the anchor's, so "after that page" lands
+  // beside it rather than silently at the top level.
+  const folderId = args.folderId ?? anchor?.folderId;
+  const siblings = await levelRows(ctx, args.projectId, folderId ?? null);
+  const placed = args.after ? orderAfter(siblings, args.after) : null;
+  const docId = crypto.randomUUID();
+  const pageId = await ctx.db.insert("pages", {
+    ownerId: args.ownerId,
+    createdBy: args.createdBy,
+    projectId: args.projectId,
+    // Empty by default so the doc shows its grayed "Untitled" placeholder;
+    // the sidebar renders an "Untitled" fallback for empty titles.
+    title: args.title ?? "",
+    folderId,
+    order: placed ?? endOrder(siblings),
+    docId,
+    yjs: true,
+    createdAt: Date.now(),
+  });
+  // Born on Yjs: the first open syncs an empty doc instead of asking which
+  // pipeline it is on and `init`ing it, round trips paid before the caret.
+  await registerPageDoc(ctx, docId, args.createdBy);
+  await refreshPageSummary(ctx, args.projectId);
+  return pageId;
+}
+
 
 /**
  * Halfway between a row and the one after it, so inserting in the middle never

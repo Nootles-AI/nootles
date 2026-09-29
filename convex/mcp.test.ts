@@ -541,7 +541,9 @@ describe("/mcp", () => {
     });
     expect(initialized.status).toBe(202);
     const tools = await rpc(t, access, "tools/list");
-    expect(tools.body!.result.tools.map((x: { name: string }) => x.name)).toEqual(["list_docs", "read_doc", "edit_doc", "undo_edit"]);
+    expect(tools.body!.result.tools.map((x: { name: string }) => x.name)).toEqual([
+      "list_docs", "read_doc", "search_docs", "list_projects", "edit_doc", "undo_edit", "create_project", "create_page", "rename", "trash_page",
+    ]);
     const app = await rpc(t, access, "resources/read", { uri: "ui://nootles/documents.html" });
     expect(app.body!.result.contents[0].text).toMatch(/^<!doctype html>/);
     expect((await t.fetch("/mcp", { method: "GET", headers: { authorization: `Bearer ${access}` } })).status).toBe(405);
@@ -1007,6 +1009,158 @@ describe("edit_doc and undo_edit", () => {
     vi.stubEnv("RATE_LIMIT_MODE", "off");
     const expired = await callTool(t, access, "undo_edit", { edit_id: edits[0]._id });
     expect(expired.body!.result.content[0].text).toMatch(/too old to undo/);
+  });
+});
+
+// ---- Born on NML, and the workspace verbs (NT-124) ---------------------------------------------
+
+const docOf = (t: TestConvex<typeof schema>, pageId: Id<"pages">) => t.run(async (ctx) => (await ctx.db.get(pageId))!.docId);
+
+describe("pages born on NML", () => {
+  test("an internal owner's new project and new pages are served from their first moment, verified by the server", async () => {
+    const t = harness();
+    await enable(t);
+    const projectId = await t.withIdentity(ME).mutation(api.projects.create, { title: "Fresh" });
+    const first = await t.run(async (ctx) => (await ctx.db.query("pages").withIndex("by_project", (q) => q.eq("projectId", projectId)).collect())[0]);
+    const second = await t.withIdentity(ME).mutation(api.pages.create, { projectId, title: "Second" });
+    for (const docId of [first.docId, await docOf(t, second)]) {
+      expect(await t.withIdentity(ME).query(api.nmlMigration.nmlAuthority, { docId })).toMatchObject({ serve: true, reason: "verified" });
+      const state = await t.run(async (ctx) => await ctx.db.query("nmlDocState").withIndex("by_doc", (q) => q.eq("docId", docId)).unique());
+      expect(state).toMatchObject({ status: "migrated", bornNml: true, serverVerified: true, migratedBy: ME.subject, nmlSeq: 1 });
+      const nml = (await stored(t, docId)).nml;
+      expect(nml.documentId).toBe(docId);
+      expect(nml.blocks).toEqual([expect.objectContaining({ type: "paragraph", content: [] })]);
+      // The ordinary re-assertion agrees, and a client that tries to migrate it stands down.
+      await t.action(internal.nmlVerify.run, { docId });
+      expect(await t.withIdentity(ME).query(api.nmlMigration.nmlAuthority, { docId })).toMatchObject({ serve: true });
+      expect(
+        await t.withIdentity(ME).mutation(api.nmlMigration.electMigration, {
+          docId, update: bytes(new Uint8Array([0, 0])), nmlSchemaVersion: 1, nmlEncodingVersion: 1, equivalenceOk: true, mismatchClasses: [], limitOk: true,
+        }),
+      ).toEqual({ elected: false, reason: "already-elected" });
+    }
+  });
+
+  test("a Notion import's page, filled by ydoc.init, gets its content: a pristine born page is handed back", async () => {
+    const t = harness();
+    await enable(t);
+    const projectId = await t.withIdentity(ME).mutation(api.projects.create, { title: "Imported" });
+    const pageId = await t.withIdentity(ME).mutation(api.pages.create, { projectId, title: "From Notion" });
+    const docId = await docOf(t, pageId);
+    const legacy = new Y.Doc();
+    const p = new Y.XmlElement("paragraph");
+    p.insert(0, [new Y.XmlText("imported words")]);
+    legacy.getXmlFragment("prosemirror").insert(0, [p]);
+    expect(await t.withIdentity(ME).mutation(api.ydoc.init, { docId, update: bytes(Y.encodeStateAsUpdate(legacy)) })).toEqual({ migrated: true });
+    expect(await t.run(async (ctx) => await ctx.db.query("nmlDocState").withIndex("by_doc", (q) => q.eq("docId", docId)).unique())).toBeNull();
+    const back = await t.run(async (ctx) => {
+      const read = await readStoredUpdates(ctx, docId);
+      if (!read || "tooLarge" in read) throw new Error("unreadable");
+      return read;
+    });
+    const doc = new Y.Doc();
+    for (const u of back.updates) Y.applyUpdate(doc, new Uint8Array(u));
+    expect([back.seq, doc.getXmlFragment("prosemirror").toString().includes("imported words"), doc.getMap("nml").size]).toEqual([1, true, 0]);
+    expect(await t.withIdentity(ME).query(api.nmlMigration.nmlAuthority, { docId })).toMatchObject({ serve: false, reason: "not-migrated" });
+
+    // A born page someone has written to keeps "first writer wins".
+    const used = await docOf(t, await t.withIdentity(ME).mutation(api.pages.create, { projectId }));
+    await humanEdit(t, used, [{ type: "insertNodes", parentId: null, nodes: [para("mine", "Mine")] }]);
+    expect(await t.withIdentity(ME).mutation(api.ydoc.init, { docId: used, update: bytes(Y.encodeStateAsUpdate(legacy)) })).toEqual({ migrated: false });
+    expect(await t.withIdentity(ME).query(api.nmlMigration.nmlAuthority, { docId: used })).toMatchObject({ serve: true });
+  });
+
+  test("everyone else's pages, and anyone's while serving is off, are born exactly as before", async () => {
+    const t = harness();
+    await enable(t);
+    const theirs = await t.withIdentity(STRANGER).mutation(api.projects.create, { title: "Not internal" });
+    const theirPage = await t.withIdentity(STRANGER).mutation(api.pages.create, { projectId: theirs });
+    await t.mutation(internal.nmlMigration.setNmlServe, { enabled: false });
+    const mine = await t.withIdentity(ME).mutation(api.projects.create, { title: "Switch off" });
+    const minePage = await t.withIdentity(ME).mutation(api.pages.create, { projectId: mine });
+    for (const docId of [await docOf(t, theirPage), await docOf(t, minePage)]) {
+      expect(await t.run(async (ctx) => await ctx.db.query("nmlDocState").withIndex("by_doc", (q) => q.eq("docId", docId)).unique())).toBeNull();
+      expect(await t.run(async (ctx) => (await ctx.db.query("ydocs").withIndex("by_doc", (q) => q.eq("docId", docId)).unique())!.seq)).toBe(0);
+    }
+  });
+});
+
+describe("workspace verbs", () => {
+  test("create_project and create_page make pages the agent can read and edit at once", async () => {
+    const t = harness();
+    await enable(t);
+    const { access } = await connect(t, ME, { scope: null });
+    const made = (await callTool(t, access, "create_project", { title: "Offsite", description: "Team offsite in March", page_title: "Agenda" })).body!.result;
+    expect(made.isError).toBeUndefined();
+    const { docId, projectId } = made.structuredContent.doc;
+    expect(made.content[0].text).toContain(`Created project "Offsite" with a blank page. docId: ${docId}`);
+    expect((await callTool(t, access, "read_doc", { doc: docId })).body!.result.content[0].text).toMatch(/^# Agenda\n/);
+    const sheet = await t.run(async (ctx) => await ctx.db.query("contextSheet").collect());
+    expect(sheet.map((r) => r.answer)).toContain("Team offsite in March");
+
+    const page = (await callTool(t, access, "create_page", {
+      project: "offsite",
+      title: "Travel",
+      operations: [{ kind: "insertBlocks", at: { at: "docStart" }, blocks: [{ tempId: "h", type: "heading", props: { level: 2 }, content: "Flights" }, { tempId: "c", type: "checkListItem", content: "Book flights" }] }],
+    })).body!.result;
+    expect(page.isError).toBeUndefined();
+    expect(page.content[0].text).toContain('Created page "Travel" in "Offsite"');
+    expect(page.content[0].text).toContain("Filled it in (editId:");
+    const text = (await callTool(t, access, "read_doc", { doc: page.structuredContent.doc.docId })).body!.result.content[0].text;
+    expect(text).toMatch(/## Flights[\s\S]*- \[ \] Book flights/);
+    const listed = (await callTool(t, access, "list_docs")).body!.result.structuredContent.docs.map((d: { title: string }) => d.title);
+    expect(listed.sort()).toEqual(["Agenda", "Travel"]);
+    const projects = (await callTool(t, access, "list_projects")).body!.result;
+    expect(projects.content[0].text).toContain(`1. Offsite — 2 pages (2 readable here) · projectId: ${projectId}`);
+  });
+
+  test("rename, trash_page and search_docs", async () => {
+    const t = harness();
+    await enable(t);
+    const doc = await servedDoc(t, ME, "Launch plan", PLAN);
+    const { access } = await connect(t, ME, { scope: null });
+    const renamed = (await callTool(t, access, "rename", { target: "page", ref: doc.docId, title: "Launch" })).body!.result;
+    expect(renamed.content[0].text).toBe('Renamed the page "Launch plan" to "Launch".');
+    expect(await t.run(async (ctx) => (await ctx.db.get(doc.pageId))!.title)).toBe("Launch");
+    const project = (await callTool(t, access, "rename", { target: "project", ref: doc.projectId, title: "Q4" })).body!.result;
+    expect(project.content[0].text).toBe('Renamed the project "Launch plan project" to "Q4".');
+
+    const found = (await callTool(t, access, "search_docs", { query: "invite TESTERS" })).body!.result;
+    expect(found.content[0].text).toContain('"invite TESTERS" is on 1 page:');
+    expect(found.content[0].text).toContain("⟦c1⟧ Invite testers");
+    expect((await callTool(t, access, "search_docs", { query: "nowhere to be found" })).body!.result.content[0].text).toMatch(/on none of your pages/);
+
+    const trashed = (await callTool(t, access, "trash_page", { doc: doc.docId })).body!.result;
+    expect(trashed.content[0].text).toMatch(/Moved "Launch" .*to the Trash/);
+    expect(await t.run(async (ctx) => (await ctx.db.get(doc.pageId))!.deletedAt)).toBeTypeOf("number");
+    expect((await callTool(t, access, "list_docs")).body!.result.structuredContent.total).toBe(0);
+    expect((await callTool(t, access, "read_doc", { doc: doc.docId })).body!.result.isError).toBe(true);
+
+    const audit = await t.run(async (ctx) => (await ctx.db.query("auditEvents").collect()).map((a) => a.action).filter((a) => a.startsWith("mcp.") && a !== "mcp.read"));
+    expect(audit).toEqual(["mcp.renamePage", "mcp.renameProject", "mcp.trashPage"]);
+  });
+
+  test("read-only grants, other people's projects and pages, and legacy pages are refused, changing nothing", async () => {
+    const t = harness();
+    await enable(t);
+    await enable(t, STRANGER.subject);
+    const legacy = await legacyDoc(t, ME, "Scratch");
+    const theirs = await servedDoc(t, STRANGER, "Secret", [para("s1", "secret")]);
+    const readOnly = (await connect(t)).access;
+    const writer = (await connect(t, ME, { scope: null })).access;
+    const counts = async () => t.run(async (ctx) => [(await ctx.db.query("projects").collect()).length, (await ctx.db.query("pages").collect()).length]);
+    const before = await counts();
+    expect((await callTool(t, readOnly, "create_project", { title: "x" })).body!.result.content[0].text).toMatch(/can only read/);
+    expect((await callTool(t, writer, "create_page", { project: theirs.projectId })).body!.result.content[0].text).toMatch(/No project or page of yours/);
+    expect((await callTool(t, writer, "rename", { target: "project", ref: theirs.projectId, title: "mine now" })).body!.result.isError).toBe(true);
+    expect((await callTool(t, writer, "trash_page", { doc: theirs.docId })).body!.result.isError).toBe(true);
+    expect((await callTool(t, writer, "trash_page", { doc: legacy.docId })).body!.result.content[0].text).toMatch(/not served/);
+    expect((await callTool(t, writer, "rename", { target: "page", ref: legacy.docId, title: "x" })).body!.result.isError).toBe(true);
+    expect(await counts()).toEqual(before);
+    expect(await t.run(async (ctx) => [(await ctx.db.get(theirs.pageId))!.title, (await ctx.db.get(theirs.pageId))!.deletedAt ?? null])).toEqual(["Secret", null]);
+    await t.mutation(internal.nmlMigration.setNmlServe, { enabled: false });
+    expect((await callTool(t, writer, "create_project", { title: "Off" })).body!.result.content[0].text).toMatch(/turned off/);
+    expect(await counts()).toEqual(before);
   });
 });
 

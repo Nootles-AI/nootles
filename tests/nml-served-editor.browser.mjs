@@ -79,7 +79,7 @@ function encodedBase(text) {
 }
 const base = encodedBase("hello");
 
-// ── Enrol the owner on the internal allowlist (internal fn, via admin `run`) ──
+// ── The admin `run` helper (the enrolment itself follows the seed, below) ─────
 async function run(fn, args) {
   const inherited = { ...process.env };
   delete inherited.CONVEX_DEPLOYMENT;
@@ -96,9 +96,6 @@ async function run(fn, args) {
     { cwd: process.env.NML_CONVEX_CLI_CWD || repo, env },
   );
 }
-await run("nmlMigration:addInternalOwner", { subject: OWNER, note: "e2e" });
-// Turn on the master serve switch (a Convex row, not a build flag).
-await run("nmlMigration:setNmlServe", { enabled: true });
 
 // ── Seed a legacy page owned by the internal owner (over the real wire) ───────
 const seed = new ConvexHttpClient(CONVEX_URL);
@@ -109,6 +106,13 @@ const pageId = await seed.mutation(anyApi.pages.create, { projectId });
 const page = await seed.query(anyApi.pages.get, { pageId });
 const docId = page.docId;
 await seed.mutation(anyApi.ydoc.init, { docId, update: base.buffer.slice(base.byteOffset, base.byteOffset + base.byteLength) });
+
+// Enrolled only now: a page made while its owner is enrolled and serving is on
+// is born on NML (NT-124) and has nothing to migrate. This harness is about the
+// migration, so the legacy page exists first.
+await run("nmlMigration:addInternalOwner", { subject: OWNER, note: "e2e" });
+// Turn on the master serve switch (a Convex row, not a build flag).
+await run("nmlMigration:setNmlServe", { enabled: true });
 
 // ── Bundle the browser fixture (real Editor, flags on, Clerk/next stubbed) ────
 const stubs = {

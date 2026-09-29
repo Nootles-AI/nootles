@@ -72,8 +72,42 @@ export type DocUndo =
       ids?: string[];
     };
 
+export type WriteRefusal = "no-write" | "not-found" | "not-served" | "serving-off" | "quota" | "rate-limited";
+export type ProjectListing = {
+  projects: Array<{ projectId: string; title: string; description?: string; pages: number; served: number; updatedAt: number }>;
+  truncated: boolean;
+};
+export type Created =
+  | { status: "created"; projectId: string; projectTitle: string; pageId: string; docId: string; title: string }
+  | { status: "refused"; reason: WriteRefusal };
+export type Renamed =
+  | { status: "renamed"; target: "page" | "project"; id: string; from: string; to: string; projectId: string; pageId?: string }
+  | { status: "refused"; reason: WriteRefusal };
+export type Trashed =
+  | { status: "trashed"; docId: string; title: string; projectTitle: string }
+  | { status: "refused"; reason: WriteRefusal };
+export type SearchResults = {
+  scanned: number;
+  total: number;
+  hits: Array<{
+    docId: string;
+    pageId: string;
+    projectId: string;
+    title: string;
+    projectTitle: string;
+    matches: Array<{ blockId: string; type: string; text: string }>;
+    more: number;
+  }>;
+};
+
 export type McpBackend = {
   listDocs(args: { query?: string; limit: number }): Promise<DocListing>;
+  listProjects(): Promise<ProjectListing>;
+  searchDocs(args: { query: string; limit: number }): Promise<SearchResults>;
+  createProject(args: { title: string; description?: string; pageTitle?: string }): Promise<Created>;
+  createPage(args: { project: string; title?: string }): Promise<Created>;
+  rename(args: { target: "page" | "project"; ref: string; title: string }): Promise<Renamed>;
+  trashPage(args: { ref: string }): Promise<Trashed>;
   readDoc(args: { ref: string; focusBlockId?: string; window?: number }): Promise<DocRead>;
   editDoc(args: { ref: string; operations: unknown; idempotencyKey?: string }): Promise<DocEdit>;
   undoEdit(args: { editId: string }): Promise<DocUndo>;
@@ -97,9 +131,10 @@ const INVALID_PARAMS = -32602;
 const INSTRUCTIONS = [
   "Nootles is a planning tool whose pages mix structured text with diagrams.",
   "These tools work on the connected person's own Nootles pages that are served from the canonical NML document tree.",
-  "Call list_docs to see what is available, then read_doc with a docId.",
+  "Call list_docs (or search_docs, or list_projects) to see what is available, then read_doc with a docId.",
   "read_doc returns every block tagged ⟦id⟧; ids are stable across reads, so cite and edit blocks by id.",
   "edit_doc changes a page through typed operations on those ids; read the page first, keep each edit to one coherent change, and tell the person what you changed.",
+  "create_project and create_page make new pages, ready to read and edit at once (create_page can fill the page in the same call); rename renames a page or project; trash_page moves a page to the app's Trash, where the person can restore it.",
   "Every edit shows on the page at once, is attributed to you, and can be undone by the person or with undo_edit.",
 ].join(" ");
 
@@ -251,7 +286,112 @@ const UNDO_TOOL = {
   _meta: { ui: { resourceUri: MCP_APP_URI } },
 };
 
-export const TOOLS = [LIST_TOOL, READ_TOOL, EDIT_TOOL, UNDO_TOOL];
+const SEARCH_TOOL = {
+  name: "search_docs",
+  title: "Search Nootles documents",
+  description:
+    "Find text across the connected person's served Nootles pages: titles and every block (headings, lists, tables, code, diagram labels), " +
+    "case-insensitive. Each hit names the page (docId) and the matching blocks by ⟦id⟧, so read_doc with focus_block_id can open right there.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      query: { type: "string", minLength: 1, description: "Words to find." },
+      limit: { type: "integer", minimum: 1, maximum: 50, default: 10, description: "How many pages to return." },
+    },
+    required: ["query"],
+    additionalProperties: false,
+  },
+  annotations: { title: "Search Nootles documents", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  _meta: { ui: { resourceUri: MCP_APP_URI } },
+};
+
+const PROJECTS_TOOL = {
+  name: "list_projects",
+  title: "List Nootles projects",
+  description:
+    "List the connected person's own Nootles projects (personal, not team workspaces), most recently active first, with how many pages each has " +
+    "and how many of those can be read here. Use a projectId or exact project title with create_page or rename.",
+  inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  annotations: { title: "List Nootles projects", readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  _meta: { ui: { resourceUri: MCP_APP_URI } },
+};
+
+const CREATE_PROJECT_TOOL = {
+  name: "create_project",
+  title: "Create a Nootles project",
+  description:
+    "Create a new personal project with one blank page, as Nootles' own New project does. Returns the page's docId: fill it with edit_doc, " +
+    "or add more pages with create_page. Counts against the person's plan's project limit.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      title: { type: "string", minLength: 1, description: "The project's name." },
+      description: { type: "string", description: "Optional: what the project is about. Nootles' own AI reads it as the project's context." },
+      page_title: { type: "string", description: "Optional title for its first page." },
+    },
+    required: ["title"],
+    additionalProperties: false,
+  },
+  annotations: { title: "Create a Nootles project", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  _meta: { ui: { resourceUri: MCP_APP_URI } },
+};
+
+const CREATE_PAGE_TOOL = {
+  name: "create_page",
+  title: "Create a Nootles page",
+  description:
+    "Create a new page at the end of one of the person's projects, ready to read and edit at once. Pass `operations` (the same list edit_doc takes, " +
+    'usually one {"kind":"insertBlocks","at":{"at":"docStart"},"blocks":[…]}) to fill it in the same call; the new page starts with one empty ' +
+    "paragraph, which insertBlocks at docStart writes above.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      project: { type: "string", description: "A projectId from list_projects, or the project's exact title." },
+      title: { type: "string", description: "The page's title." },
+      operations: { type: "array", maxItems: 100, description: "Optional: edit_doc operations to fill the page with.", items: { type: "object" } },
+    },
+    required: ["project"],
+    additionalProperties: false,
+  },
+  annotations: { title: "Create a Nootles page", readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  _meta: { ui: { resourceUri: MCP_APP_URI } },
+};
+
+const RENAME_TOOL = {
+  name: "rename",
+  title: "Rename a Nootles page or project",
+  description: "Rename one of the person's pages (by docId, page id or URL) or projects (by projectId or exact title).",
+  inputSchema: {
+    type: "object",
+    properties: {
+      target: { type: "string", enum: ["page", "project"] },
+      ref: { type: "string", description: "Which page or project." },
+      title: { type: "string", description: "The new name." },
+    },
+    required: ["target", "ref", "title"],
+    additionalProperties: false,
+  },
+  annotations: { title: "Rename a Nootles page or project", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  _meta: { ui: { resourceUri: MCP_APP_URI } },
+};
+
+const TRASH_TOOL = {
+  name: "trash_page",
+  title: "Move a Nootles page to the trash",
+  description:
+    "Move one of the person's pages to Nootles' Trash — the sidebar's Delete. It disappears everywhere, and the person can restore it from the Trash " +
+    "until it is purged. Confirm with the person before calling this.",
+  inputSchema: {
+    type: "object",
+    properties: { doc: { type: "string", description: "A docId, page id or page URL." } },
+    required: ["doc"],
+    additionalProperties: false,
+  },
+  annotations: { title: "Move a Nootles page to the trash", readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  _meta: { ui: { resourceUri: MCP_APP_URI } },
+};
+
+export const TOOLS = [LIST_TOOL, READ_TOOL, SEARCH_TOOL, PROJECTS_TOOL, EDIT_TOOL, UNDO_TOOL, CREATE_PROJECT_TOOL, CREATE_PAGE_TOOL, RENAME_TOOL, TRASH_TOOL];
 
 const APP_RESOURCE = {
   uri: MCP_APP_URI,
@@ -416,6 +556,131 @@ async function undoEdit(args: Record<string, unknown>, backend: McpBackend) {
   };
 }
 
+const WRITE_REFUSALS: Record<WriteRefusal, string> = {
+  "no-write": READ_ONLY,
+  "not-found": "No project or page of yours matches that. Use list_projects or list_docs to find it.",
+  "not-served": REFUSALS["not-served"],
+  "serving-off": "Serving pages over MCP is turned off right now, so nothing was created.",
+  quota: "The person's plan has no room for another project. Nothing was created.",
+  "rate-limited": "Too many changes in a short time, so nothing was changed. Wait a little, then retry.",
+};
+
+async function searchDocs(args: Record<string, unknown>, backend: McpBackend) {
+  const query = typeof args.query === "string" ? args.query.trim() : "";
+  if (!query) return null;
+  const rawLimit = typeof args.limit === "number" && Number.isFinite(args.limit) ? args.limit : 10;
+  const found = await backend.searchDocs({ query, limit: Math.max(1, Math.min(50, Math.floor(rawLimit))) });
+  const hits = found.hits.map((h) => ({ ...h, url: pageUrl(backend.appUrl, h) }));
+  const partial = found.scanned < found.total ? ` (searched the ${found.scanned} most recently edited of ${found.total} pages)` : "";
+  const lines = [
+    hits.length ? `"${query}" is on ${hits.length} page${hits.length === 1 ? "" : "s"}${partial}:` : `"${query}" is on none of your pages${partial}.`,
+    "",
+    ...hits.flatMap((h, i) => [
+      `${i + 1}. ${h.title || "Untitled"} — project "${h.projectTitle || "Untitled"}" · docId: ${h.docId}`,
+      ...h.matches.map((m) => `   ⟦${m.blockId}⟧ ${m.text}`),
+      ...(h.more ? [`   …and ${h.more} more block${h.more === 1 ? "" : "s"}`] : []),
+    ]),
+  ];
+  return {
+    content: [{ type: "text", text: lines.join("\n").trimEnd() }],
+    structuredContent: { kind: "search", query, scanned: found.scanned, total: found.total, hits, appUrl: backend.appUrl },
+  };
+}
+
+async function listProjects(backend: McpBackend) {
+  const listing = await backend.listProjects();
+  const projects = listing.projects.map((p) => ({ ...p, url: backend.appUrl ? `${backend.appUrl.replace(/\/$/, "")}/p/${encodeURIComponent(p.projectId)}` : null }));
+  const lines = [
+    projects.length ? `${projects.length} project${projects.length === 1 ? "" : "s"}, most recently active first:` : "No personal projects yet. create_project makes one.",
+    "",
+    ...projects.map((p, i) => `${i + 1}. ${p.title || "Untitled"} — ${p.pages} page${p.pages === 1 ? "" : "s"} (${p.served} readable here) · projectId: ${p.projectId}`),
+    ...(listing.truncated ? ["", "Only the first 100 projects are listed."] : []),
+  ];
+  return {
+    content: [{ type: "text", text: lines.join("\n").trimEnd() }],
+    structuredContent: { kind: "projectList", projects, appUrl: backend.appUrl },
+  };
+}
+
+function createdResult(made: Extract<Created, { status: "created" }>, what: "project" | "page", backend: McpBackend, edit?: DocEdit) {
+  const url = pageUrl(backend.appUrl, made);
+  const filled = edit?.status === "applied" ? edit : null;
+  const lines = [
+    what === "project"
+      ? `Created project "${made.projectTitle}" with a blank page. docId: ${made.docId}`
+      : `Created page "${made.title || "Untitled"}" in "${made.projectTitle}". docId: ${made.docId}`,
+    ...(url ? [`Open in Nootles: ${url}`] : []),
+    ...(filled
+      ? ["", `Filled it in (editId: ${filled.editId}):`, ...filled.changes.map((c) => `- ${VERB[c.kind]} ⟦${c.id}⟧ ${c.type}${c.text ? `: ${c.text}` : ""}`)]
+      : []),
+    ...(edit && edit.status !== "applied" && edit.status !== "replayed"
+      ? ["", `The page was created, but filling it failed: ${edit.status === "rejected" ? edit.message : EDIT_REFUSALS[edit.reason]}. It is blank; retry with edit_doc.`]
+      : []),
+  ];
+  return {
+    content: [{ type: "text", text: lines.join("\n") }],
+    structuredContent: {
+      kind: "created",
+      what,
+      doc: { docId: made.docId, pageId: made.pageId, projectId: made.projectId, title: made.title, projectTitle: made.projectTitle, url },
+      changes: filled?.changes ?? [],
+      editId: filled?.editId ?? null,
+    },
+    ...(edit && edit.status !== "applied" && edit.status !== "replayed" ? { isError: true } : {}),
+  };
+}
+
+async function createProject(args: Record<string, unknown>, backend: McpBackend) {
+  const title = typeof args.title === "string" ? args.title.trim() : "";
+  if (!title) return null;
+  if (!backend.canWrite) return toolError(READ_ONLY);
+  const made = await backend.createProject({
+    title,
+    description: typeof args.description === "string" ? args.description : undefined,
+    pageTitle: typeof args.page_title === "string" ? args.page_title : undefined,
+  });
+  if (made.status === "refused") return toolError(WRITE_REFUSALS[made.reason]);
+  return createdResult(made, "project", backend);
+}
+
+async function createPage(args: Record<string, unknown>, backend: McpBackend) {
+  const project = typeof args.project === "string" ? args.project.trim() : "";
+  if (!project) return null;
+  if (!backend.canWrite) return toolError(READ_ONLY);
+  const made = await backend.createPage({ project, title: typeof args.title === "string" ? args.title : undefined });
+  if (made.status === "refused") return toolError(WRITE_REFUSALS[made.reason]);
+  const operations = Array.isArray(args.operations) && args.operations.length ? args.operations : null;
+  const edit = operations ? await backend.editDoc({ ref: made.docId, operations }) : undefined;
+  return createdResult(made, "page", backend, edit);
+}
+
+async function renameTarget(args: Record<string, unknown>, backend: McpBackend) {
+  const target = args.target === "page" || args.target === "project" ? args.target : null;
+  const ref = typeof args.ref === "string" ? args.ref.trim() : "";
+  const title = typeof args.title === "string" ? args.title.trim() : "";
+  if (!target || !ref || !title) return null;
+  if (!backend.canWrite) return toolError(READ_ONLY);
+  const done = await backend.rename({ target, ref, title });
+  if (done.status === "refused") return toolError(WRITE_REFUSALS[done.reason]);
+  const url = done.target === "page" && done.pageId ? pageUrl(backend.appUrl, { projectId: done.projectId, pageId: done.pageId }) : null;
+  return {
+    content: [{ type: "text", text: `Renamed the ${done.target} "${done.from || "Untitled"}" to "${done.to}".` }],
+    structuredContent: { kind: "renamed", target: done.target, from: done.from, to: done.to, doc: { title: done.to, url, projectId: done.projectId } },
+  };
+}
+
+async function trashPage(args: Record<string, unknown>, backend: McpBackend) {
+  const ref = typeof args.doc === "string" ? args.doc.trim() : "";
+  if (!ref) return null;
+  if (!backend.canWrite) return toolError(READ_ONLY);
+  const done = await backend.trashPage({ ref });
+  if (done.status === "refused") return toolError(WRITE_REFUSALS[done.reason]);
+  return {
+    content: [{ type: "text", text: `Moved "${done.title || "Untitled"}" (project "${done.projectTitle}") to the Trash. The person can restore it from Nootles' Trash.` }],
+    structuredContent: { kind: "trashed", doc: { docId: done.docId, title: done.title, projectTitle: done.projectTitle, url: null } },
+  };
+}
+
 function negotiate(requested: unknown): string {
   return typeof requested === "string" && (PROTOCOL_VERSIONS as readonly string[]).includes(requested)
     ? requested
@@ -476,6 +741,20 @@ async function dispatch(request: Request, backend: McpBackend): Promise<unknown>
       if (params.name === UNDO_TOOL.name) {
         const result = await undoEdit(args, backend);
         if (!result) throw new RpcError(INVALID_PARAMS, "undo_edit needs `edit_id`: the editId an edit_doc result gave.");
+        return result;
+      }
+      if (params.name === PROJECTS_TOOL.name) return await listProjects(backend);
+      const more: Record<string, [(a: Record<string, unknown>, b: McpBackend) => Promise<unknown>, string]> = {
+        [SEARCH_TOOL.name]: [searchDocs, "search_docs needs a `query`."],
+        [CREATE_PROJECT_TOOL.name]: [createProject, "create_project needs a `title`."],
+        [CREATE_PAGE_TOOL.name]: [createPage, "create_page needs a `project`: a projectId or exact title."],
+        [RENAME_TOOL.name]: [renameTarget, "rename needs `target` (page or project), `ref` and `title`."],
+        [TRASH_TOOL.name]: [trashPage, "trash_page needs `doc`: a docId, page id or page URL."],
+      };
+      const handler = typeof params.name === "string" ? more[params.name] : undefined;
+      if (handler) {
+        const result = await handler[0](args, backend);
+        if (!result) throw new RpcError(INVALID_PARAMS, handler[1]);
         return result;
       }
       throw new RpcError(INVALID_PARAMS, `Unknown tool: ${String(params.name)}`);

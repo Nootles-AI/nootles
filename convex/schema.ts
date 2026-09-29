@@ -969,8 +969,14 @@ export default defineSchema({
     /** Whether the document was within the four v1 size limits. */
     limitOk: v.boolean(),
     migratedAt: v.number(),
-    /** Clerk subject of the elected migrator, or "anonymous" for a link editor. */
+    /** Clerk subject of the elected migrator, or "anonymous" for a link editor; the creator for a born page. */
     migratedBy: v.string(),
+    /**
+     * The page was created directly on NML (NT-124, `registerPageDoc`): its
+     * root was written by the server, not converted by a client, and it was
+     * recorded verified at birth. Absent on migrated documents.
+     */
+    bornNml: v.optional(v.boolean()),
     /**
      * Step 13's independent server-side re-assertion of the persisted root,
      * distinct from the client's `equivalenceOk`/`limitOk` claim above. The

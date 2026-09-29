@@ -74,7 +74,7 @@ export const servedDocs = internalQuery({
  * A reference as a person or model might give one: a docId, a page id, or a
  * Nootles page URL (`/p/<projectId>?page=<pageId>`).
  */
-async function pageFor(ctx: QueryCtx, ref: string): Promise<Doc<"pages"> | null> {
+export async function pageFor(ctx: QueryCtx, ref: string): Promise<Doc<"pages"> | null> {
   const trimmed = ref.trim();
   let candidate = trimmed;
   try {

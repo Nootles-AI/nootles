@@ -164,6 +164,7 @@ const SCRIPT = String.raw`
     expand: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4h4v4M8 16H4v-4M16 4l-5 5M4 16l5-5"/></svg>',
     arrow: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg>',
     // The kit's own Check glyph, filled with the list's text colour.
+    folder: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M1.75 4.25h4.5l1.5 1.5h6.5v7.5H1.75z"/></svg>',
     check: '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M15.1883 5.10908C15.3699 4.96398 15.6346 4.96153 15.8202 5.11592C16.0056 5.27067 16.0504 5.53125 15.9403 5.73605L15.8837 5.82003L8.38355 14.8202C8.29362 14.9279 8.16243 14.9925 8.02222 14.9989C7.88204 15.0051 7.74546 14.9526 7.64624 14.8534L4.14618 11.3533L4.08173 11.2752C3.95385 11.0811 3.97543 10.817 4.14618 10.6463C4.31694 10.4755 4.58106 10.4539 4.7751 10.5818L4.85323 10.6463L7.96558 13.7586L15.1161 5.1794L15.1883 5.10908Z" fill="currentColor"/></svg>',
   };
   const LOGO = ${JSON.stringify(LOGO)};
@@ -358,6 +359,52 @@ const SCRIPT = String.raw`
         panel(d, "Back to how it was before that edit") + "</div></div>";
   }
 
+  function renderProjects(data) {
+    const rows = data.projects.map((p) =>
+      '<div class="item">' +
+        '<span class="avatar">' + ICON.folder + "</span>" +
+        '<span class="content">' +
+          '<span class="top"><span class="who"><span class="title">' + esc(p.title || "Untitled") + "</span>" +
+          '<span class="tag">' + esc(p.pages + (p.pages === 1 ? " page" : " pages")) + "</span></span>" +
+          '<span class="when">' + esc(relative(p.updatedAt)) + "</span></span>" +
+          (p.description ? '<span class="snippet">' + esc(p.description) + "</span>" : "") +
+        "</span></div>").join("");
+    const empty = data.projects.length ? "" : '<div class="note">No personal projects yet.</div>';
+    root.innerHTML = '<div class="card">' + header({ crumb: "Projects", url: data.appUrl }) + empty + rows +
+      footer(data.projects.length + (data.projects.length === 1 ? " project" : " projects"), data.appUrl, "Open Nootles") + "</div>";
+  }
+
+  function renderSearch(data) {
+    const rows = data.hits.map((h) =>
+      '<button class="item" data-act="read" data-doc="' + esc(h.docId) + '" data-focus="' + esc((h.matches[0] || {}).blockId || "") +
+        '" data-url="' + esc(h.url || "") + '" data-title="' + esc(h.title || "Untitled") + '">' +
+        '<span class="avatar">' + ICON.page + "</span>" +
+        '<span class="content">' +
+          '<span class="top"><span class="who"><span class="title">' + esc(h.title || "Untitled") + '</span><span class="tag">' + esc(h.projectTitle || "") + "</span></span></span>" +
+          h.matches.map((m) => '<span class="snippet">' + esc(m.text) + "</span>").join("") +
+        "</span></button>").join("");
+    const empty = data.hits.length ? "" : '<div class="note">Nothing matches “' + esc(data.query) + "”.</div>";
+    const partial = data.scanned < data.total ? " · searched " + data.scanned + " of " + data.total : "";
+    root.innerHTML = '<div class="card">' + header({ crumb: "“" + data.query + "”", url: data.appUrl }) + empty + rows +
+      footer(data.hits.length + (data.hits.length === 1 ? " page" : " pages") + partial, data.appUrl, "Open Nootles") + "</div>";
+  }
+
+  function renderDone(title, d, sub, changes) {
+    const rows = (changes || []).map((c) =>
+      '<li class="check">' + ICON.check + '<span class="text"><span class="what">' + esc(VERB[c.kind] || c.kind) + " " +
+        esc(TYPE[c.type] || c.type) + "</span>" + (c.text ? " · " + esc(c.text) : "") + "</span></li>").join("");
+    root.innerHTML = '<div class="card">' + header({ url: d.url }) +
+      '<div class="confirm"><h1 class="confirm-title">' + esc(title) + "</h1>" + panel(d, sub) +
+      (rows ? '<div class="section"><div class="section-label">Written</div><ul class="checks">' + rows + "</ul></div>" : "") +
+      "</div></div>";
+  }
+
+  function renderCreated(data) {
+    const d = data.doc;
+    if (data.what === "project") renderDone("Created " + (d.projectTitle || "a project"), { ...d, title: d.title || "Untitled" }, (d.projectTitle || "") + " · first page", data.changes);
+    else renderDone("Created " + (d.title || "a page"), { ...d, title: d.title || "Untitled" }, (d.projectTitle || "") + " · new page", data.changes);
+  }
+
   async function undoFromCard(el) {
     el.textContent = "Undoing…";
     el.setAttribute("aria-disabled", "true");
@@ -380,6 +427,11 @@ const SCRIPT = String.raw`
     else if (data && data.kind === "doc") renderDoc(data);
     else if (data && data.kind === "edit") renderEdit(data);
     else if (data && data.kind === "undo") renderUndo(data);
+    else if (data && data.kind === "projectList") renderProjects(data);
+    else if (data && data.kind === "search") renderSearch(data);
+    else if (data && data.kind === "created") renderCreated(data);
+    else if (data && data.kind === "renamed") renderDone("Renamed " + (data.target === "project" ? "project" : "page"), data.doc, "Was “" + (data.from || "Untitled") + "”");
+    else if (data && data.kind === "trashed") renderDone("Moved to Trash", data.doc, (data.doc.projectTitle || "") + " · restore it from Nootles’ Trash");
     else renderNote("Nothing to show.", false);
   }
 
@@ -388,7 +440,8 @@ const SCRIPT = String.raw`
     if (!host.capabilities.serverTools) return openLink(el.dataset.url);
     renderLoading(el.dataset.title);
     try {
-      renderResult(await request("tools/call", { name: "read_doc", arguments: { doc: docId } }));
+      const focus = el.dataset.focus;
+      renderResult(await request("tools/call", { name: "read_doc", arguments: focus ? { doc: docId, focus_block_id: focus } : { doc: docId } }));
     } catch {
       if (listState) renderList(listState);
       openLink(el.dataset.url);
@@ -420,7 +473,7 @@ const SCRIPT = String.raw`
     switch (msg.method) {
       case "ui/notifications/tool-input": {
         const args = (msg.params && msg.params.arguments) || {};
-        renderLoading(args.operations ? "Editing…" : args.edit_id ? "Undoing…" : args.doc ? "Reading…" : "Documents");
+        renderLoading(args.operations && !args.project ? "Editing…" : args.edit_id ? "Undoing…" : args.project || args.title ? "Working…" : args.query ? "Searching…" : args.doc ? "Reading…" : "Documents");
         break;
       }
       case "ui/notifications/tool-result":
