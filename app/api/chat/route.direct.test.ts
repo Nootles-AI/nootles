@@ -110,7 +110,7 @@ function answer(step: Step): string {
   const n = ++serial;
   const reasoning = { type: "reasoning", id: `rs_${n}`, encrypted_content: null };
   const events: object[] = [
-    { type: "response.created", response: { id: `resp_${n}`, created_at: 1, model: "gpt-6-sol" } },
+    { type: "response.created", response: { id: `resp_${n}`, created_at: 1, model: "gpt-6.1-sol" } },
     { type: "response.output_item.added", output_index: 0, item: reasoning },
     { type: "response.reasoning_summary_part.added", item_id: `rs_${n}`, output_index: 0, summary_index: 0 },
     {
@@ -311,7 +311,7 @@ describe("USE_OPENROUTER off: the chat answers on OpenAI's own API", () => {
     for (const { body, auth } of sent) {
       expect(auth).toBe(`Bearer ${KEY}`);
       expect(body).toMatchObject({
-        model: "gpt-6-sol",
+        model: "gpt-6.1-sol",
         store: false,
         stream: true,
         reasoning: { effort: "medium", summary: "auto" },
@@ -334,7 +334,7 @@ describe("USE_OPENROUTER off: the chat answers on OpenAI's own API", () => {
     // The ledger's row is the chat's, on the slug it is priced by.
     const rows = recordAiCall.mock.calls.map(([, row]) => row).filter((row) => row.feature === "chat");
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({ model: "openai/gpt-6-sol", status: "ok", cacheReadTokens: 2000 });
+    expect(rows[0]).toMatchObject({ model: "openai/gpt-6.1-sol", status: "ok", cacheReadTokens: 2000 });
 
     // The thread as Convex keeps it, reopened: the history replays on content
     // alone, with nothing named by an id OpenAI was never asked to keep.

@@ -57,9 +57,9 @@ describe.each(DIRECT_FLAGS)("USE_OPENROUTER=%j: every lane on its own vendor", (
     else vi.stubEnv("USE_OPENROUTER", flag);
   });
 
-  test("the chat is GPT-6 Sol on OpenAI's Responses API, reasoning at the configured effort", () => {
+  test("the chat is GPT-6.1 Sol on OpenAI's Responses API, reasoning at the configured effort", () => {
     const call = chatModel();
-    expect(wire(call.model)).toEqual({ provider: "openai.responses", id: "gpt-6-sol" });
+    expect(wire(call.model)).toEqual({ provider: "openai.responses", id: "gpt-6.1-sol" });
     expect(call.providerOptions).toEqual({
       openai: {
         reasoningEffort: AI.chat.effort,
