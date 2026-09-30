@@ -437,4 +437,73 @@ describe("NML ↔ legacy live mirror", () => {
     });
     mirror.stop(); doc.destroy();
   });
+
+  it("puts canonical NML back over an edit it cannot take, says so once, and keeps taking edits (NT-125)", async () => {
+    const document: NmlDocument = {
+      schemaVersion: 1,
+      documentId: "refused-mirror",
+      blocks: [{
+        id: "table", type: "table", props: { headerRows: 0 }, children: [],
+        columns: [{ id: "column" }],
+        rows: [
+          { id: "row-1", cells: [{ id: "cell-1", content: [{ type: "text", text: "one", marks: [] }] }] },
+          { id: "row-2", cells: [{ id: "cell-2", content: [{ type: "text", text: "two", marks: [] }] }] },
+        ],
+      }, {
+        id: "p", type: "paragraph", props: {}, children: [], content: [{ type: "text", text: "Start", marks: [] }],
+      }],
+    };
+    const doc = createNmlYDoc(document);
+    const host = new MemoryHost();
+    const onError = vi.fn();
+    const onReverted = vi.fn();
+    const mirror = new NmlLegacyMirror(doc, host, { actor, onError, onReverted }).start();
+    const canonical = structuredClone(host.blocks);
+
+    // Canonical tables have no row reordering, so this edit can never land.
+    const table = host.blocks[0].content as { rows: unknown[] };
+    table.rows.reverse();
+    host.blocks[1].content = [{ type: "text", text: "Start, lost with the refused edit", styles: {} }];
+    host.emit();
+    await mirror.settle();
+    expect(onError).toHaveBeenCalledTimes(2);
+    expect(onReverted).toHaveBeenCalledOnce();
+    expect(host.blocks).toEqual(canonical);
+    expect(decodeNmlDocument(doc)).toEqual(document);
+
+    host.blocks[1].content = [{ type: "text", text: "Start again", styles: {} }];
+    host.emit();
+    await mirror.settle();
+    expect(decodeNmlDocument(doc).blocks[1]).toMatchObject({ content: [{ type: "text", text: "Start again" }] });
+    expect(onReverted).toHaveBeenCalledOnce();
+    mirror.stop(); doc.destroy();
+  });
+
+  it("retries a snapshot made stale by a canonical write instead of reverting it", async () => {
+    const document = fixture();
+    document.blocks.push({ id: "q", type: "paragraph", props: {}, children: [], content: [] });
+    const doc = createNmlYDoc(document);
+    const host = new MemoryHost();
+    let release!: (allowed: boolean) => void;
+    const authorization = new Promise<boolean>((resolve) => { release = resolve; });
+    const onError = vi.fn();
+    const onReverted = vi.fn();
+    const mirror = new NmlLegacyMirror(doc, host, { actor, authorize: () => authorization, onError, onReverted }).start();
+
+    host.blocks[0].content = [{ type: "text", text: "edit to a block about to go", styles: {} }];
+    host.emit();
+    await Promise.resolve();
+    await executeNmlCommands({
+      doc, documentId: document.documentId, commands: [{ type: "removeNodes", nodeIds: ["p"] }],
+      idempotencyKey: "collaborator", authorize: () => true,
+      origin: { version: 1, transactionId: "collaborator", actor: { kind: "human", userId: "other" }, command: "test" },
+    });
+    release(true);
+    await mirror.settle();
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onReverted).not.toHaveBeenCalled();
+    expect(decodeNmlDocument(doc).blocks.map((block) => block.id)).toEqual(["code", "table", "q"]);
+    mirror.stop(); doc.destroy();
+  });
 });
+

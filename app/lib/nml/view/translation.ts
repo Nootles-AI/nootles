@@ -322,6 +322,7 @@ export function compileProjectionChange(before: NmlDocument, after: NmlDocument)
   const was = positions(before);
   const next = positions(after);
   const commands: NmlCommand[] = [];
+  const late: NmlCommand[] = [];
   const changed = new Set<string>();
   const inserted = new Set([...next.keys()].filter((id) => !was.has(id)));
   const removed = new Set([...was.keys()].filter((id) => !next.has(id)));
@@ -329,7 +330,14 @@ export function compileProjectionChange(before: NmlDocument, after: NmlDocument)
   for (const [id, prior] of was) {
     const current = next.get(id);
     if (!current) continue;
-    if (prior.block.type !== current.block.type) {
+    const typeChanged = prior.block.type !== current.block.type;
+    // A block that sheds its children as it changes type (a list item turned
+    // into a leaf) changes only after they have moved out, so no intermediate
+    // state has a leaf holding children.
+    const target = typeChanged && prior.block.children.length && !current.block.children.length
+      ? late
+      : commands;
+    if (typeChanged) {
       const mediaTypes = new Set(["image", "video", "audio", "file"]);
       const textTypes = new Set([...NML_INLINE_BLOCK_TYPES, "codeBlock"]);
       if (textTypes.has(prior.block.type) && textTypes.has(current.block.type)) {
@@ -338,7 +346,7 @@ export function compileProjectionChange(before: NmlDocument, after: NmlDocument)
           : "content" in current.block
             ? current.block.content.map((node) => node.type === "text" ? node.text : node.type === "link" ? node.content.map((part) => part.text).join("") : "").join("")
             : "";
-        commands.push({
+        target.push({
           type: "setTextBlockType",
           nodeId: id,
           blockType: current.block.type as Extract<NmlCommand, { type: "setTextBlockType" }>["blockType"],
@@ -346,52 +354,56 @@ export function compileProjectionChange(before: NmlDocument, after: NmlDocument)
           text,
         });
       } else if (mediaTypes.has(prior.block.type) && mediaTypes.has(current.block.type)) {
-        commands.push({
+        target.push({
           type: "setMediaBlockType",
           nodeId: id,
           blockType: current.block.type as Extract<NmlCommand, { type: "setMediaBlockType" }>["blockType"],
         });
         const patch = propsPatch(prior.block.props, current.block.props);
-        if (Object.keys(patch).length) commands.push({ type: "setNodeProps", nodeId: id, patch });
+        if (Object.keys(patch).length) target.push({ type: "setNodeProps", nodeId: id, patch });
       } else {
-        throw new Error("Only inline text or media block types can change through the projection.");
+        // The editor keeps a block's ID when it turns it into a divider, table,
+        // image, math block, and so on, so the body is replaced in place.
+        target.push({ type: "convertBlock", nodeId: id, block: { ...structuredClone(current.block), children: [] } as NmlBlock });
+        changed.add(id);
+        continue;
       }
       changed.add(id);
     } else {
       const patch = propsPatch(prior.block.props, current.block.props);
-      if (Object.keys(patch).length) { commands.push({ type: "setNodeProps", nodeId: id, patch }); changed.add(id); }
+      if (Object.keys(patch).length) { target.push({ type: "setNodeProps", nodeId: id, patch }); changed.add(id); }
     }
     if ("content" in prior.block && "content" in current.block) {
-      inlineCommands(id, prior.block.content, current.block.content).forEach((command) => commands.push(command));
+      inlineCommands(id, prior.block.content, current.block.content).forEach((command) => target.push(command));
       if (JSON.stringify(prior.block.content) !== JSON.stringify(current.block.content)) changed.add(id);
     } else if (prior.block.type === "table" && current.block.type === "table") {
       const table = tableCommands(prior.block, current.block);
-      commands.push(...table);
+      target.push(...table);
       if (table.length) changed.add(id);
     } else if (prior.block.type === "codeBlock" && current.block.type === "codeBlock") {
       const diff = textDiff(prior.block.code, current.block.code);
-      if (diff) { commands.push({ type: "setCode", nodeId: id, range: { from: diff.from, to: diff.to }, text: diff.text }); changed.add(id); }
+      if (diff) { target.push({ type: "setCode", nodeId: id, range: { from: diff.from, to: diff.to }, text: diff.text }); changed.add(id); }
     } else if (prior.block.type === "mathBlock" && current.block.type === "mathBlock") {
-      const beforeCommandCount = commands.length;
+      const beforeCommandCount = target.length;
       const priorRows = new Map(prior.block.rows.map((row) => [row.id, row]));
       const currentIds = current.block.rows.map((row) => row.id);
       const priorIds = prior.block.rows.map((row) => row.id);
       if (!sameOrder(priorIds, currentIds)) throw new Error("Math row reordering is not supported.");
       const removedRows = priorIds.filter((rowId) => !currentIds.includes(rowId));
-      if (removedRows.length) commands.push({ type: "removeMathRows", nodeId: id, rowIds: removedRows });
+      if (removedRows.length) target.push({ type: "removeMathRows", nodeId: id, rowIds: removedRows });
       const available = new Set(priorIds.filter((rowId) => !removedRows.includes(rowId)));
       current.block.rows.forEach((row, index) => {
         if (!priorRows.has(row.id)) {
           const anchor = entityAnchor(currentIds, index, available);
-          commands.push({ type: "insertMathRows", nodeId: id, anchor, rows: [structuredClone(row)] });
+          target.push({ type: "insertMathRows", nodeId: id, anchor, rows: [structuredClone(row)] });
           available.add(row.id);
         } else if (priorRows.get(row.id)!.latex !== row.latex) {
-          commands.push({ type: "setMathRow", nodeId: id, rowId: row.id, latex: row.latex });
+          target.push({ type: "setMathRow", nodeId: id, rowId: row.id, latex: row.latex });
         }
       });
-      if (commands.length > beforeCommandCount) changed.add(id);
+      if (target.length > beforeCommandCount) changed.add(id);
     } else if ("domain" in prior.block && "domain" in current.block && JSON.stringify(prior.block.domain) !== JSON.stringify(current.block.domain)) {
-      commands.push({ type: "replaceDomain", nodeId: id, domain: structuredClone(current.block.domain) });
+      target.push({ type: "replaceDomain", nodeId: id, domain: structuredClone(current.block.domain) });
       changed.add(id);
     }
   }
@@ -429,6 +441,7 @@ export function compileProjectionChange(before: NmlDocument, after: NmlDocument)
     commands.push({ type: "removeNodes", nodeIds: removalRoots.map(({ block }) => block.id) });
     removalRoots.forEach(({ block }) => changed.add(block.id));
   }
+  commands.push(...late);
 
   const beforeIds = collectIds(before);
   const temporaryIds = [...collectIds(after)].filter((id) => !beforeIds.has(id) && id.startsWith("$nml-"));

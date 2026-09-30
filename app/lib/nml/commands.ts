@@ -26,6 +26,7 @@ import {
   nmlInlineNodesToY,
   nmlYMapOf,
   nmlYSharedValue,
+  NmlYjsDecodeError,
   NmlYjsIndex,
   type NmlTransactionOrigin,
 } from "./yjs";
@@ -74,6 +75,12 @@ export type NmlCommand =
       nodeId: string;
       blockType: "image" | "video" | "audio" | "file";
     }
+  /**
+   * Turns a block into a different kind of block in place: its ID and placement
+   * stay, its whole body is replaced. `block.children` must be empty; children
+   * are moved by their own commands.
+   */
+  | { type: "convertBlock"; nodeId: string; block: NmlBlock }
   | {
       type: "replaceInline";
       nodeId: string;
@@ -1101,6 +1108,20 @@ function apply(doc: Y.Doc, command: NmlCommand): void {
       ref.set("type", command.blockType);
       return;
     }
+    case "convertBlock": {
+      needBlock(doc, command.nodeId);
+      if (command.block.id !== command.nodeId)
+        conflict("invalid_command", "A converted block keeps its ID.");
+      if (command.block.children.length)
+        conflict("invalid_command", "A converted block's children move by their own commands.");
+      // The registry entry shadows any earlier body for this ID, whether that
+      // body sits in the registry or in the pre-structure block array.
+      ensureStructure(doc).registry.set(
+        command.nodeId,
+        nmlBlockToY({ ...command.block, children: [] } as NmlBlock),
+      );
+      return;
+    }
     case "replaceInline":
       replaceInline(doc, command.nodeId, command.range, command.content);
       return;
@@ -1777,7 +1798,9 @@ export async function executeNmlCommands(
     assertValidDocument(decodeNmlDocument(staging));
   } catch (error) {
     if (error instanceof NmlCommandConflict) throw error;
-    if (error instanceof NmlValidationError)
+    // A batch whose result does not decode (a leaf left holding children) is
+    // as invalid as one whose result does not validate.
+    if (error instanceof NmlValidationError || error instanceof NmlYjsDecodeError)
       throw new NmlCommandConflict("invalid_command", error.message);
     throw error;
   }

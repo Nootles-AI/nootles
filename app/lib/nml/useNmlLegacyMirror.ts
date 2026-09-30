@@ -29,9 +29,10 @@ export function useNmlLegacyMirror<
   editor: BlockNoteEditor<BSchema, ISchema, SSchema> | null,
   provider: YConvexProvider | null,
   userId: string,
-): boolean {
+): { ready: boolean; reverted: number } {
   const convex = useConvex();
   const [ready, setReady] = useState(!enabled);
+  const [reverted, setReverted] = useState(0);
   const userIdRef = useRef(userId);
   useEffect(() => {
     userIdRef.current = userId;
@@ -71,6 +72,7 @@ export function useNmlLegacyMirror<
           // Never include document content in diagnostics.
           console.error("NML compatibility mirror failed");
         },
+        onReverted: () => setReverted((count) => count + 1),
       },
     ).start();
     // Do not expose a storage-backed media block with a transient empty URL.
@@ -84,5 +86,5 @@ export function useNmlLegacyMirror<
     };
   }, [convex, enabled, editor, provider]);
   /* eslint-enable react-hooks/set-state-in-effect */
-  return ready;
+  return { ready, reverted };
 }

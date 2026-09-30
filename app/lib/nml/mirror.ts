@@ -30,6 +30,8 @@ export type NmlLegacyMirrorOptions = {
   authorize?: () => boolean | Promise<boolean>;
   resolveStorageUrl?: (storageId: string) => Promise<string | null | undefined>;
   onError?: (error: unknown) => void;
+  /** An edit canonical NML would not take was undone in the editor. */
+  onReverted?: () => void;
 };
 
 type PendingLegacyProjection = {
@@ -300,7 +302,44 @@ export class NmlLegacyMirror {
         await this.applyLegacyProjection(pending, allowed);
       } catch (error) {
         this.options.onError?.(error);
+        this.retryOrRevert(pending.actor, allowed);
       }
+    }
+  }
+
+  /**
+   * A snapshot may have failed only because it was compiled against a stale
+   * NML state, so it is retried once against the current one. An edit that still
+   * fails is one canonical NML cannot take; left in the editor it would fail
+   * every later snapshot too, wedging the page until the next projection
+   * erased everything written since. Putting canonical NML back loses only
+   * that edit, and the person is told.
+   */
+  private retryOrRevert(actor: NmlTransactionOrigin["actor"], allowed: boolean): void {
+    if (this.stopped || this.pendingLegacyProjection) return;
+    try {
+      const retry = {
+        actor,
+        before: decodeNmlDocument(this.doc),
+        blocks: structuredClone(this.host.readBlocks()),
+      };
+      this.queue = this.queue.then(() => this.applyLegacyProjection(retry, allowed)).catch((error) => {
+        this.options.onError?.(error);
+        this.revert();
+      });
+    } catch (error) {
+      this.options.onError?.(error);
+      this.revert();
+    }
+  }
+
+  private revert(): void {
+    if (this.stopped) return;
+    try {
+      this.writeLegacyProjection();
+      this.options.onReverted?.();
+    } catch (error) {
+      this.options.onError?.(error);
     }
   }
 

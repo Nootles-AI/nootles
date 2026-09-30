@@ -249,7 +249,8 @@ insertions/deletions are not overwritten by whole-fragment replacement. Durable 
 offsets account for projection-only link wrapper tokens, and rich composition commits one
 canonical request while preserving marks, links, and inline atoms.
 
-The semantic vocabulary now includes prose/list and media type changes, row/column table
+The semantic vocabulary now includes prose/list and media type changes, any other same-ID
+change of kind as `convertBlock` (NT-125), row/column table
 insert/remove, stable cell edits, and math-row insert/remove. Stable column association plus
 deterministic row/column intersection identities keeps tables rectangular when disconnected
 replicas concurrently add or remove orthogonal dimensions; an empty derived intersection is
