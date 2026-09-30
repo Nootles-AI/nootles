@@ -273,12 +273,104 @@ try {
   ).then((h) => h.jsonValue());
   assert.match(persisted, /hello WORLD/, "the typed edit persisted on the canonical NML root");
 
+  // ── Phase 3 (NT-125): turn empty lines into a divider, a table, a math block
+  //    and an image through the real `---` rule and slash menu. The editor keeps
+  //    each block's ID, and before NT-125 the first of them wedged the mirror:
+  //    nothing typed afterwards reached NML, and the next mount erased it. ──────
+  const consoleErrors = [];
+  pg2.on("console", (m) => { if (m.type() === "error") consoleErrors.push(m.text()); });
+  const settleFrames = () => pg2.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const caretAtEnd = async (text) => {
+    assert.ok(await pg2.evaluate((t) => window.nmlServed.caretAtEnd(t), text), `caret after "${text}"`);
+    await settleFrames();
+  };
+  const slash = async (query, title) => {
+    await pg2.keyboard.type(`/${query}`);
+    await pg2.waitForFunction(
+      (want) => document.querySelector(".nt-slash-item[aria-selected=true] .nt-slash-title")?.textContent === want,
+      { timeout: 10000 },
+      title,
+    );
+    await pg2.keyboard.press("Enter");
+    await pg2.waitForFunction(() => !document.querySelector(".nt-slash"), { timeout: 10000 });
+    await settleFrames();
+  };
+  const waitTypes = (expected) => pg2.waitForFunction(
+    // The trailing-paragraph extension keeps an empty line after a last table.
+    (want) => {
+      const trim = (types) => types.join(" ").replace(/( paragraph)+$/, "");
+      return trim(window.nmlServed.blockTypes()) === trim(want);
+    },
+    { timeout: 15000 },
+    expected,
+  ).catch(async () => assert.fail(`surface shows ${JSON.stringify(await pg2.evaluate(() => window.nmlServed.blockTypes()))}, wanted ${JSON.stringify(expected)}; notice ${await pg2.evaluate(() => window.nmlServed.revertNotice())}; errors ${JSON.stringify(consoleErrors)}`));
+
+  await caretAtEnd("hello WORLD");
+  await pg2.keyboard.press("Enter");
+  await pg2.keyboard.type("---");
+  await waitTypes(["paragraph", "divider", "paragraph"]);
+  await pg2.keyboard.type("after divider");
+
+  await caretAtEnd("after divider");
+  await pg2.keyboard.press("Enter");
+  await slash("table", "Table");
+  await waitTypes(["paragraph", "divider", "paragraph", "table"]);
+
+  await caretAtEnd("after divider");
+  await pg2.keyboard.press("Enter");
+  await slash("mathblock", "Math block");
+  await waitTypes(["paragraph", "divider", "paragraph", "mathBlock", "table"]);
+  await pg2.keyboard.press("Escape");
+
+  await caretAtEnd("after divider");
+  await pg2.keyboard.press("Enter");
+  await slash("image", "Image");
+  await waitTypes(["paragraph", "divider", "paragraph", "image", "mathBlock", "table"]);
+  await pg2.keyboard.press("Escape");
+
+  await caretAtEnd("hello WORLD");
+  await pg2.keyboard.type(" AGAIN");
+  const wanted = [
+    { type: "paragraph", text: "hello WORLD AGAIN" },
+    { type: "divider", text: "" },
+    { type: "paragraph", text: "after divider" },
+    { type: "image", text: "" },
+    { type: "mathBlock", text: "" },
+    { type: "table", text: "" },
+  ];
+  const persistedBlocks = await pg2.waitForFunction(
+    async (want) => {
+      const blocks = (await window.nmlServed.persistedNmlBlocks()).filter((b) => b.type !== "paragraph" || b.text);
+      return JSON.stringify(blocks) === JSON.stringify(want) ? blocks : false;
+    },
+    { timeout: 20000, polling: 500 },
+    wanted,
+  ).then((h) => h.jsonValue()).catch(async () => assert.fail(
+    `persisted NML is ${JSON.stringify(await pg2.evaluate(() => window.nmlServed.persistedNmlBlocks()))}`,
+  ));
+  assert.equal(await pg2.evaluate(() => window.nmlServed.revertNotice()), false, "no edit was refused");
+  assert.deepEqual(consoleErrors.filter((t) => t.includes("NML compatibility mirror failed")), [], "the mirror never failed");
+
+  // A fresh client mounts the page: its mirror projects canonical NML over the
+  // ProseMirror root, which must now hold everything written above.
+  const pg3 = await openPage();
+  await pg3.evaluate((cfg) => window.nmlServed.mount(cfg), { url: CONVEX_URL, jwt: ownerJwt, docId, pageId, projectId });
+  await pg3.waitForFunction(() => window.nmlServed.probe().text.includes("hello WORLD AGAIN"), { timeout: 30000 });
+  await pg3.waitForFunction(() => window.nmlServed.probe().text.includes("after divider"), { timeout: 5000 });
+  const remounted = await pg3.evaluate(() => window.nmlServed.blockTypes());
+  assert.deepEqual(remounted.filter((t) => t !== "paragraph"), ["divider", "image", "mathBlock", "table"], "a fresh mount keeps every converted block");
+  await new Promise((r) => setTimeout(r, 1500));
+  const afterRemount = (await pg3.evaluate(() => window.nmlServed.persistedNmlBlocks())).filter((b) => b.type !== "paragraph" || b.text);
+  assert.deepEqual(afterRemount, wanted, "the remount erased nothing");
+  await pg2.screenshot({ path: path.join(output, "served-type-changes.png"), fullPage: true });
+
   await pg2.screenshot({ path: path.join(output, "served-editor.png"), fullPage: true });
   assert.deepEqual(errors, [], "no browser errors");
-  assert.deepEqual(
-    paidRequests.map((url) => new URL(url).pathname),
-    ["/api/complete"],
-    "typing attempts only the legacy-equivalent completion lane, which the harness stubs",
+  // Completion and reformat fire on debounces, so whether typing reached them
+  // is timing; what matters is that only those lanes were attempted, stubbed.
+  assert.ok(
+    paidRequests.every((url) => ["/api/complete", "/api/reformat"].includes(new URL(url).pathname)),
+    `typing attempts only the legacy-equivalent typing lanes, which the harness stubs: ${paidRequests}`,
   );
   console.log(JSON.stringify({
     result: "passed",
@@ -290,7 +382,11 @@ try {
       "served-shows-content",
       "steady-state-mounts-served-directly",
       "edit-lands-on-canonical-nml-root",
+      "divider-table-math-image-conversions-reach-nml",
+      "edits-after-conversions-reach-nml",
+      "fresh-mount-erases-nothing",
     ],
+    persistedBlocks,
     sawLegacy,
     docId,
     steadyText: steady.text.slice(0, 60),

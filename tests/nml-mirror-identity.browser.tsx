@@ -168,7 +168,7 @@ function Surface({ resource }: { resource: Resource }) {
 function Fixture({ enabled }: { enabled: boolean }) {
   const [userId, setUserId] = useState("anonymous");
   const [resource, setResource] = useState(() => makeResource(!enabled));
-  const ready = useNmlLegacyMirror(
+  const { ready } = useNmlLegacyMirror(
     enabled,
     resource.editor,
     resource.provider,

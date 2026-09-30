@@ -729,3 +729,93 @@ describe("NML semantic command executor", () => {
     }
   });
 });
+
+describe("convertBlock (NT-125)", () => {
+  const divider = (id: string): NmlBlock => ({ id, type: "divider", props: {}, children: [] });
+  const ids = (doc: Y.Doc) => decodeNmlDocument(doc).blocks.map((item) => `${item.id}:${item.type}`);
+
+  it("turns a block into another kind in place, and back, keeping its ID and position", async () => {
+    const doc = createNmlYDoc(document());
+    const before = ids(doc);
+    await executeNmlCommands(options(doc, [{ type: "convertBlock", nodeId: "p1", block: divider("p1") }], {
+      idempotencyKey: "to-divider", origin: origin("to-divider"),
+    }));
+    expect(ids(doc)).toEqual(before.map((entry) => entry === "p1:paragraph" ? "p1:divider" : entry));
+
+    await executeNmlCommands(options(doc, [{
+      type: "convertBlock",
+      nodeId: "p1",
+      block: {
+        id: "p1", type: "table", props: { headerRows: 0 }, children: [],
+        columns: [{ id: "$col" }], rows: [{ id: "$row", cells: [{ id: "$cell", content: [] }] }],
+      },
+    }], { idempotencyKey: "to-table", origin: origin("to-table"), temporaryIds: ["$col", "$row", "$cell"] }));
+    const table = block(doc, "p1");
+    expect(table).toMatchObject({ type: "table", columns: [{ id: "to-table-1" }], rows: [{ id: "to-table-2" }] });
+
+    await executeNmlCommands(options(doc, [
+      { type: "convertBlock", nodeId: "p1", block: paragraph("p1", "") },
+      { type: "replaceInline", nodeId: "p1", range: { from: 0, to: 0 }, content: [{ type: "text", text: "back", marks: [] }] },
+    ], { idempotencyKey: "to-paragraph", origin: origin("to-paragraph") }));
+    expect(block(doc, "p1")).toEqual(paragraph("p1", "back"));
+    expect(ids(doc)).toEqual(before);
+  });
+
+  it("converts a registered block and a nested one, leaving its siblings and parent alone", async () => {
+    const doc = createNmlYDoc(document());
+    await executeNmlCommands(options(doc, [
+      { type: "insertNodes", parentId: "list", nodes: [paragraph("child", "x"), paragraph("after", "y")] },
+    ], { idempotencyKey: "nest", origin: origin("nest") }));
+    await executeNmlCommands(options(doc, [{
+      type: "convertBlock", nodeId: "child",
+      block: { id: "child", type: "mathBlock", props: {}, children: [], rows: [{ id: "$r", latex: "" }] },
+    }], { idempotencyKey: "math", origin: origin("math"), temporaryIds: ["$r"] }));
+    expect(block(doc, "list").children.map((item) => `${item.id}:${item.type}`)).toEqual(["child:mathBlock", "after:paragraph"]);
+  });
+
+  it("refuses a changed ID, children, a missing node, and a leaf left holding children", async () => {
+    const doc = createNmlYDoc(document());
+    await executeNmlCommands(options(doc, [
+      { type: "insertNodes", parentId: "list", nodes: [paragraph("child", "x")] },
+    ], { idempotencyKey: "nest", origin: origin("nest") }));
+    const state = Y.encodeStateAsUpdate(doc);
+    const attempt = (commands: NmlCommand[], key: string) =>
+      executeNmlCommands(options(doc, commands, { idempotencyKey: key, origin: origin(key) }));
+    await expect(attempt([{ type: "convertBlock", nodeId: "p1", block: divider("other") }], "a"))
+      .rejects.toMatchObject({ code: "invalid_command" });
+    await expect(attempt([{ type: "convertBlock", nodeId: "p1", block: { ...divider("p1"), children: [paragraph("n", "")] } }], "b"))
+      .rejects.toMatchObject({ code: "invalid_command" });
+    await expect(attempt([{ type: "convertBlock", nodeId: "gone", block: divider("gone") }], "c"))
+      .rejects.toMatchObject({ code: "missing_node" });
+    await expect(attempt([{ type: "convertBlock", nodeId: "list", block: divider("list") }], "d"))
+      .rejects.toMatchObject({ code: "invalid_command" });
+    expect(Y.encodeStateAsUpdate(doc)).toEqual(state);
+
+    await attempt([
+      { type: "moveNodes", nodeIds: ["child"], destination: { parentId: null, anchor: { afterId: "list" } } },
+      { type: "convertBlock", nodeId: "list", block: divider("list") },
+    ], "e");
+    expect(ids(doc).slice(0, 3)).toEqual(["p1:paragraph", "list:divider", "child:paragraph"]);
+  });
+
+  it("converges with a concurrent edit to the old body, and undoes as one step", async () => {
+    const a = createNmlYDoc(document());
+    const b = new Y.Doc();
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a));
+    const { NmlHistory } = await import("./view/history");
+    const history = new NmlHistory(a, { localUserId: "u" });
+    await executeNmlCommands(options(a, [{ type: "convertBlock", nodeId: "p1", block: divider("p1") }], {
+      idempotencyKey: "a", origin: origin("a"),
+    }));
+    await executeNmlCommands(options(b, [
+      { type: "replaceInline", nodeId: "p1", range: { from: 5, to: 5 }, content: [{ type: "text", text: "!", marks: [] }] },
+    ], { idempotencyKey: "b", origin: origin("b") }));
+    Y.applyUpdate(a, Y.encodeStateAsUpdate(b, Y.encodeStateVector(a)));
+    Y.applyUpdate(b, Y.encodeStateAsUpdate(a, Y.encodeStateVector(b)));
+    expect(decodeNmlDocument(a)).toEqual(decodeNmlDocument(b));
+    expect(block(a, "p1").type).toBe("divider");
+
+    expect(history.undo()).toBe(true);
+    expect(block(a, "p1")).toEqual(paragraph("p1", "hello!"));
+  });
+});

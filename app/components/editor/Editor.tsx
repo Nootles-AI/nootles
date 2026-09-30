@@ -705,13 +705,13 @@ function YjsEditor({
     [editor],
   );
   useNmlMigration(useServeEnabled() && !served, docId, getBlocks);
-  const mirrorReady = useNmlLegacyMirror(
+  const mirror = useNmlLegacyMirror(
     served,
     editor,
     provider,
     user?.id ?? "anonymous",
   );
-  if (!editor || !mirrorReady) return placeholder;
+  if (!editor || !mirror.ready) return placeholder;
   return (
     <ReadOnlyContext value={readOnly || held.refused}>
       <EditorSurface
@@ -723,6 +723,7 @@ function YjsEditor({
         served={served}
       />
       {held.stranded && provider && <HeldWritesNotice onRetry={() => provider.retryHeld()} />}
+      <RevertedEditNotice reverted={mirror.reverted} />
     </ReadOnlyContext>
   );
 }
@@ -755,6 +756,24 @@ function HeldWritesNotice({ onRetry }: { onRetry: () => void }) {
         Try again
       </button>
       <button className="nt-update-x" aria-label="Dismiss" onClick={() => setDismissed(true)}>
+        ×
+      </button>
+    </div>
+  );
+}
+
+/**
+ * The served page's canonical document refused an edit, and the mirror put
+ * the page back as it is saved rather than leave an edit on screen that would
+ * never save (NT-125).
+ */
+function RevertedEditNotice({ reverted }: { reverted: number }) {
+  const [dismissed, setDismissed] = useState(0);
+  if (reverted <= dismissed) return null;
+  return (
+    <div className="nt-update" role="alert">
+      <span>That change couldn’t be saved, so it was undone.</span>
+      <button className="nt-update-x" aria-label="Dismiss" onClick={() => setDismissed(reverted)}>
         ×
       </button>
     </div>

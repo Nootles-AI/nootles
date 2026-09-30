@@ -107,6 +107,47 @@ const harness = {
     doc.destroy();
     return text;
   },
+  /** The persisted canonical blocks, as `type` and plain text (NT-125). */
+  async persistedNmlBlocks() {
+    if (!client) return [];
+    const updates = await readYDocUpdates(client, currentDocId);
+    const doc = new Y.Doc();
+    for (const u of updates) Y.applyUpdate(doc, new Uint8Array(u));
+    const blocks = decodeNmlDocument(doc).blocks.map((b) => ({
+      type: b.type,
+      text: "content" in b ? b.content.map((n) => (n.type === "text" ? n.text : "")).join("") : "",
+    }));
+    doc.destroy();
+    return blocks;
+  },
+  /** The block types the served surface shows, top to bottom. */
+  blockTypes() {
+    // A React node view (the math block) wraps its content in a renderer.
+    return [...document.querySelectorAll<HTMLElement>(
+      '#editor-host [data-nml-served="true"] .bn-block-outer > .bn-block',
+    )].map((block) => block.querySelector<HTMLElement>(
+      ":scope > .bn-block-content, :scope > .react-renderer > .bn-block-content",
+    )?.dataset.contentType ?? "");
+  },
+  /** Put the caret after the last glyph of the paragraph reading `text`. */
+  caretAtEnd(text: string) {
+    const line = [...document.querySelectorAll<HTMLElement>(
+      '#editor-host [data-nml-served="true"] .bn-inline-content',
+    )].find((el) => el.textContent === text);
+    const view = document.querySelector<HTMLElement>('#editor-host [data-nml-served="true"] .bn-editor');
+    if (!line || !view) return false;
+    view.focus();
+    const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+    let last: Text | null = null;
+    while (walker.nextNode()) last = walker.currentNode as Text;
+    if (!last) return false;
+    document.getSelection()?.collapse(last, last.length);
+    return true;
+  },
+  /** Whether the "change couldn't be saved" notice is up. */
+  revertNotice() {
+    return !!document.querySelector(".nt-update[role=alert]");
+  },
   destroy() {
     root?.unmount();
     void client?.close();

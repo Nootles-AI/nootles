@@ -429,6 +429,10 @@ All mutations target stable IDs and compile to Yjs transactions. The minimum voc
 - `setNodeProps(nodeId, patch)`
 - `setTextBlockType(nodeId, blockType, props)`
 - `setMediaBlockType(nodeId, blockType)`
+- `convertBlock(nodeId, block)` — any other change of kind (a line turned into a divider, table,
+  image, math block or diagram, and back): the ID and placement stay and the body is replaced
+  whole. Children move by their own commands; a batch that leaves a leaf holding children is
+  refused as `invalid_command` (NT-125).
 - `replaceInline(nodeId, range, content)`
 - `setInlineMarks(nodeId, range, marks)`
 - `setInlineLink(nodeId, range, href, linkKey)`
