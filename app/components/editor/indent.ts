@@ -5,7 +5,7 @@ import { NodeSelection } from "prosemirror-state";
 import type { EditorState, Selection, Transaction } from "prosemirror-state";
 import { canJoin, liftTarget, ReplaceAroundStep } from "prosemirror-transform";
 import { BlockRangeSelection } from "./blockSelection";
-import { depthAt, depthUnder, fitsAt } from "./depthLimit";
+import { depthAt, depthUnder, fitsAt, holdsChildren, leavesTakeChildren } from "./depthLimit";
 
 export type IndentDirection = "in" | "out";
 
@@ -68,12 +68,14 @@ function touchedRuns(selection: Selection, doc: PMNode): Run[] {
  * Nests a run under the block before it, joining that block's children if it
  * has any. BlockNote's `sinkItem`, handed the range instead of reading it off
  * the selection. A run that would take a block past the levels canonical NML
- * holds stays where it is (NT-127).
+ * holds stays where it is (NT-127), and so does one whose block above holds no
+ * children in NML, unless `leaves` says the page lets it (NT-128).
  */
-function sink(tr: Transaction, range: NodeRange, item: NodeType, group: NodeType): boolean {
+function sink(tr: Transaction, range: NodeRange, item: NodeType, group: NodeType, leaves: boolean): boolean {
   if (range.startIndex === 0) return false;
   const before = range.parent.child(range.startIndex - 1);
   if (before.type !== item) return false;
+  if (!leaves && !holdsChildren(before)) return false;
   const depth = depthUnder(before, depthAt(tr.doc, range.start));
   for (let index = range.startIndex; index < range.endIndex; index++) {
     if (!fitsAt(range.parent.child(index), depth)) return false;
@@ -142,10 +144,12 @@ function lift(tr: Transaction, range: NodeRange, item: NodeType, group: NodeType
  * it: every run of touched siblings moves one level, and a run that cannot
  * (nothing above it to nest under, or already at the top) stays where it is.
  * The selection maps through the steps, so it is still there afterwards.
+ * `leaves` is whether a block NML gives no children — a line, a heading, a
+ * divider — may take some; a served page says no.
  *
  * Returns whether the document changed.
  */
-export function indentSelection(tr: Transaction, direction: IndentDirection): boolean {
+export function indentSelection(tr: Transaction, direction: IndentDirection, leaves = true): boolean {
   const item = tr.doc.type.schema.nodes.blockContainer;
   const group = tr.doc.type.schema.nodes.blockGroup;
   if (!item || !group) return false;
@@ -159,7 +163,7 @@ export function indentSelection(tr: Transaction, direction: IndentDirection): bo
     const to = tr.mapping.map(runs[i].to, -1);
     const $from = tr.doc.resolve(from);
     const range = new NodeRange($from, tr.doc.resolve(to), $from.depth);
-    const moved = direction === "in" ? sink(tr, range, item, group) : lift(tr, range, item, group);
+    const moved = direction === "in" ? sink(tr, range, item, group, leaves) : lift(tr, range, item, group);
     changed ||= moved;
   }
   return changed;
@@ -182,7 +186,7 @@ function press(direction: IndentDirection) {
     if (!view || !view.editable) return false;
     if (inTable(view.state)) return false;
     const tr = view.state.tr;
-    if (indentSelection(tr, direction)) view.dispatch(tr.scrollIntoView());
+    if (indentSelection(tr, direction, leavesTakeChildren(view.state))) view.dispatch(tr.scrollIntoView());
     // Claimed even when nothing moved. Declining hands the key to the browser,
     // which moves focus out of the page — to the canvas toolbar, or up into the
     // title — and every key after it lands there.
