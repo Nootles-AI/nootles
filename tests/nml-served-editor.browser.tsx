@@ -23,6 +23,7 @@ import { Editor } from "../app/components/editor/Editor";
 import { EditorRegistryProvider } from "../app/components/editor/EditorRegistry";
 import { OpenPageProvider } from "../app/components/OpenPageContext";
 import { ReviewProvider } from "../app/components/ReviewContext";
+import { WorkspaceHistoryProvider } from "../app/lib/history/useWorkspaceHistory";
 import { readYDocUpdates } from "../app/lib/sync/ydocRead";
 import { decodeNmlDocument } from "../app/lib/nml/yjs";
 import type { NmlBlock } from "../app/lib/nml/schema";
@@ -65,15 +66,18 @@ function mount(cfg: Config) {
   root.render(
     <StrictMode>
       <ConvexProvider client={client}>
-        <EditorRegistryProvider>
-          <OpenPageProvider>
-            <ReviewProvider projectId={cfg.projectId as Id<"projects">}>
-              <div id="editor-host" className="nt-editor-host">
-                <Editor docId={cfg.docId} pageId={cfg.pageId as Id<"pages">} title="E2E" />
-              </div>
-            </ReviewProvider>
-          </OpenPageProvider>
-        </EditorRegistryProvider>
+        {/* ⌘Z goes through the workspace spine, as it does in the app. */}
+        <WorkspaceHistoryProvider projectId={cfg.projectId}>
+          <EditorRegistryProvider>
+            <OpenPageProvider>
+              <ReviewProvider projectId={cfg.projectId as Id<"projects">}>
+                <div id="editor-host" className="nt-editor-host">
+                  <Editor docId={cfg.docId} pageId={cfg.pageId as Id<"pages">} title="E2E" />
+                </div>
+              </ReviewProvider>
+            </OpenPageProvider>
+          </EditorRegistryProvider>
+        </WorkspaceHistoryProvider>
       </ConvexProvider>
     </StrictMode>,
   );
@@ -225,6 +229,16 @@ const harness = {
     )].find((el) => el.textContent === text);
     const box = line?.getBoundingClientRect();
     return box ? { x: box.x, y: box.y + box.height / 2 } : null;
+  },
+  /** Paste `html` where the caret is, the way the browser hands it over (NT-127). */
+  pasteHtml(html: string, plain: string) {
+    const view = document.querySelector<HTMLElement>('#editor-host [data-nml-served="true"] .bn-editor');
+    if (!view) return false;
+    const data = new DataTransfer();
+    data.setData("text/html", html);
+    data.setData("text/plain", plain);
+    view.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    return true;
   },
   /** Whether the "change couldn't be saved" notice is up. */
   revertNotice() {

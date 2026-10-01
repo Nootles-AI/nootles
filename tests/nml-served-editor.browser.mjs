@@ -512,6 +512,90 @@ try {
   assert.equal(await p5.evaluate(() => window.nmlServed.persistedNmlOutline()), p4Wanted, "the remount erased nothing");
   await p4.screenshot({ path: path.join(output, "served-leaf-conversions.png"), fullPage: true });
 
+  // ── Phase 5 (NT-127): NML holds four levels of blocks. Tab past them, or a
+  //    paste that would land a list deeper, must not hand the mirror a tree it
+  //    refuses — before NT-127 the indent showed, then was undone with the
+  //    "couldn't be saved" notice. p5 stays open as a collaborator throughout. ─
+  //    A background tab gets no animation frames, so p4 comes back to the front.
+  await p4.bringToFront();
+  await at("caretAtEnd", "after divider");
+  await key("Enter");
+  await line("- F1");
+  await key("Enter");
+  await key("Tab");
+  await line("F2");
+  await key("Enter");
+  await key("Tab");
+  await line("F3");
+  await key("Enter");
+  await key("Tab");
+  await line("F4");
+  await key("Enter");
+  await line("F5");
+  const fourDeep = "bulletListItem:F1[bulletListItem:F2[bulletListItem:F3[bulletListItem:F4 | bulletListItem:F5]]]";
+  await agree("F built", `paragraph:after divider | ${fourDeep} | bulletListItem:E parent`);
+
+  // F: Tab on a fourth-level item has nowhere to go, and stays put.
+  await key("Tab");
+  await line("!");
+  await agree("F tab refused", `paragraph:after divider | ${fourDeep.replace("F5", "F5!")} | bulletListItem:E parent`);
+
+  // G: a third-level item holding a child can't nest either — the child would
+  //    be fifth — while a second-level item beside it still can.
+  await at("caretAtEnd", "after divider");
+  await key("Enter");
+  await line("- G1");
+  await key("Enter");
+  await key("Tab");
+  await line("G2");
+  await key("Enter");
+  await key("Tab");
+  await line("G3");
+  await key("Enter");
+  await line("G3b");
+  await key("Enter");
+  await key("Tab");
+  await line("G4");
+  await agree("G built", "bulletListItem:G1[bulletListItem:G2[bulletListItem:G3 | bulletListItem:G3b[bulletListItem:G4]]]");
+  await at("caretAtStart", "G3b");
+  await key("Tab");
+  await line("?");
+  await agree("G tab refused", "bulletListItem:G1[bulletListItem:G2[bulletListItem:G3 | bulletListItem:?G3b[bulletListItem:G4]]]");
+
+  // H: a nested list pasted into a fourth-level item comes in flat at that
+  //    level, in order, and one ⌘Z takes the whole paste back.
+  await at("caretAtEnd", "F5!");
+  await key("Enter");
+  assert.ok(await p4.evaluate(() => window.nmlServed.pasteHtml(
+    "<ul><li>H1<ul><li>H2<ul><li>H3</li></ul></li><li>H2b</li></ul></li></ul>",
+    "H1\n  H2\n    H3\n  H2b",
+  )), "paste H");
+  await frames();
+  const pastedFlat = "bulletListItem:F1[bulletListItem:F2[bulletListItem:F3[bulletListItem:F4 | bulletListItem:F5! | bulletListItem:H1 | bulletListItem:H2 | bulletListItem:H3 | bulletListItem:H2b]]]";
+  await agree("H pasted", pastedFlat);
+  // The empty item the Enter made stays: it was its own step.
+  const unpasted = fourDeep.replace("F5", "F5! | bulletListItem:");
+  await chord("Meta", "KeyZ");
+  await agree("H undone", unpasted);
+
+  // Typing afterwards still lands, nothing was refused, and a fresh client
+  // projects the same tree back.
+  await at("caretAtEnd", "G4");
+  await line(" end");
+  const p5Wanted = await agree("typed after depth", "G4 end");
+  assert.ok(p5Wanted.includes(unpasted), `the four-deep list held: ${p5Wanted}`);
+  assert.equal(await p4.evaluate(() => window.nmlServed.revertNotice()), false, "no deep edit was refused");
+  assert.deepEqual(p4Errors.filter((t) => t.includes("NML compatibility mirror")), [], "the mirror never failed on depth");
+  await p5.waitForFunction((want) => window.nmlServed.surfaceOutline() === want, { timeout: 30000 }, p5Wanted)
+    .catch(async () => assert.fail(`collaborator shows ${JSON.stringify(await p5.evaluate(() => window.nmlServed.surfaceOutline()))}`));
+  const p6 = await openPage();
+  await p6.evaluate((cfg) => window.nmlServed.mount(cfg), { url: CONVEX_URL, jwt: ownerJwt, docId, pageId, projectId });
+  await p6.waitForFunction((want) => window.nmlServed.surfaceOutline() === want, { timeout: 30000 }, p5Wanted)
+    .catch(async () => assert.fail(`remount shows ${JSON.stringify(await p6.evaluate(() => window.nmlServed.surfaceOutline()))}`));
+  await new Promise((r) => setTimeout(r, 1500));
+  assert.equal(await p6.evaluate(() => window.nmlServed.persistedNmlOutline()), p5Wanted, "the remount erased nothing");
+  await p4.screenshot({ path: path.join(output, "served-depth-limit.png"), fullPage: true });
+
 
   await pg2.screenshot({ path: path.join(output, "served-editor.png"), fullPage: true });
   assert.deepEqual(errors, [], "no browser errors");
@@ -540,6 +624,10 @@ try {
       "turn-into-code-toggle-with-child",
       "multi-block-shift-tab-in-order",
       "leaf-conversions-survive-fresh-mount",
+      "tab-past-four-levels-stays-put",
+      "tab-of-a-subtree-past-four-levels-stays-put",
+      "deep-paste-flattens-at-four-levels-and-undoes-whole",
+      "depth-edits-survive-collaborator-and-fresh-mount",
     ],
     persistedBlocks,
     sawLegacy,

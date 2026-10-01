@@ -5,6 +5,7 @@ import { NodeSelection } from "prosemirror-state";
 import type { EditorState, Selection, Transaction } from "prosemirror-state";
 import { canJoin, liftTarget, ReplaceAroundStep } from "prosemirror-transform";
 import { BlockRangeSelection } from "./blockSelection";
+import { depthAt, depthUnder, fitsAt } from "./depthLimit";
 
 export type IndentDirection = "in" | "out";
 
@@ -66,12 +67,17 @@ function touchedRuns(selection: Selection, doc: PMNode): Run[] {
 /**
  * Nests a run under the block before it, joining that block's children if it
  * has any. BlockNote's `sinkItem`, handed the range instead of reading it off
- * the selection.
+ * the selection. A run that would take a block past the levels canonical NML
+ * holds stays where it is (NT-127).
  */
 function sink(tr: Transaction, range: NodeRange, item: NodeType, group: NodeType): boolean {
   if (range.startIndex === 0) return false;
   const before = range.parent.child(range.startIndex - 1);
   if (before.type !== item) return false;
+  const depth = depthUnder(before, depthAt(tr.doc, range.start));
+  for (let index = range.startIndex; index < range.endIndex; index++) {
+    if (!fitsAt(range.parent.child(index), depth)) return false;
+  }
   const nested = before.lastChild?.type === group;
   const inner = Fragment.from(nested ? item.create() : null);
   const slice = new Slice(
