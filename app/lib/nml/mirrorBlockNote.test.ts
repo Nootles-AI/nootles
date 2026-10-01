@@ -3,7 +3,7 @@ import { blocksToYXmlFragment, yXmlFragmentToBlocks } from "@blocknote/core/yjs"
 import { DOMParser, parseHTML } from "linkedom";
 import { describe, expect, it, vi } from "vitest";
 import { readerSchema } from "@/app/lib/ai/readerSchema";
-import { createNmlYDoc, decodeNmlDocument, type NmlDocument } from ".";
+import { createNmlYDoc, decodeNmlDocument, type NmlBlock, type NmlDocument } from ".";
 import { NmlLegacyMirror } from "./mirror";
 import { blockNoteNmlMirrorHost } from "./mirrorBlockNote";
 
@@ -152,5 +152,94 @@ describe("BlockNote NML mirror adapter", () => {
       page.close();
     },
   );
-});
 
+  // Turning a list or toggle item that holds children into a leaf hoists the
+  // children to siblings after it, in their order and with their own subtrees
+  // (NT-126). Code keeps its words in a prop, as `turnIntoUpdate` writes it.
+  const item = (id: string, type: string, children: NmlBlock[] = []) =>
+    ({ id, type, props: {}, content: [{ type: "text", text: id, marks: [] }], children }) as NmlBlock;
+  const outline = (blocks: NmlBlock[]): string => blocks
+    .map((block) => `${block.id}:${block.type}${block.children.length ? `[${outline(block.children)}]` : ""}`)
+    .join(" ");
+  type Tree = Record<string, unknown> & { id: string; children: Tree[] };
+  const locate = (blocks: Tree[], id: string): Tree | undefined => {
+    for (const block of blocks) {
+      if (block.id === id) return block;
+      const inner = locate(block.children, id);
+      if (inner) return inner;
+    }
+  };
+  const other = empty.blocks[1];
+
+  it.each<[string, NmlBlock[], string, string, Record<string, unknown>, string]>([
+    ["a toggle into a paragraph",
+      [item("a", "toggleListItem", [item("c", "paragraph")]), other], "a", "paragraph", {},
+      "a:paragraph c:paragraph other:paragraph"],
+    ["a toggle into a heading",
+      [item("a", "toggleListItem", [item("c", "paragraph")]), other], "a", "heading", { level: 2 },
+      "a:heading c:paragraph other:paragraph"],
+    ["a bullet into a code block",
+      [item("a", "bulletListItem", [item("c", "bulletListItem")]), other], "a", "codeBlock", { code: "a" },
+      "a:codeBlock c:bulletListItem other:paragraph"],
+    ["a toggle into a code block",
+      [item("a", "toggleListItem", [item("c", "paragraph")]), other], "a", "codeBlock", { code: "a" },
+      "a:codeBlock c:paragraph other:paragraph"],
+    ["a numbered item into a quote",
+      [item("a", "numberedListItem", [item("c", "numberedListItem")]), other], "a", "quote", {},
+      "a:quote c:numberedListItem other:paragraph"],
+    ["a to-do into a paragraph",
+      [item("a", "checkListItem", [item("c", "checkListItem")]), other], "a", "paragraph", {},
+      "a:paragraph c:checkListItem other:paragraph"],
+    ["an item with two children, the first nesting its own, into a paragraph",
+      [item("a", "bulletListItem", [item("c1", "bulletListItem", [item("g", "bulletListItem")]), item("c2", "bulletListItem")]), item("s", "bulletListItem"), other],
+      "a", "paragraph", {},
+      "a:paragraph c1:bulletListItem[g:bulletListItem] c2:bulletListItem s:bulletListItem other:paragraph"],
+    ["a nested item into a paragraph",
+      [item("p", "bulletListItem", [item("a", "bulletListItem", [item("c", "bulletListItem")]), item("s", "bulletListItem")]), other],
+      "a", "paragraph", {},
+      "p:bulletListItem[a:paragraph c:bulletListItem s:bulletListItem] other:paragraph"],
+    ["an item mid-list into a paragraph",
+      [item("x", "bulletListItem"), item("a", "bulletListItem", [item("c1", "bulletListItem"), item("c2", "bulletListItem")]), item("y", "bulletListItem"), other],
+      "a", "paragraph", {},
+      "x:bulletListItem a:paragraph c1:bulletListItem c2:bulletListItem y:bulletListItem other:paragraph"],
+  ])("hoists the children in order when %s", async (_name, blocks, id, type, props, expected) => {
+    const page = await served({ ...empty, blocks });
+    await page.edit((view) => {
+      const block = locate(view as Tree[], id)!;
+      block.type = type;
+      block.props = props;
+      if (type === "codeBlock") delete block.content;
+    });
+    await page.edit(typeOther);
+    const nml = decodeNmlDocument(page.doc);
+    expect(outline(nml.blocks)).toBe(expected);
+    expect(JSON.stringify(nml)).toContain("other, edited");
+    expect(page.onError).not.toHaveBeenCalled();
+    // The fragment shows what NML holds, so a remount has nothing to erase.
+    expect(page.view().map((block) => block.id)).toEqual(nml.blocks.map((block) => block.id));
+    page.close();
+  });
+
+  // Several blocks moving into one parent in a single change: each must land
+  // beside a sibling already in place, not one still on its way (NT-126).
+  it.each<[string, NmlBlock[], (view: Tree[]) => void, string]>([
+    ["two children outdented at once",
+      [item("x", "bulletListItem", [item("a", "bulletListItem"), item("b", "bulletListItem")]), item("z", "bulletListItem")],
+      (view) => { const [a, b] = view[0].children; view[0].children = []; view.splice(1, 0, a, b); },
+      "x:bulletListItem a:bulletListItem b:bulletListItem z:bulletListItem"],
+    ["two blocks indented at once",
+      [item("x", "bulletListItem"), item("a", "bulletListItem"), item("b", "bulletListItem"), item("z", "bulletListItem")],
+      (view) => { view[0].children = view.splice(1, 2); },
+      "x:bulletListItem[a:bulletListItem b:bulletListItem] z:bulletListItem"],
+    ["three blocks reversed",
+      [item("x", "paragraph"), item("y", "paragraph"), item("z", "paragraph")],
+      (view) => { view.reverse(); },
+      "z:paragraph y:paragraph x:paragraph"],
+  ])("keeps the order of %s", async (_name, blocks, change, expected) => {
+    const page = await served({ ...empty, blocks });
+    await page.edit((view) => change(view as Tree[]));
+    expect(outline(decodeNmlDocument(page.doc).blocks)).toBe(expected);
+    expect(page.onError).not.toHaveBeenCalled();
+    page.close();
+  });
+});

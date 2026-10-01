@@ -470,6 +470,10 @@ types directly outside the canonical executor.
 - A move whose anchor was concurrently deleted resolves against the anchor's surviving
   predecessor/successor captured by a relative position; if neither survives, it appends
   to the intended parent.
+- Within a batch, an insert or move places beside its anchor only if the anchor already sits
+  under the destination parent when that command runs; any other anchor appends. The
+  projection compiler therefore emits inserts and moves in the target document's order, each
+  anchored only on siblings already in place (NT-126).
 - Repeating an operation with the same idempotency key returns the original result.
 - Partial application is forbidden unless the operation explicitly defines independent
   hunks and returns a result for every hunk.
