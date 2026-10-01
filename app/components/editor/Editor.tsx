@@ -678,11 +678,19 @@ function YjsEditor({
 }: EditorProps & { served?: boolean }) {
   const readOnly = useReadOnly();
   const { user } = useUser();
+  // The editor is built once and carries on when the page starts being
+  // served, so its NML shape rules read whether it is served when they run.
+  const servedRef = useRef(served);
+  useEffect(() => {
+    servedRef.current = served;
+  }, [served]);
   const extensions = useMemo(
     () => [
       ...EXTENSIONS,
       trailingParagraphExtension({ enabled: () => !readOnly }),
-      depthLimitExtension({ enabled: () => !readOnly }),
+      // Read on a keystroke or an edit, never during render.
+      // eslint-disable-next-line react-hooks/refs
+      depthLimitExtension({ enabled: () => !readOnly, served: () => servedRef.current }),
     ],
     [readOnly],
   );

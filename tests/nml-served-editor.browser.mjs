@@ -597,6 +597,119 @@ try {
   await p4.screenshot({ path: path.join(output, "served-depth-limit.png"), fullPage: true });
 
 
+  // ── Phase 6 (NT-128): NML gives children only to list and toggle items. Tab
+  //    under a line, heading, quote, divider or code block must leave the line
+  //    where it is — before NT-128 it nested on screen while NML stayed flat,
+  //    snapped back on the next keystroke, and a ⌘Z after that put the line on
+  //    the page twice, and saved it. p6 stays open as a collaborator. ─────────
+  await p4.bringToFront();
+  const slash4 = async (query, title) => {
+    await p4.keyboard.type(`/${query}`);
+    await p4.waitForFunction(
+      (want) => document.querySelector(".nt-slash-item[aria-selected=true] .nt-slash-title")?.textContent === want,
+      { timeout: 10000 },
+      title,
+    );
+    await key("Enter");
+    await p4.waitForFunction(() => !document.querySelector(".nt-slash"), { timeout: 10000 });
+    await frames();
+  };
+  const count = (outline, text) => outline.split(" | ").filter((part) => part.endsWith(`:${text}`)).length;
+
+  // J: a line after each kind of leaf, Tab, then typing — the line stays put.
+  await at("caretAtEnd", "after divider");
+  await key("Enter");
+  await line("J line");
+  await key("Enter");
+  await line("after line");
+  await key("Enter");
+  await line("# J title");
+  await key("Enter");
+  await line("after title");
+  await key("Enter");
+  await line("> J said");
+  await key("Enter");
+  await line("after said");
+  await key("Enter");
+  await line("---");
+  await line("after rule");
+  await key("Enter");
+  await line("after code");
+  await at("caretAtStart", "after code");
+  await key("Enter");
+  await key("ArrowUp");
+  await slash4("code block", "Code block");
+  await line("J code");
+  const leaves = "paragraph:J line | paragraph:after line | heading:J title | paragraph:after title | quote:J said | paragraph:after said | divider: | paragraph:after rule | codeBlock:J code | paragraph:after code";
+  await agree("J built", leaves);
+  for (const after of ["after line", "after title", "after said", "after rule", "after code"]) {
+    await at("caretAtStart", after);
+    await key("Tab");
+    // Before the next keystroke: the surface must already show what NML holds.
+    await agree(`J tab under ${after.slice(6)}`);
+    await line("!");
+  }
+  await agree("J tabs refused", leaves.replaceAll("paragraph:after", "paragraph:!after"));
+
+  // U: the reported sequence — Tab under a line, type, ⌘Z twice. Before NT-128
+  //    the first ⌘Z brought the pre-Tab line back beside the typed one.
+  await at("caretAtEnd", "!after code");
+  await key("Enter");
+  await line("U1");
+  await key("Enter");
+  await line("U2");
+  await agree("U built", "paragraph:U1 | paragraph:U2");
+  // A pause, as a person makes, so the typing after it is an undo step of its own.
+  await new Promise((r) => setTimeout(r, 800));
+  await key("Tab");
+  await line("x");
+  await agree("U typed", "paragraph:U1 | paragraph:U2x");
+  await chord("Meta", "KeyZ");
+  const undone = await agree("U undone once");
+  await chord("Meta", "KeyZ");
+  const undoneTwice = await agree("U undone twice");
+  assert.equal(count(undone, "U2"), 1, `the first ⌘Z takes back the x: ${undone}`);
+  assert.equal(count(undone, "U2x"), 0, `the first ⌘Z takes back the x: ${undone}`);
+  // The second takes back earlier typing; no line ever comes back twice.
+  for (const text of ["U1", "U2", "U2x"]) {
+    assert.ok(count(undoneTwice, text) <= 1, `${text} is on the page at most once: ${undoneTwice}`);
+  }
+
+  // K: Shift+Tab lifts a line out of a list; the items below it come along as
+  //    its followers, since a line holds no children in NML.
+  await at("caretAtEnd", "!after code");
+  await key("Enter");
+  await line("- K1");
+  await key("Enter");
+  await key("Tab");
+  await line("K2");
+  await key("Enter");
+  await line("K3");
+  await agree("K built", "bulletListItem:K1[bulletListItem:K2 | bulletListItem:K3]");
+  await at("caretAtEnd", "K2");
+  await chord("Meta", "Alt", "Digit0");
+  await agree("K2 a line", "bulletListItem:K1[paragraph:K2 | bulletListItem:K3]");
+  await chord("Shift", "Tab");
+  await agree("K2 lifted", "bulletListItem:K1 | paragraph:K2 | bulletListItem:K3");
+
+  // Typing afterwards still lands, nothing was refused, and a collaborator and
+  // a fresh client show the same page.
+  await at("caretAtEnd", "K3");
+  await line(" end");
+  const p6Wanted = await agree("typed after leaves", "bulletListItem:K3 end");
+  assert.equal(await p4.evaluate(() => window.nmlServed.revertNotice()), false, "no leaf edit was refused");
+  assert.deepEqual(p4Errors.filter((t) => t.includes("NML compatibility mirror")), [], "the mirror never failed on leaves");
+  await p6.waitForFunction((want) => window.nmlServed.surfaceOutline() === want, { timeout: 30000 }, p6Wanted)
+    .catch(async () => assert.fail(`collaborator shows ${JSON.stringify(await p6.evaluate(() => window.nmlServed.surfaceOutline()))}`));
+  const p7 = await openPage();
+  await p7.evaluate((cfg) => window.nmlServed.mount(cfg), { url: CONVEX_URL, jwt: ownerJwt, docId, pageId, projectId });
+  await p7.waitForFunction((want) => window.nmlServed.surfaceOutline() === want, { timeout: 30000 }, p6Wanted)
+    .catch(async () => assert.fail(`remount shows ${JSON.stringify(await p7.evaluate(() => window.nmlServed.surfaceOutline()))}`));
+  await new Promise((r) => setTimeout(r, 1500));
+  assert.equal(await p7.evaluate(() => window.nmlServed.persistedNmlOutline()), p6Wanted, "the remount erased nothing");
+  await p4.screenshot({ path: path.join(output, "served-leaf-nesting.png"), fullPage: true });
+
+
   await pg2.screenshot({ path: path.join(output, "served-editor.png"), fullPage: true });
   assert.deepEqual(errors, [], "no browser errors");
   // Completion and reformat fire on debounces, so whether typing reached them
@@ -628,6 +741,10 @@ try {
       "tab-of-a-subtree-past-four-levels-stays-put",
       "deep-paste-flattens-at-four-levels-and-undoes-whole",
       "depth-edits-survive-collaborator-and-fresh-mount",
+      "tab-under-line-heading-quote-divider-code-stays-put",
+      "tab-type-undo-never-duplicates-a-line",
+      "shift-tab-line-out-of-list-hoists-its-followers",
+      "leaf-edits-survive-collaborator-and-fresh-mount",
     ],
     persistedBlocks,
     sawLegacy,
