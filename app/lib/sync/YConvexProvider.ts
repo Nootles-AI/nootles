@@ -14,6 +14,7 @@ import { splitUpdate } from "@/convex/yshape";
 import { COMMENTS_REFUSED } from "@/app/lib/comments/policy";
 import { WRITE_REFUSED } from "@/convex/roles";
 import { onAccountChange } from "./account";
+import { handOffSession, leaveByBeacon, takeSession, withdrawSession } from "./presenceSession";
 import { openYDoc } from "./ydocRead";
 
 /**
@@ -104,8 +105,7 @@ function withDefaults(options: ProviderOptions): Readonly<Required<ProviderOptio
 export class YConvexProvider {
   private currentDoc: Y.Doc;
   private currentAwareness: Awareness;
-  /** One per instance — the identity of THIS tab's presence row. */
-  readonly sessionId = crypto.randomUUID();
+  private session: string | null = null;
 
   private client: ConvexReactClient;
   private docId: string;
@@ -158,7 +158,27 @@ export class YConvexProvider {
   private peers = 0;
   /** Whether this session has announced itself at all since connecting. */
   private announced = false;
-  private onPageHide = () => void this.sendLeave();
+  /**
+   * The page is going — a refresh, a closed tab, a navigation away. The
+   * goodbye goes by beacon, because the websocket closes with the page and
+   * takes an unsent mutation with it (NT-137); and the session id is left for
+   * the next page in this tab, so a refresh comes back as the same row.
+   */
+  private onPageHide = () => {
+    handOffSession(this.docId, this.sessionId);
+    const leaving = { docId: this.docId, sessionId: this.sessionId, clientId: this.doc.clientID };
+    if (!leaveByBeacon(leaving)) void this.sendLeave();
+  };
+  /**
+   * Restored from the back/forward cache: the same page, still holding its
+   * id, so the handover is withdrawn — and its row was taken down on the way
+   * out, so it announces itself again rather than waiting for the keepalive.
+   */
+  private onPageShow = (event: PageTransitionEvent) => {
+    if (!event.persisted) return;
+    withdrawSession(this.docId);
+    this.sendAwareness();
+  };
 
   constructor(
     client: ConvexReactClient,
@@ -193,6 +213,16 @@ export class YConvexProvider {
 
   get awareness(): Awareness {
     return this.currentAwareness;
+  }
+
+  /**
+   * The identity of THIS tab's presence row: the one the page before it in
+   * this tab handed over, when it was this doc and moments ago (a refresh),
+   * else a fresh one. Settled on first use, so a warmed doc that never opens
+   * takes nothing.
+   */
+  get sessionId(): string {
+    return (this.session ??= takeSession(this.docId) ?? crypto.randomUUID());
   }
 
   get synced(): boolean {
@@ -303,6 +333,7 @@ export class YConvexProvider {
     }, KEEPALIVE_MS);
     if (typeof window !== "undefined") {
       window.addEventListener("pagehide", this.onPageHide);
+      window.addEventListener("pageshow", this.onPageShow);
     }
   }
 
@@ -336,6 +367,7 @@ export class YConvexProvider {
     }
     if (typeof window !== "undefined") {
       window.removeEventListener("pagehide", this.onPageHide);
+      window.removeEventListener("pageshow", this.onPageShow);
     }
     if (this.options.presence) void this.sendLeave();
     // A parting attempt at anything unsent; the queue survives failure and
@@ -542,6 +574,7 @@ export class YConvexProvider {
       .mutation(api.presence.leave, {
         docId: this.docId,
         sessionId: this.sessionId,
+        clientId: this.doc.clientID,
       })
       .catch(() => {});
   }

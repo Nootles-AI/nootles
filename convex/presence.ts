@@ -1,4 +1,4 @@
-import { internalMutation, mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query, type MutationCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { ownerId, standInActor } from "./auth";
 import { checkRead, mayRead } from "./prosemirror";
@@ -13,6 +13,11 @@ import { checkRead, mayRead } from "./prosemirror";
  * Liveness is time-based, never event-based: a closed laptop sends no
  * goodbye. `leave` is a courtesy for the common case; the truth is
  * `updatedAt`, which clients judge against their own clock and a cron sweeps.
+ *
+ * A tab that is going away (a refresh, a closed tab) says goodbye by beacon
+ * to `POST /presence/leave` (`convex/http.ts`), not over the websocket: the
+ * browser closes the socket in the same moment, and a mutation whose socket
+ * closes before it runs never runs (NT-137). Both land in {@link hangUp}.
  */
 
 /** A row older than this is a ghost; the cron deletes, clients ignore sooner. */
@@ -116,23 +121,49 @@ export const roster = query({
 });
 
 export const leave = mutation({
-  args: { docId: v.string(), sessionId: v.string() },
+  args: { docId: v.string(), sessionId: v.string(), clientId: v.optional(v.number()) },
   returns: v.null(),
   handler: async (ctx, args) => {
     // No auth beyond the session id itself: you can only ever hang up your
     // own unguessable session, and a read check would stop a guest from
     // leaving a doc whose link was just revoked — the one moment leaving is
     // exactly what should happen.
-    const existing = await ctx.db
-      .query("presence")
-      .withIndex("by_doc_and_session", (q) =>
-        q.eq("docId", args.docId).eq("sessionId", args.sessionId),
-      )
-      .unique();
-    if (existing) await ctx.db.delete(existing._id);
+    await hangUp(ctx, args);
     return null;
   },
 });
+
+/** The unload beacon's way in (`convex/http.ts`): the same hang-up, no wider. */
+export const leaveByBeacon = internalMutation({
+  args: { docId: v.string(), sessionId: v.string(), clientId: v.optional(v.number()) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await hangUp(ctx, args);
+    return null;
+  },
+});
+
+/**
+ * Deletes a session's row — only the incarnation that is leaving, when it
+ * says which. A refreshed tab keeps its session id (`YConvexProvider`), so
+ * its goodbye can arrive after the reloaded page has already announced itself
+ * under the same id with a new `clientId`; that row is somebody arriving, and
+ * a late goodbye must not take it down.
+ */
+async function hangUp(
+  ctx: MutationCtx,
+  args: { docId: string; sessionId: string; clientId?: number },
+) {
+  const existing = await ctx.db
+    .query("presence")
+    .withIndex("by_doc_and_session", (q) =>
+      q.eq("docId", args.docId).eq("sessionId", args.sessionId),
+    )
+    .unique();
+  if (!existing) return;
+  if (args.clientId !== undefined && existing.clientId !== args.clientId) return;
+  await ctx.db.delete(existing._id);
+}
 
 /** The cron's sweep of sessions that never said goodbye. */
 export const sweep = internalMutation({
