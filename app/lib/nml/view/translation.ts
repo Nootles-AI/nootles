@@ -408,33 +408,40 @@ export function compileProjectionChange(before: NmlDocument, after: NmlDocument)
     }
   }
 
-  const available = new Set(was.keys());
   const insertedClone = (block: NmlBlock): NmlBlock => ({
     ...structuredClone(block),
     children: block.children.filter((child) => inserted.has(child.id)).map(insertedClone),
   }) as NmlBlock;
-  [...next.values()].filter(({ block, parentId }) => inserted.has(block.id) && (parentId === null || !inserted.has(parentId)))
-    .sort((left, right) => left.index - right.index)
-    .forEach(({ block, parentId, index }) => {
-      commands.push({ type: "insertNodes", parentId, anchor: anchorFor(after, parentId, index, available), nodes: [insertedClone(block)] });
-      const add = (node: NmlBlock) => { available.add(node.id); changed.add(node.id); node.children.forEach(add); };
-      add(block);
-    });
-
   const wasRank = sharedRanks(was, next);
   const nextRank = sharedRanks(next, was);
-  for (const [id, current] of next) {
-    const prior = was.get(id);
-    if (!prior || inserted.has(id)) continue;
-    if (prior.parentId !== current.parentId || wasRank.get(id) !== nextRank.get(id)) {
+  const moves = (id: string) => {
+    const prior = was.get(id)!;
+    return prior.parentId !== next.get(id)!.parentId || wasRank.get(id) !== nextRank.get(id);
+  };
+  // The executor places a block beside its anchor only when the anchor is
+  // already under the destination parent; any other anchor appends. So a
+  // block anchors only on siblings already where `after` puts them: blocks
+  // that stay, and those this pass has inserted or moved. Walking `after` in
+  // document order settles every parent and earlier sibling first.
+  const settled = new Set([...next.keys()].filter((id) => was.has(id) && !moves(id)));
+  const visit = (blocks: NmlBlock[], parentId: string | null) => blocks.forEach((block, index) => {
+    if (inserted.has(block.id)) {
+      if (parentId === null || !inserted.has(parentId)) {
+        commands.push({ type: "insertNodes", parentId, anchor: anchorFor(after, parentId, index, settled), nodes: [insertedClone(block)] });
+      }
+      changed.add(block.id);
+    } else if (!settled.has(block.id)) {
       commands.push({
         type: "moveNodes",
-        nodeIds: [id],
-        destination: { parentId: current.parentId, anchor: anchorFor(after, current.parentId, current.index, available) },
+        nodeIds: [block.id],
+        destination: { parentId, anchor: anchorFor(after, parentId, index, settled) },
       });
-      changed.add(id);
+      changed.add(block.id);
     }
-  }
+    settled.add(block.id);
+    visit(block.children, block.id);
+  });
+  visit(after.blocks, null);
 
   const removalRoots = [...was.values()].filter(({ block, parentId }) => removed.has(block.id) && (parentId === null || !removed.has(parentId)));
   if (removalRoots.length) {

@@ -176,7 +176,7 @@ await build({
 });
 await writeFile(
   path.join(output, "index.html"),
-  `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/nml-served-editor.browser.css"></head><body><div id="app">loading</div><script type="module" src="/nml-served-editor.browser.js"></script></body></html>`,
+  `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/nml-served-editor.browser.css"><style>#editor-host{margin-left:72px}</style></head><body><div id="app">loading</div><script type="module" src="/nml-served-editor.browser.js"></script></body></html>`,
 );
 const pageServer = createServer(async (request, response) => {
   try {
@@ -364,6 +364,155 @@ try {
   assert.deepEqual(afterRemount, wanted, "the remount erased nothing");
   await pg2.screenshot({ path: path.join(output, "served-type-changes.png"), fullPage: true });
 
+  // ── Phase 4 (NT-126): a list or toggle item holding children turned into a
+  //    leaf through every real path — Backspace at its start, ⌘⌥0 and ⌘⌥1, and
+  //    the grip's Turn into → Code — plus several blocks outdented at once. NML
+  //    has no leaf with children, so the children come out after it, in order;
+  //    the surface must then show exactly what canonical NML holds. ───────────
+  const p4 = pg3;
+  const p4Errors = [];
+  p4.on("console", (m) => { if (m.type() === "error") p4Errors.push(m.text()); });
+  const frames = () => p4.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const at = async (where, text) => {
+    assert.ok(await p4.evaluate((w, t) => window.nmlServed[w](t), where, text), `${where} "${text}"`);
+    await frames();
+  };
+  const chord = async (...keys) => {
+    for (const key of keys.slice(0, -1)) await p4.keyboard.down(key);
+    await p4.keyboard.press(keys.at(-1));
+    for (const key of keys.slice(0, -1).reverse()) await p4.keyboard.up(key);
+    await frames();
+  };
+  const line = async (text) => { await p4.keyboard.type(text); await frames(); };
+  const key = async (name) => { await p4.keyboard.press(name); await frames(); };
+  // The surface and the persisted canonical tree must agree, and say `want`.
+  const agree = async (label, want) => {
+    const result = await p4.waitForFunction(async (expected) => {
+      const surface = window.nmlServed.surfaceOutline();
+      const persisted = await window.nmlServed.persistedNmlOutline();
+      return surface === persisted && (!expected || surface.includes(expected)) ? surface : false;
+    }, { timeout: 20000, polling: 400 }, want ?? "").then((h) => h.jsonValue()).catch(async () => assert.fail(
+      `${label}: surface ${JSON.stringify(await p4.evaluate(() => window.nmlServed.surfaceOutline()))}\n  persisted ${JSON.stringify(await p4.evaluate(() => window.nmlServed.persistedNmlOutline()))}\n  wanted ${JSON.stringify(want)}; notice ${await p4.evaluate(() => window.nmlServed.revertNotice())}; errors ${JSON.stringify(p4Errors)}`,
+    ));
+    return result;
+  };
+  await agree("start");
+
+  // A: a bullet with a child; Backspace at its start makes it a paragraph.
+  await at("caretAtEnd", "after divider");
+  await key("Enter");
+  await line("- A item");
+  await key("Enter");
+  await key("Tab");
+  await line("A child");
+  await agree("A built");
+  await at("caretAtStart", "A item");
+  await key("Backspace");
+  await agree("A converted", "paragraph:after divider | paragraph:A item | bulletListItem:A child | image:");
+
+  // B: a toggle with a child; ⌘⌥0 makes it a paragraph.
+  await at("caretAtEnd", "after divider");
+  await key("Enter");
+  await line("B toggle");
+  await chord("Meta", "Alt", "Digit7");
+  await key("Enter");
+  await key("Tab");
+  await line("B child");
+  await agree("B built");
+  await at("caretAtEnd", "B toggle");
+  await chord("Meta", "Alt", "Digit0");
+  await agree("B converted", "paragraph:after divider | paragraph:B toggle | toggleListItem:B child | paragraph:A item");
+
+  // C: a bullet with two children, the first nesting its own; ⌘⌥1 makes it a
+  // heading. Before NT-126 the first child landed at the end of the page.
+  await at("caretAtEnd", "after divider");
+  await key("Enter");
+  await line("- C item");
+  await key("Enter");
+  await key("Tab");
+  await line("C one");
+  await key("Enter");
+  await key("Tab");
+  await line("C grand");
+  await key("Enter");
+  await chord("Shift", "Tab");
+  await line("C two");
+  await agree("C built");
+  await at("caretAtEnd", "C item");
+  await chord("Meta", "Alt", "Digit1");
+  await agree("C converted", "paragraph:after divider | heading:C item | bulletListItem:C one[bulletListItem:C grand] | bulletListItem:C two | paragraph:B toggle");
+
+  // D: a toggle with a child, through the grip's Turn into → Code.
+  await at("caretAtEnd", "after divider");
+  await key("Enter");
+  await line("D toggle");
+  await chord("Meta", "Alt", "Digit7");
+  await key("Enter");
+  await key("Tab");
+  await line("D child");
+  await agree("D built");
+  const box = await p4.evaluate(() => window.nmlServed.lineBox("D toggle"));
+  await p4.mouse.move(box.x + 5, box.y);
+  const grip = await p4.waitForSelector('button[aria-label="Block actions"]', { visible: true, timeout: 5000 });
+  const gripBox = await grip.boundingBox();
+  await p4.mouse.click(gripBox.x + gripBox.width / 2, gripBox.y + gripBox.height / 2);
+  await p4.waitForSelector(".bn-drag-handle-menu", { timeout: 5000 }).catch(async (error) => {
+    await p4.screenshot({ path: path.join(output, "grip.png"), fullPage: true });
+    throw error;
+  });
+  const menuItem = async (label) => {
+    const handle = await p4.waitForFunction((want) => [...document.querySelectorAll(".mantine-Menu-item")]
+      .find((el) => el.textContent.trim() === want), { timeout: 5000 }, label);
+    return handle.asElement();
+  };
+  await (await menuItem("Turn into")).hover();
+  await p4.waitForSelector(".nt-turn-into-menu");
+  await new Promise((r) => setTimeout(r, 200));
+  await (await menuItem("Code")).click();
+  await p4.waitForFunction(() => !document.querySelector(".bn-drag-handle-menu"), { timeout: 5000 }).catch(() => {});
+  await key("Escape");
+  await agree("D converted", "paragraph:after divider | codeBlock:D toggle | toggleListItem:D child | heading:C item");
+
+  // E: two children outdented at once with a selection and Shift+Tab.
+  await at("caretAtEnd", "after divider");
+  await key("Enter");
+  await line("- E parent");
+  await key("Enter");
+  await key("Tab");
+  await line("E one");
+  await key("Enter");
+  await line("E two");
+  await agree("E built");
+  assert.ok(await p4.evaluate(() => window.nmlServed.selectLines("E one", "E two")), "select E one..E two");
+  await frames();
+  await chord("Shift", "Tab");
+  await agree("E outdented", "paragraph:after divider | bulletListItem:E parent | bulletListItem:E one | bulletListItem:E two | codeBlock:D toggle");
+
+  // Typing after all of it still reaches NML, nothing was refused, and a
+  // fresh client's mount projects the same tree back.
+  await at("caretAtEnd", "A child");
+  await line("!");
+  const p4Wanted = [
+    "paragraph:hello WORLD AGAIN", "divider:", "paragraph:after divider",
+    "bulletListItem:E parent", "bulletListItem:E one", "bulletListItem:E two",
+    "codeBlock:D toggle", "toggleListItem:D child",
+    "heading:C item", "bulletListItem:C one[bulletListItem:C grand]", "bulletListItem:C two",
+    "paragraph:B toggle", "toggleListItem:B child",
+    "paragraph:A item", "bulletListItem:A child!",
+    "image:", "mathBlock:", "table:",
+  ].join(" | ");
+  assert.equal(await agree("typed after", "A child!"), p4Wanted, "the page holds every conversion, in order");
+  assert.equal(await p4.evaluate(() => window.nmlServed.revertNotice()), false, "no conversion was refused");
+  assert.deepEqual(p4Errors.filter((t) => t.includes("NML compatibility mirror")), [], "the mirror never failed");
+  const p5 = await openPage();
+  await p5.evaluate((cfg) => window.nmlServed.mount(cfg), { url: CONVEX_URL, jwt: ownerJwt, docId, pageId, projectId });
+  await p5.waitForFunction((want) => window.nmlServed.surfaceOutline() === want, { timeout: 30000 }, p4Wanted)
+    .catch(async () => assert.fail(`remount shows ${JSON.stringify(await p5.evaluate(() => window.nmlServed.surfaceOutline()))}`));
+  await new Promise((r) => setTimeout(r, 1500));
+  assert.equal(await p5.evaluate(() => window.nmlServed.persistedNmlOutline()), p4Wanted, "the remount erased nothing");
+  await p4.screenshot({ path: path.join(output, "served-leaf-conversions.png"), fullPage: true });
+
+
   await pg2.screenshot({ path: path.join(output, "served-editor.png"), fullPage: true });
   assert.deepEqual(errors, [], "no browser errors");
   // Completion and reformat fire on debounces, so whether typing reached them
@@ -385,6 +534,12 @@ try {
       "divider-table-math-image-conversions-reach-nml",
       "edits-after-conversions-reach-nml",
       "fresh-mount-erases-nothing",
+      "backspace-bullet-with-child-to-paragraph",
+      "mod-alt-0-toggle-with-child-to-paragraph",
+      "mod-alt-1-nested-children-to-heading-in-order",
+      "turn-into-code-toggle-with-child",
+      "multi-block-shift-tab-in-order",
+      "leaf-conversions-survive-fresh-mount",
     ],
     persistedBlocks,
     sawLegacy,

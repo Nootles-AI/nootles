@@ -25,6 +25,7 @@ import { OpenPageProvider } from "../app/components/OpenPageContext";
 import { ReviewProvider } from "../app/components/ReviewContext";
 import { readYDocUpdates } from "../app/lib/sync/ydocRead";
 import { decodeNmlDocument } from "../app/lib/nml/yjs";
+import type { NmlBlock } from "../app/lib/nml/schema";
 import * as Y from "yjs";
 import type { Id } from "../convex/_generated/dataModel";
 import "@blocknote/mantine/style.css";
@@ -143,6 +144,87 @@ const harness = {
     if (!last) return false;
     document.getSelection()?.collapse(last, last.length);
     return true;
+  },
+  /**
+   * The persisted canonical tree as one line, `type:text[children]` (NT-126):
+   * nesting and order, which a flat block list cannot show.
+   */
+  async persistedNmlOutline() {
+    if (!client) return "";
+    const updates = await readYDocUpdates(client, currentDocId);
+    const doc = new Y.Doc();
+    for (const u of updates) Y.applyUpdate(doc, new Uint8Array(u));
+    const text = (b: NmlBlock) => "content" in b
+      ? b.content.map((n) => (n.type === "text" ? n.text : "")).join("")
+      : b.type === "codeBlock" ? b.code : "";
+    const outline = (blocks: NmlBlock[]): string => blocks
+      .filter((b) => b.type !== "paragraph" || text(b) || b.children.length)
+      .map((b) => `${b.type}:${text(b)}${b.children.length ? `[${outline(b.children)}]` : ""}`)
+      .join(" | ");
+    const result = outline(decodeNmlDocument(doc).blocks);
+    doc.destroy();
+    return result;
+  },
+  /** The same outline, read off what the served surface shows. */
+  surfaceOutline() {
+    const outline = (group: Element | null): string => [...(group?.children ?? [])]
+      .filter((el) => el.classList.contains("bn-block-outer"))
+      .map((outer) => {
+        const block = outer.querySelector(":scope > .bn-block")!;
+        const content = block.querySelector<HTMLElement>(
+          ":scope > .bn-block-content, :scope > .react-renderer > .bn-block-content",
+        );
+        const type = content?.dataset.contentType ?? "";
+        // A collaborator's caret and name label sit inside the line.
+        const read = (el: Element | null | undefined) => {
+          if (!el) return "";
+          const copy = el.cloneNode(true) as Element;
+          copy.querySelectorAll(".nt-remote-caret, .collaboration-cursor__base").forEach((cursor) => cursor.remove());
+          return (copy.textContent ?? "").replace(/\u2060/g, "");
+        };
+        const text = read(content?.querySelector(type === "codeBlock" ? ".cm-content" : ".bn-inline-content"));
+        const children = outline(block.querySelector(":scope > .bn-block-group"));
+        return type === "paragraph" && !text && !children ? "" : `${type}:${text}${children ? `[${children}]` : ""}`;
+      })
+      .filter(Boolean)
+      .join(" | ");
+    return outline(document.querySelector('#editor-host [data-nml-served="true"] .bn-block-group'));
+  },
+  /** Put the caret before the first glyph of the line reading `text`. */
+  caretAtStart(text: string) {
+    const line = [...document.querySelectorAll<HTMLElement>(
+      '#editor-host [data-nml-served="true"] .bn-inline-content',
+    )].find((el) => el.textContent === text);
+    const view = document.querySelector<HTMLElement>('#editor-host [data-nml-served="true"] .bn-editor');
+    if (!line || !view) return false;
+    view.focus();
+    const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+    if (!walker.nextNode()) return false;
+    document.getSelection()?.collapse(walker.currentNode, 0);
+    return true;
+  },
+  /** Select from the start of the line reading `from` to the end of `to`. */
+  selectLines(from: string, to: string) {
+    const lines = [...document.querySelectorAll<HTMLElement>(
+      '#editor-host [data-nml-served="true"] .bn-inline-content',
+    )];
+    const first = lines.find((el) => el.textContent === from);
+    const last = lines.find((el) => el.textContent === to);
+    if (!first || !last) return false;
+    const start = document.createTreeWalker(first, NodeFilter.SHOW_TEXT);
+    const end = document.createTreeWalker(last, NodeFilter.SHOW_TEXT);
+    if (!start.nextNode() || !end.nextNode()) return false;
+    document.querySelector<HTMLElement>('#editor-host [data-nml-served="true"] .bn-editor')?.focus();
+    document.getSelection()?.setBaseAndExtent(start.currentNode, 0, end.currentNode, (end.currentNode as Text).length);
+    return true;
+  },
+  /** Where the line reading `text` is on screen, for the pointer. */
+  lineBox(text: string) {
+    const line = [...document.querySelectorAll<HTMLElement>(
+      '#editor-host [data-nml-served="true"] .bn-inline-content',
+    )].find((el) => el.textContent === text);
+    const box = line?.getBoundingClientRect();
+    return box ? { x: box.x, y: box.y + box.height / 2 } : null;
   },
   /** Whether the "change couldn't be saved" notice is up. */
   revertNotice() {
