@@ -76,6 +76,7 @@ import { commentExtension } from "./comments/commentExtension";
 import { CommentDecorationsBridge } from "./comments/CommentDecorationsBridge";
 import { blockSelection, blockSelectionExtension } from "./blockSelection";
 import { indentExtension } from "./indent";
+import { depthLimitExtension } from "./depthLimit";
 import { blockKeysExtension } from "./blockKeys";
 import { notionKeysExtension } from "./notionKeys";
 import { useBlockMarquee } from "./useBlockMarquee";
@@ -681,6 +682,7 @@ function YjsEditor({
     () => [
       ...EXTENSIONS,
       trailingParagraphExtension({ enabled: () => !readOnly }),
+      depthLimitExtension({ enabled: () => !readOnly }),
     ],
     [readOnly],
   );
@@ -786,6 +788,7 @@ function LegacyEditor({ docId, pageId, title = "" }: EditorProps) {
     () => [
       ...EXTENSIONS,
       trailingParagraphExtension({ enabled: () => !readOnly }),
+      depthLimitExtension({ enabled: () => !readOnly }),
     ],
     [readOnly],
   );
