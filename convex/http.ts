@@ -87,6 +87,42 @@ http.route({ path: "/mcp", method: "OPTIONS", handler: mcp.preflight });
 http.route({ path: "/mcp", method: "GET", handler: mcp.mcpOther });
 http.route({ path: "/mcp", method: "DELETE", handler: mcp.mcpOther });
 
+/**
+ * A tab's goodbye as it unloads (NT-137): `navigator.sendBeacon` from
+ * `YConvexProvider` on `pagehide`, because the websocket `presence.leave`
+ * rides dies with the page. The body is `{docId, sessionId, clientId}` sent as
+ * text/plain, which keeps the beacon a simple request with no preflight; the
+ * answer is never read. No auth, exactly as `presence.leave` takes none: the
+ * unguessable session id is the capability, and it can only hang up itself.
+ */
+http.route({
+  path: "/presence/leave",
+  method: "POST",
+  handler: httpAction(async (ctx, req) => {
+    const leaving = leavingOf(await req.text().catch(() => ""));
+    if (!leaving) return new Response(null, { status: 400 });
+    await ctx.runMutation(internal.presence.leaveByBeacon, leaving);
+    return new Response(null, { status: 204 });
+  }),
+});
+
+/** What a beacon names, or null for anything that is not a well-formed goodbye. */
+export function leavingOf(body: string): { docId: string; sessionId: string; clientId?: number } | null {
+  if (body.length > 1024) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const { docId, sessionId, clientId } = parsed as Record<string, unknown>;
+  if (typeof docId !== "string" || !docId || docId.length > 256) return null;
+  if (typeof sessionId !== "string" || !sessionId || sessionId.length > 256) return null;
+  if (clientId !== undefined && !Number.isSafeInteger(clientId)) return null;
+  return { docId, sessionId, ...(clientId === undefined ? {} : { clientId: clientId as number }) };
+}
+
 /** Clerk's webhook: a change to an account's addresses in Clerk (`identity.ts`). */
 http.route({ path: "/clerk/webhook", method: "POST", handler: clerkWebhook });
 
