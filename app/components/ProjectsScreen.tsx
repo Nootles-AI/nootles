@@ -280,14 +280,14 @@ export function ProjectsScreen() {
    * like the keystroke was lost. It says so instead, and keeps the field open.
    */
   const commitRename = useCallback(
-    (id: Id<"projects">, name: string) => {
+    (id: Id<"projects">, name: string, base: string) => {
       const title = name.trim();
       if (!title) {
         setFailure("A project needs a name.");
         return;
       }
       setEditingId(null);
-      renameProject({ projectId: id, title }).catch(() =>
+      renameProject({ projectId: id, title, base }).catch(() =>
         setFailure("That rename didn’t save."),
       );
     },
@@ -732,7 +732,7 @@ const Lead = memo(function Lead({
   editing: boolean;
   onOpen: (id: Id<"projects">) => void;
   onRename: (project: Project) => void;
-  onCommit: (id: Id<"projects">, name: string) => void;
+  onCommit: (id: Id<"projects">, name: string, base: string) => void;
   onCancel: () => void;
   onExport: (project: Project) => void;
   onDelete: (project: Project) => void;
@@ -746,7 +746,7 @@ const Lead = memo(function Lead({
         {editing ? (
           <NameField
             initial={project.title}
-            onCommit={(text) => onCommit(project._id, text)}
+            onCommit={(text, base) => onCommit(project._id, text, base)}
             onCancel={onCancel}
             className="nt-lead-name relative block w-full"
           />
@@ -791,7 +791,7 @@ const Card = memo(function Card({
   editing: boolean;
   onOpen: (id: Id<"projects">) => void;
   onRename: (project: Project) => void;
-  onCommit: (id: Id<"projects">, name: string) => void;
+  onCommit: (id: Id<"projects">, name: string, base: string) => void;
   onCancel: () => void;
   onExport: (project: Project) => void;
   onDelete: (project: Project) => void;
@@ -809,7 +809,7 @@ const Card = memo(function Card({
           {editing ? (
             <NameField
               initial={project.title}
-              onCommit={(text) => onCommit(project._id, text)}
+              onCommit={(text, base) => onCommit(project._id, text, base)}
               onCancel={onCancel}
               className="nt-card-name block w-full"
             />
@@ -857,7 +857,7 @@ const Row = memo(function Row({
   editing: boolean;
   onOpen: (id: Id<"projects">) => void;
   onRename: (project: Project) => void;
-  onCommit: (id: Id<"projects">, name: string) => void;
+  onCommit: (id: Id<"projects">, name: string, base: string) => void;
   onCancel: () => void;
   onExport: (project: Project) => void;
   onDelete: (project: Project) => void;
@@ -869,7 +869,7 @@ const Row = memo(function Row({
       {editing ? (
         <NameField
           initial={project.title}
-          onCommit={(text) => onCommit(project._id, text)}
+          onCommit={(text, base) => onCommit(project._id, text, base)}
           onCancel={onCancel}
           className="nt-row-edit is-selected min-w-0 flex-1 font-medium"
         />

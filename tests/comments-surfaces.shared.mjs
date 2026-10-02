@@ -168,10 +168,11 @@ const BENIGN = [/Download the React DevTools/, /\[Fast Refresh\]/];
  * the WebSocket for one that never connects. A console error matching
  * `expected` is collected in `expectedErrors` for the run to count, not failed.
  * `setup(context, page)` runs before the first load (init scripts, routes,
- * permissions), and `path` is where that load goes.
+ * permissions), and `path` is where that load goes. `context` opens the tab in
+ * an existing browser context — one person's second tab — instead of a new one.
  */
-export async function guardedTab(browser, { origin, allow = [], inert, label, failures, expected, viewport = { width: 1280, height: 820 }, setup, path: first = "" }) {
-  const context = await browser.newContext({ viewport });
+export async function guardedTab(browser, { origin, allow = [], inert, label, failures, expected, viewport = { width: 1280, height: 820 }, setup, path: first = "", context: shared }) {
+  const context = shared ?? await browser.newContext({ viewport });
   const page = await context.newPage();
   const lanes = [];
   const expectedErrors = [];

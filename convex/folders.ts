@@ -6,6 +6,7 @@ import { isTrashed, readVisible, requireEditable } from "./auth";
 import { clonePage, endOrder, folderIn, levelOf } from "./pages";
 import { refreshPageSummary } from "./projects";
 import { rowIcon } from "./schema";
+import { rebaseText } from "@/app/lib/rebaseText";
 
 /**
  * Sidebar folders — the project's navigation tree. Pure structure: a folder
@@ -82,11 +83,16 @@ export const create = mutation({
   },
 });
 
+/** `base`: the name the rename started from, as `pages.rename` (NT-138). */
 export const rename = mutation({
-  args: { folderId: v.id("folders"), title: v.string() },
+  args: { folderId: v.id("folders"), title: v.string(), base: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    await requireEditable(ctx, "folders", args.folderId);
-    await ctx.db.patch(args.folderId, { title: args.title });
+    const folder = await requireEditable(ctx, "folders", args.folderId);
+    const title =
+      args.base === undefined || args.base === folder.title
+        ? args.title
+        : rebaseText(args.base, args.title, folder.title);
+    await ctx.db.patch(args.folderId, { title });
   },
 });
 

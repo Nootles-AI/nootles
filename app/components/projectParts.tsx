@@ -267,22 +267,27 @@ export function NameField({
   className,
 }: {
   initial: string;
-  onCommit: (name: string) => void;
+  /** `base` is the name the field opened on, to rebase from (NT-138). */
+  onCommit: (name: string, base: string) => void;
   onCancel: () => void;
   className: string;
 }) {
   const [draft, setDraft] = useState(initial);
+  // The name as the field opened: nothing typed writes nothing, so a rename
+  // made elsewhere meanwhile is not put back by an untouched field (NT-138).
+  const [base] = useState(initial);
+  const commit = () => (draft === base ? onCancel() : onCommit(draft, base));
   return (
     <Editable
       autoFocus
       value={draft}
       label="Project name"
       onInput={setDraft}
-      onBlur={() => onCommit(draft)}
+      onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
           e.preventDefault();
-          onCommit(draft);
+          commit();
         }
         if (e.key === "Escape") {
           e.preventDefault();

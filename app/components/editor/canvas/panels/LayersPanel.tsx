@@ -217,6 +217,13 @@ export function LayersPanel({
   const [renaming, setRenaming] = useState<{ id: NodeId; draft: string } | null>(
     null,
   );
+  /** The name a rename opened on: a draft still equal to it writes nothing,
+   *  so a collaborator's rename meanwhile is not put back (NT-138). */
+  const renameFrom = useRef<string | null>(null);
+  const rename = (next: { id: NodeId; draft: string } | null) => {
+    if (next && next.id !== renaming?.id) renameFrom.current = next.draft;
+    setRenaming(next);
+  };
   const [moving, setMoving] = useState<ReadonlySet<NodeId> | null>(null);
   const [drop, setDrop] = useState<Drop | null>(null);
   const { open: openMenu, menu } = useContextMenu(store, selection, page ?? undefined);
@@ -277,7 +284,7 @@ export function LayersPanel({
 
   const commitRename = (id: NodeId, draft: string) => {
     const name = draft.trim();
-    store.dispatch({ type: "setName", id, name: name || undefined });
+    if (draft !== renameFrom.current) store.dispatch({ type: "setName", id, name: name || undefined });
     setRenaming(null);
   };
 
@@ -449,7 +456,7 @@ export function LayersPanel({
             onHover={hoverRow}
             onMenu={openRowMenu}
             onToggleExpanded={toggleExpanded}
-            onRename={setRenaming}
+            onRename={rename}
             onRenameEnd={commitRename}
           />
         ))}
