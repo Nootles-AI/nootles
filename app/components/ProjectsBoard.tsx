@@ -76,7 +76,7 @@ export function ProjectsBoard({
   editingId: Id<"projects"> | null;
   onOpen: (id: Id<"projects">) => void;
   onRename: (project: Project) => void;
-  onCommit: (id: Id<"projects">, name: string) => void;
+  onCommit: (id: Id<"projects">, name: string, base: string) => void;
   onCancel: () => void;
   onExport: (project: Project) => void;
   onDelete: (project: Project) => void;
@@ -368,7 +368,7 @@ const Frame = memo(function Frame({
   editing: boolean;
   onOpen: (id: Id<"projects">) => void;
   onRename: (project: Project) => void;
-  onCommit: (id: Id<"projects">, name: string) => void;
+  onCommit: (id: Id<"projects">, name: string, base: string) => void;
   onCancel: () => void;
   onExport: (project: Project) => void;
   onDelete: (project: Project) => void;
@@ -388,7 +388,7 @@ const Frame = memo(function Frame({
         {editing ? (
           <NameField
             initial={project.title}
-            onCommit={(text) => onCommit(project._id, text)}
+            onCommit={(text, base) => onCommit(project._id, text, base)}
             onCancel={onCancel}
             className="nt-board-name relative"
           />

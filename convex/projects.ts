@@ -28,6 +28,7 @@ import { linkPages, notionPageRef } from "./notion/context";
 import { deletePreview } from "./previews";
 import { personOf } from "./profiles";
 import { repoRef } from "./schema";
+import { rebaseText } from "@/app/lib/rebaseText";
 
 /**
  * The page facts the projects screen draws — how many, which one to preview,
@@ -499,17 +500,26 @@ export const listForScreen = query({
   },
 });
 
+/**
+ * `base` is the name the rename field opened on; if the project was renamed
+ * elsewhere since, what was typed is rebased onto that name (NT-138, as
+ * `pages.rename`). Without it the title is written as given.
+ */
 export const rename = mutation({
-  args: { projectId: v.id("projects"), title: v.string() },
+  args: { projectId: v.id("projects"), title: v.string(), base: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const project = await requireManageable(ctx, "projects", args.projectId);
-    if (project.title === args.title) return;
-    await ctx.db.patch(args.projectId, { title: args.title });
+    const title =
+      args.base === undefined || args.base === project.title
+        ? args.title
+        : rebaseText(args.base, args.title, project.title);
+    if (project.title === title) return;
+    await ctx.db.patch(args.projectId, { title });
     await recordInProject(ctx, project, {
       action: "project.rename",
       subjectKind: "project",
       subjectId: project._id,
-      meta: { from: project.title, to: args.title },
+      meta: { from: project.title, to: title },
     });
   },
 });

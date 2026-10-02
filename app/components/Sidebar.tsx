@@ -204,6 +204,9 @@ export function Sidebar({
   const [confirming, setConfirming] = useState<readonly Target[] | null>(null);
   const [showingContext, setShowingContext] = useState<{ focus?: string } | null>(null);
   const [draft, setDraft] = useState("");
+  /** The name the rename started from: a draft still equal to it writes
+   *  nothing, and one that differs is rebased from it (NT-138). */
+  const [draftBase, setDraftBase] = useState("");
   /** The rows the verbs act on. Finder's rules: click, ⌘-click, shift-range. */
   const [selection, setSelection] = useState<readonly Target[]>([]);
   /** Where a shift-range measures from — the last row picked outright. */
@@ -408,34 +411,41 @@ export function Sidebar({
   const commit = () => {
     const title = draft.trim();
     if (!editing) return;
+    // Nothing typed: leave the name alone, even if it changed elsewhere since
+    // the field opened — writing the draft back would undo that change.
+    if (draft === draftBase) {
+      setEditing(null);
+      return;
+    }
+    const base = draftBase;
     if (editing.kind === "project") {
       const before = project?.title ?? "";
       if (title && title !== before) {
-        void renameProject({ projectId, title });
+        void renameProject({ projectId, title, base });
         recordChrome({
-          undo: () => renameProject({ projectId, title: before }),
-          redo: () => renameProject({ projectId, title }),
+          undo: () => renameProject({ projectId, title: before, base: title }),
+          redo: () => renameProject({ projectId, title, base: before }),
         });
       }
     } else if (editing.kind === "page") {
       // Empty is allowed: the row falls back to "Untitled".
       const before = nameOf(editing);
       const pageId = editing.id;
-      void renamePage({ pageId, title });
+      void renamePage({ pageId, title, base });
       if (title !== before) {
         recordChrome({
-          undo: () => renamePage({ pageId, title: before }),
-          redo: () => renamePage({ pageId, title }),
+          undo: () => renamePage({ pageId, title: before, base: title }),
+          redo: () => renamePage({ pageId, title, base: before }),
         });
       }
     } else {
       const before = nameOf(editing);
       const folderId = editing.id;
-      void renameFolder({ folderId, title });
+      void renameFolder({ folderId, title, base });
       if (title !== before) {
         recordChrome({
-          undo: () => renameFolder({ folderId, title: before }),
-          redo: () => renameFolder({ folderId, title }),
+          undo: () => renameFolder({ folderId, title: before, base: title }),
+          redo: () => renameFolder({ folderId, title, base: before }),
         });
       }
     }
@@ -447,6 +457,7 @@ export function Sidebar({
     current: string,
   ) => {
     setDraft(current);
+    setDraftBase(current);
     setEditing(who);
   };
 

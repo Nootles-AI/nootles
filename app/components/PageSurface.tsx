@@ -74,11 +74,16 @@ export function PageSurface({
   // it on input and write through.
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /** The save the debounce is holding, run early when the page goes. */
+  const pendingTitle = useRef<(() => void) | null>(null);
+
+  // Leaving the page (or switching this pane to another) saves what was typed
+  // now, against this page's base — not later, against the next page's.
   useEffect(
     () => () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (debounceRef.current) pendingTitle.current?.();
     },
-    [],
+    [pageId],
   );
 
   // The page row's place on the workspace timeline — its title and its mode
@@ -96,17 +101,9 @@ export function PageSurface({
       unregister();
     };
   }, [spine, pageId]);
-  /** The last title this surface knows to be persisted — the entry's "before". */
-  const committedTitle = useRef<string | null>(null);
-  const titleHost = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    committedTitle.current = null;
-  }, [pageId]);
-  useEffect(() => {
-    // Mirror the live row while no edit is pending — an undo, or a rename
-    // from the sidebar, moves the baseline the next entry diffs against.
-    if (page && debounceRef.current === null) committedTitle.current = page.title;
-  });
+  /** The title the field's text is based on — the entry's "before", and what
+   *  a save is rebased against if the row has moved on since (NT-138). */
+  const titleBase = useRef<string | null>(null);
   if (page === undefined) return <PageSkeleton />;
   if (page === null) {
     return (
@@ -116,37 +113,29 @@ export function PageSurface({
     );
   }
 
-  /** Write a title back — an undo or redo landing. The Editable only accepts
-   *  pushed values while unfocused, so a caret sitting in the title lets go. */
-  const restoreTitle = (title: string) => {
-    committedTitle.current = title;
-    const active = document.activeElement;
-    if (
-      active instanceof HTMLElement &&
-      titleHost.current?.contains(active)
-    ) {
-      active.blur();
-    }
-    return rename({ pageId, title }).then(() => {});
-  };
+  /** Write a title back — an undo or redo landing — against the title it
+   *  undoes, so only this entry's change is taken back if the row has moved
+   *  on since (another tab's rename stays). */
+  const restoreTitle = (title: string, base: string) =>
+    rename({ pageId, title, base }).then(() => {});
 
   /** Write the title now, and record it — anything still debounced folds in. */
   const commitTitle = (text: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = null;
-    const before = committedTitle.current ?? "";
+    const before = titleBase.current ?? "";
     if (text === before) return;
-    committedTitle.current = text;
-    void rename({ pageId, title: text });
+    void rename({ pageId, title: text, base: before });
     pageDomainRef.current?.record({
-      undo: () => restoreTitle(before),
-      redo: () => restoreTitle(text),
+      undo: () => restoreTitle(before, text),
+      redo: () => restoreTitle(text, before),
     });
   };
 
   const persistTitle = (text: string) => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => commitTitle(text), 400);
+    pendingTitle.current = () => commitTitle(text);
+    debounceRef.current = setTimeout(pendingTitle.current, 400);
   };
 
   return (
@@ -208,12 +197,13 @@ export function PageSurface({
           </h1>
         ) : (
         <div
-          ref={titleHost}
           {...{ [TITLE_ATTR]: "" }}
           {...undoScope}
         >
         <Editable
+          key={pageId}
           value={page.title}
+          baseRef={titleBase}
           onInput={persistTitle}
           onKeyDown={(e) => leaveTitle(e, () => registry.editorFor(pageId), commitTitle)}
           placeholder="Untitled"

@@ -11,6 +11,7 @@ import { purgeCommentsDoc, refreshPageSummary, stampProject } from "./projects";
 import { rowIcon } from "./schema";
 import { registerPageDoc } from "./nmlMigration";
 import { registerYDoc } from "./ydoc";
+import { rebaseText } from "@/app/lib/rebaseText";
 
 export const listByProject = query({
   args: { projectId: v.id("projects") },
@@ -352,13 +353,25 @@ async function copyDoc(ctx: MutationCtx, from: string, to: string): Promise<bool
   return false;
 }
 
+/**
+ * Renames a page. The title is one string, so two tabs typing into it would
+ * otherwise be last-writer-wins. A client typing into the title passes `base`,
+ * the title its text was made from; if the row has moved on since (another tab
+ * or person renamed it first), what was typed is rebased onto the row's title
+ * instead of replacing it (NT-138). Without `base` — an undo, an import, the
+ * agent — the title is written as given.
+ */
 export const rename = mutation({
-  args: { pageId: v.id("pages"), title: v.string() },
+  args: { pageId: v.id("pages"), title: v.string(), base: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const page = await requireEditable(ctx, "pages", args.pageId);
+    const title =
+      args.base === undefined || args.base === page.title
+        ? args.title
+        : rebaseText(args.base, args.title, page.title);
     const now = Date.now();
-    await ctx.db.patch(args.pageId, { title: args.title, updatedAt: now });
-    await retitlePageNode(ctx, page, args.title);
+    await ctx.db.patch(args.pageId, { title, updatedAt: now });
+    await retitlePageNode(ctx, page, title);
     await stampProject(ctx, page.projectId, now);
   },
 });
