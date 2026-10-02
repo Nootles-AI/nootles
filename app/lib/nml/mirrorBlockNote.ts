@@ -12,6 +12,7 @@ import type {
 } from "@blocknote/core";
 import * as Y from "yjs";
 import type { LegacyBlock } from "./legacy";
+import { fragmentCanvasData } from "./canvasMaps";
 import {
   NML_LEGACY_MIRROR_ORIGIN,
   type NmlLegacyMirrorHost,
@@ -41,6 +42,7 @@ export function blockNoteNmlMirrorHost<
       fragment.observeDeep(observe);
       return () => fragment.unobserveDeep(observe);
     },
+    readCanvasData: () => fragmentCanvasData(fragment),
   };
 }
 

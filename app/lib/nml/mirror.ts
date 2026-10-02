@@ -6,6 +6,13 @@ import { executeNmlCommands } from "./commands";
 import { decodeNmlDocument, NML_YJS_ROOT, type NmlTransactionOrigin } from "./yjs";
 import { nmlToAnyBlocks } from "./model/projection";
 import { compileProjectionChange } from "./view/translation";
+import {
+  canvasBlocks,
+  canvasFromMapsCommands,
+  changedCanvasIds,
+  mapsHoldCanvas,
+  withCanvasData,
+} from "./canvasMaps";
 
 /** Transaction origin used only for the derived NML → legacy projection. */
 export const NML_LEGACY_MIRROR_ORIGIN = Symbol("nml-legacy-mirror");
@@ -19,6 +26,8 @@ export type NmlLegacyMirrorHost = {
   readBlocks(): LegacyBlock[];
   writeBlocks(blocks: LegacyBlock[], origin: typeof NML_LEGACY_MIRROR_ORIGIN): void;
   subscribe(listener: (origin: unknown) => void): () => void;
+  /** Each diagram block's `data` prop as the legacy root holds it now. */
+  readCanvasData?(): Map<string, string>;
 };
 
 export type NmlLegacyMirrorOptions = {
@@ -32,6 +41,13 @@ export type NmlLegacyMirrorOptions = {
   onError?: (error: unknown) => void;
   /** An edit canonical NML would not take was undone in the editor. */
   onReverted?: () => void;
+  /**
+   * Whether a transaction arrived from a collaborator, whose own client carried
+   * its diagram changes into NML in the same flush. Defaults to any applied
+   * update; the browser narrows it to its provider, so a review's kept changes,
+   * merged in as an update, still count as this client's.
+   */
+  isRemote?: (transaction: Y.Transaction) => boolean;
 };
 
 type PendingLegacyProjection = {
@@ -182,8 +198,19 @@ export class NmlLegacyMirror {
   private request = 0;
   private storageUrls = new Map<string, string>();
   private storageJobs = new Map<string, Promise<void>>();
+  /** Diagrams whose maps changed here, waiting to be carried into NML, and by whom. */
+  private pendingCanvas = new Map<string, NmlTransactionOrigin["actor"]>();
   private readonly onAfterTransaction = (transaction: Y.Transaction) => {
     if (this.stopped) return;
+    const remote = this.options.isRemote?.(transaction) ?? !transaction.local;
+    if (!remote) {
+      const ids = changedCanvasIds(this.doc, transaction);
+      if (ids.length) {
+        const actor = this.options.actorForChange?.() ?? this.options.actor;
+        ids.forEach((id) => this.pendingCanvas.set(id, actor));
+        this.scheduleLegacyDrain();
+      }
+    }
     const root = this.doc.getMap(NML_YJS_ROOT);
     if (![...transaction.changedParentTypes.keys()].some((type) => (type as unknown) === root)) return;
     this.writeLegacyProjection();
@@ -205,6 +232,14 @@ export class NmlLegacyMirror {
     // Canonical NML always wins initialization. The legacy root may be the
     // migration snapshot and is never allowed to race the first projection.
     this.writeLegacyProjection();
+    // Except for a diagram: its maps are what the person sees, and a page
+    // edited before NT-129 left its NML scene behind them.
+    try {
+      for (const id of canvasBlocks(decodeNmlDocument(this.doc)).keys()) this.pendingCanvas.set(id, this.options.actor);
+      if (this.pendingCanvas.size) this.scheduleLegacyDrain();
+    } catch (error) {
+      this.options.onError?.(error);
+    }
     this.stopHost = this.host.subscribe((origin) => {
       if (this.stopped || origin === NML_LEGACY_MIRROR_ORIGIN) return;
       this.enqueueLegacyProjection(this.options.actorForChange?.() ?? this.options.actor);
@@ -222,9 +257,14 @@ export class NmlLegacyMirror {
 
   private writeLegacyProjection(): void {
     const document = decodeNmlDocument(this.doc);
-    const blocks = nmlToAnyBlocks(document, {
+    let held: Map<string, string> | undefined;
+    const blocks = withCanvasData(nmlToAnyBlocks(document, {
       resolveStorageUrl: (storageId) => this.storageUrls.get(storageId),
-    }) as LegacyBlock[];
+    }) as LegacyBlock[], (id) => {
+      if (!mapsHoldCanvas(this.doc, id)) return undefined;
+      held ??= this.host.readCanvasData?.() ?? new Map();
+      return held.get(id);
+    });
     this.host.writeBlocks(blocks, NML_LEGACY_MIRROR_ORIGIN);
     const visit = (items: NmlBlock[]) => items.forEach((block) => {
       if (
@@ -272,14 +312,18 @@ export class NmlLegacyMirror {
         this.options.onError?.(error);
       } finally {
         this.legacyDrainScheduled = false;
-        if (this.pendingLegacyProjection) this.scheduleLegacyDrain();
+        if (this.pendingLegacyProjection || this.pendingCanvas.size) this.scheduleLegacyDrain();
       }
     };
     this.queue = this.queue.then(run, run);
   }
 
   private async drainLegacyProjections(): Promise<void> {
-    while (this.pendingLegacyProjection) {
+    while (this.pendingLegacyProjection || this.pendingCanvas.size) {
+      if (!this.pendingLegacyProjection) {
+        await this.drainCanvas();
+        continue;
+      }
       let allowed: boolean;
       try {
         const authorization = this.options.authorize?.() ?? true;
@@ -303,6 +347,52 @@ export class NmlLegacyMirror {
       } catch (error) {
         this.options.onError?.(error);
         this.retryOrRevert(pending.actor, allowed);
+      }
+    }
+  }
+
+  /**
+   * Carries each changed diagram's maps into its NML scene. Compiled from the
+   * two states as they stand when it runs, not from the transaction that asked:
+   * a burst of gestures lands as one batch, and running again is a no-op.
+   */
+  private async drainCanvas(): Promise<void> {
+    const pending = [...this.pendingCanvas];
+    this.pendingCanvas.clear();
+    if (this.stopped) return;
+    let allowed: boolean;
+    try {
+      allowed = await (this.options.authorize?.() ?? true);
+    } catch (error) {
+      this.options.onError?.(error);
+      return;
+    }
+    const document = decodeNmlDocument(this.doc);
+    const blocks = canvasBlocks(document);
+    for (const [id, actor] of pending) {
+      const block = blocks.get(id);
+      if (!block) continue;
+      try {
+        const commands = canvasFromMapsCommands(this.doc, block);
+        if (!commands.length) continue;
+        const requestId = this.options.createRequestId?.() ??
+          `canvas-mirror-${this.fallbackRequestPrefix}-${++this.request}`;
+        await executeNmlCommands({
+          doc: this.doc,
+          documentId: document.documentId,
+          commands,
+          idempotencyKey: requestId,
+          origin: {
+            version: 1,
+            transactionId: requestId,
+            actor,
+            command: "canvas-mirror",
+            requestId,
+          },
+          authorize: () => allowed,
+        });
+      } catch (error) {
+        this.options.onError?.(error);
       }
     }
   }
@@ -381,6 +471,11 @@ export class NmlLegacyMirror {
       // apply phases one event-loop turn.
       authorize: () => allowed,
     });
+    // A diagram put back on the page (an undone delete) arrives with the scene
+    // its prop held, and its maps may be further on.
+    for (const id of translation.changedNodeIds) {
+      if (mapsHoldCanvas(this.doc, id)) this.pendingCanvas.set(id, actor);
+    }
   }
 
   /** Resolves after every legacy edit observed before this call has landed. */

@@ -43,7 +43,7 @@ class Store {
   updates: ArrayBuffer[] = [];
   constructor(document: NmlDocument = FIXTURE) {
     const doc = createNmlYDoc(document);
-    writeCompatibilityRoot(doc);
+    writeCompatibilityRoot(doc, document);
     this.updates.push(bytes(Y.encodeStateAsUpdate(doc)));
     doc.destroy();
   }
@@ -74,6 +74,7 @@ class Store {
   async human(commands: Parameters<typeof executeNmlCommands>[0]["commands"]) {
     const doc = this.doc();
     const start = Y.encodeStateVector(doc);
+    const before = decodeNmlDocument(doc);
     await executeNmlCommands({
       doc,
       documentId: "doc-1",
@@ -82,7 +83,7 @@ class Store {
       idempotencyKey: `h-${Math.random()}`,
       authorize: () => true,
     });
-    writeCompatibilityRoot(doc);
+    writeCompatibilityRoot(doc, before);
     this.append(Y.encodeStateAsUpdate(doc, start));
     doc.destroy();
   }
@@ -97,7 +98,7 @@ async function edit(store: Store, ops: unknown[], key = `key-${++ids}`): Promise
     batchId: `batch-${ids}`,
     idempotencyKey: key,
     createId: () => `new-${++ids}`,
-    writeCompat: (doc) => writeCompatibilityRoot(doc),
+    writeCompat: (doc, before) => writeCompatibilityRoot(doc, before),
   });
 }
 
@@ -223,7 +224,7 @@ describe("prepareUndo", () => {
       ["moved", "tail"],
     ]);
 
-    const undo = prepareUndo({ updates: store.updates, inverse: bytes(result.inverse), touched: result.touched, writeCompat: (d) => writeCompatibilityRoot(d) });
+    const undo = prepareUndo({ updates: store.updates, inverse: bytes(result.inverse), touched: result.touched, writeCompat: (d, before) => writeCompatibilityRoot(d, before) });
     if (undo.status !== "ready") throw new Error(undo.status);
     store.append(undo.update);
     expect(store.read()).toEqual(before);

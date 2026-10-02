@@ -153,6 +153,13 @@ jobs:
         env:
           COMMENTS_BROWSER_CHANNEL: chromium
           CONVEX_LOCAL_BACKEND_BINARY: /home/runner/.cache/convex/binaries/${{ env.CONVEX_LOCAL_BACKEND }}/convex-local-backend
+      # And for a diagram on a served page: drawn, moved, reopened, and edited by
+      # an agent over MCP, with canonical NML following the canvas (NT-129).
+      - run: npm run test:nml:diagram
+        if: ${{ !cancelled() }}
+        env:
+          COMMENTS_BROWSER_CHANNEL: chromium
+          CONVEX_LOCAL_BACKEND_BINARY: /home/runner/.cache/convex/binaries/${{ env.CONVEX_LOCAL_BACKEND }}/convex-local-backend
       - uses: actions/upload-artifact@v4
         if: always()
         with:

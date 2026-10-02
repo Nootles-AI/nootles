@@ -2,6 +2,8 @@ import { BlockNoteEditor } from "@blocknote/core";
 import type * as Y from "yjs";
 import { readerSchema } from "@/app/lib/ai/readerSchema";
 import type { LegacyBlock } from "./legacy";
+import type { NmlDocument } from "./schema";
+import { fragmentCanvasData, mapsHoldCanvas, withCanvasData, writeCanvasMaps } from "./canvasMaps";
 import { NML_LEGACY_MIRROR_ORIGIN } from "./mirror";
 import { blockNoteNmlMirrorHost } from "./mirrorBlockNote";
 import { nmlToAnyBlocks } from "./model/projection";
@@ -19,6 +21,10 @@ import { decodeNmlDocument } from "./yjs";
  * finds its projection already in place and writes nothing, rather than N open
  * tabs each rewriting the fragment for the same change.
  *
+ * A diagram the write changed (`before` is the document it was made against)
+ * goes into its maps too, and its prop becomes their stamped mirror; any other
+ * diagram the maps hold keeps the mirror its binding last wrote (NT-129).
+ *
  * Needs a `document` global (linkedom on the server), as the adapter's test does.
  */
 
@@ -29,7 +35,19 @@ function headless(): BlockNoteEditor {
   return editor;
 }
 
-export function writeCompatibilityRoot(doc: Y.Doc, resolveStorageUrl?: (storageId: string) => string | undefined): void {
-  const blocks = nmlToAnyBlocks(decodeNmlDocument(doc), { resolveStorageUrl }) as LegacyBlock[];
-  blockNoteNmlMirrorHost(headless() as never, doc).writeBlocks(blocks, NML_LEGACY_MIRROR_ORIGIN);
+export function writeCompatibilityRoot(
+  doc: Y.Doc,
+  before: NmlDocument,
+  resolveStorageUrl?: (storageId: string) => string | undefined,
+): void {
+  const after = decodeNmlDocument(doc);
+  const held = fragmentCanvasData(doc.getXmlFragment("prosemirror"));
+  doc.transact(() => {
+    const changed = writeCanvasMaps(doc, before, after);
+    const blocks = withCanvasData(
+      nmlToAnyBlocks(after, { resolveStorageUrl }) as LegacyBlock[],
+      (id) => changed.get(id) ?? (mapsHoldCanvas(doc, id) ? held.get(id) : undefined),
+    );
+    blockNoteNmlMirrorHost(headless() as never, doc).writeBlocks(blocks, NML_LEGACY_MIRROR_ORIGIN);
+  }, NML_LEGACY_MIRROR_ORIGIN);
 }
