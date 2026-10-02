@@ -160,7 +160,7 @@ export const editDoc = internalAction({
         idempotencyKey: key,
         createId: () => randomUUID(),
         parseHtml,
-        writeCompat: (d) => writeCompatibilityRoot(d, (id) => urls.get(id)),
+        writeCompat: (d, before) => writeCompatibilityRoot(d, before, (id) => urls.get(id)),
       });
       if (prepared.status === "rejected") return prepared;
       if (prepared.status === "replayed") {
@@ -244,7 +244,7 @@ async function undo(
       updates: material.updates,
       inverse: await blob.arrayBuffer(),
       touched: material.touched,
-      writeCompat: (d) => writeCompatibilityRoot(d, (id) => urls.get(id)),
+      writeCompat: (d, before) => writeCompatibilityRoot(d, before, (id) => urls.get(id)),
     });
     if (prepared.status !== "ready") return { status: "refused", reason: prepared.status, ids: prepared.ids.slice(0, 20) };
     const committed = await ctx.runMutation(internal.mcp.docs.commitUndo, {

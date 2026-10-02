@@ -216,8 +216,8 @@ export type PrepareEditOptions = {
   idempotencyKey: string;
   createId: () => string;
   parseHtml?: ParseHtml;
-  /** Rewrites the compatibility root from canonical NML, inside one transaction. */
-  writeCompat?: (doc: Y.Doc) => void;
+  /** Rewrites the compatibility root from canonical NML (`before`: as it stood before the batch). */
+  writeCompat?: (doc: Y.Doc, before: NmlDocument) => void;
 };
 
 export function rebuild(updates: ArrayBuffer[]): Y.Doc {
@@ -292,7 +292,7 @@ export async function prepareEdit(options: PrepareEditOptions): Promise<Prepared
       capture.destroy();
       return { status: "replayed", created };
     }
-    options.writeCompat?.(doc);
+    options.writeCompat?.(doc, before);
     const forward = Y.encodeStateAsUpdate(doc, start);
     const afterEdit = Y.encodeStateVector(doc);
     capture.undo();
@@ -318,7 +318,7 @@ export function prepareUndo(options: {
   updates: ArrayBuffer[];
   inverse: ArrayBuffer;
   touched: Touched[];
-  writeCompat?: (doc: Y.Doc) => void;
+  writeCompat?: (doc: Y.Doc, before: NmlDocument) => void;
 }): PreparedUndo {
   const doc = rebuild(options.updates);
   try {
@@ -346,7 +346,7 @@ export function prepareUndo(options: {
     for (const id of back.keys()) if (!now.has(id) && !touchedIds.has(id)) wrong.push(id);
     if (wrong.length) return { status: "inexact", ids: wrong };
 
-    options.writeCompat?.(doc);
+    options.writeCompat?.(doc, current);
     return { status: "ready", update: Y.encodeStateAsUpdate(doc, start) };
   } finally {
     doc.destroy();

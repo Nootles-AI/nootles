@@ -73,6 +73,7 @@ export function useNmlLegacyMirror<
           console.error("NML compatibility mirror failed");
         },
         onReverted: () => setReverted((count) => count + 1),
+        isRemote: (transaction) => transaction.origin === provider,
       },
     ).start();
     // Do not expose a storage-backed media block with a transient empty URL.
