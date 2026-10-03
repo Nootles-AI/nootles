@@ -120,6 +120,8 @@ const harness = {
     const last = editor.document.at(-1)!;
     editor.setTextCursorPosition(last, "end");
   },
+  /** Home is a no-op in a Mac contenteditable and lands a beat late elsewhere. */
+  caretToStart: () => editor.setTextCursorPosition(editor.document[0], "start"),
 };
 
 declare global {
