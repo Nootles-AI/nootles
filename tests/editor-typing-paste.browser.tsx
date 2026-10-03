@@ -103,7 +103,8 @@ function summarize() {
 function paste(flavours: Record<string, string>, chord = false) {
   const target = editor.prosemirrorView!.dom;
   if (chord) {
-    target.dispatchEvent(new KeyboardEvent("keydown", { key: "V", code: "KeyV", metaKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+    const mac = /Mac/.test(navigator.platform);
+    target.dispatchEvent(new KeyboardEvent("keydown", { key: "V", code: "KeyV", metaKey: mac, ctrlKey: !mac, shiftKey: true, bubbles: true, cancelable: true }));
   }
   const data = new DataTransfer();
   for (const [type, value] of Object.entries(flavours)) data.setData(type, value);

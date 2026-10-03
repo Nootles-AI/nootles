@@ -118,7 +118,14 @@ try {
   browser = await launchBrowser();
 
   async function open(who, projectId, docId) {
-    const tab = await guardedTab(browser, { origin: served.origin, allow: [CONVEX_URL], label: who, failures, expected: REFUSED_APPEND });
+    const tab = await guardedTab(browser, {
+      origin: served.origin, allow: [CONVEX_URL], label: who, failures, expected: REFUSED_APPEND,
+      // `Authed` reads `useConnection` from ConvexClientProvider, which makes the
+      // app's client when it loads: it needs the URL a build would have baked in.
+      setup: (_context, page) => page.addInitScript((url) => {
+        globalThis.process = { env: { NODE_ENV: "development", NEXT_PUBLIC_CONVEX_URL: url }, browser: true };
+      }, CONVEX_URL),
+    });
     await tab.page.waitForFunction(() => typeof window.expiry?.mount === "function");
     await tab.page.evaluate((cfg) => window.expiry.mount(cfg), { url: CONVEX_URL, jwt: jwt[who], identity: PEOPLE[who], projectId });
     await tab.page.waitForSelector(".bn-editor", { timeout: 30_000 });

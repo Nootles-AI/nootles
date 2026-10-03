@@ -184,7 +184,7 @@ try {
    * console error or uncaught exception fails the run. `chat` answers
    * `/api/chat` in the tab from the script (Olive's only).
    */
-  async function open(key, { path: first, identity, token, viewport = { width: 1600, height: 960 }, chat } = {}) {
+  async function open(key, { path: first, identity, token, viewport = { width: 1800, height: 960 }, chat } = {}) {
     const tab = await guardedTab(browser, {
       origin, allow: [CONVEX_URL], label: key, failures, viewport, path: first, inert: false,
       setup: async (context, page) => {
