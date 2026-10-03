@@ -45,7 +45,8 @@
     "test:links:expiry": "node tests/link-expiry.fullstack.mjs",
     "test:affiliates:fullstack": "node tests/affiliates.fullstack.mjs",
     "test:mcp:fullstack": "node tests/mcp.fullstack.mjs",
-    "test:nml:diagram": "node tests/nml-diagram.fullstack.mjs"
+    "test:nml:diagram": "node tests/nml-diagram.fullstack.mjs",
+    "test:notion:import": "node tests/notion-import.fullstack.mjs"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.63",

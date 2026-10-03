@@ -55,6 +55,12 @@ export function useNmlMigration(
           return;
         }
         const baseUpdates = await readYDocUpdates(client, docId);
+        // Never written: its first write is its filler's (a Notion import),
+        // not a migration's. Free to try again on a later mount.
+        if (!baseUpdates.length) {
+          attempted.delete(docId);
+          return;
+        }
         const result = migrateStoredDocument({ baseUpdates, blocks, documentId: docId });
         // A rejected conversion (an understood gap or a real fault) leaves the
         // document on legacy — never a partial or forced migration.

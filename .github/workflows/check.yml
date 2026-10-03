@@ -160,6 +160,13 @@ jobs:
         env:
           COMMENTS_BROWSER_CHANNEL: chromium
           CONVEX_LOCAL_BACKEND_BINARY: /home/runner/.cache/convex/binaries/${{ env.CONVEX_LOCAL_BACKEND }}/convex-local-backend
+      # And for a Notion import racing a person who opens, or types on, its
+      # half-imported pages, for a served owner and an ordinary one (NT-131).
+      - run: npm run test:notion:import
+        if: ${{ !cancelled() }}
+        env:
+          COMMENTS_BROWSER_CHANNEL: chromium
+          CONVEX_LOCAL_BACKEND_BINARY: /home/runner/.cache/convex/binaries/${{ env.CONVEX_LOCAL_BACKEND }}/convex-local-backend
       - uses: actions/upload-artifact@v4
         if: always()
         with:

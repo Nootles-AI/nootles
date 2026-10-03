@@ -34,10 +34,14 @@ const PARAGRAPH = {
   },
 } as NotionBlock;
 
-/** A backend that records every call and answers `fetchBlocks` when told to. */
-function backend() {
+/**
+ * A backend that records every call and answers `fetchBlocks` when told to.
+ * `writtenFirst`: `ydoc.init` loses, as it does when someone typed on the page first.
+ */
+function backend({ writtenFirst = false } = {}) {
   const calls: string[] = [];
   const created: unknown[] = [];
+  const pagesMade: unknown[] = [];
   let answer!: (blocks: NotionBlock[]) => void;
   const read = new Promise<NotionBlock[]>((resolve) => (answer = resolve));
   const record = (reference: Parameters<typeof getFunctionName>[0]) => {
@@ -52,7 +56,10 @@ function backend() {
           created.push(args);
           return "project_1";
         case "pages:create":
+          pagesMade.push(args);
           return `page_${calls.length}`;
+        case "ydoc:init":
+          return { migrated: !writtenFirst };
         default:
           return null;
       }
@@ -74,6 +81,7 @@ function backend() {
     client: client as unknown as ConvexReactClient,
     calls,
     created,
+    pagesMade,
     answer,
     reading: () => calls.includes("notion/pages:fetchBlocks"),
   };
@@ -157,10 +165,80 @@ describe("the wizard", () => {
     b.answer([PARAGRAPH]);
     const progress = await run;
 
-    expect(b.created).toEqual([{ title: "Whiskey", ...workspace }]);
+    expect(b.created).toEqual([{ title: "Whiskey", awaitingContent: true, ...workspace }]);
     // Its maker only edits a workspace project; removing one is its managers'.
     expect(b.calls).toContain("projects:discardFresh");
     expect(b.calls).not.toContain("projects:remove");
     expect(progress.projectId).toBeUndefined();
+  });
+});
+
+/**
+ * Someone typing on a page before the import could fill it (NT-131).
+ *
+ * Every page an import makes waits unwritten for its content, so the content
+ * is the first write unless a person got there first. Then their words are
+ * what the page holds: the import says it failed, and leaves the page alone.
+ */
+describe("a page someone wrote on first", () => {
+  it("every page an import makes is made to wait for its content", async () => {
+    const b = backend();
+    const run = runImport({
+      client: b.client,
+      roots: [
+        { id: "notion-page-1", title: "Whiskey", children: [] },
+        { id: "notion-page-2", title: "Tango", children: [] },
+      ],
+      selection: new Set(["notion-page-1", "notion-page-2"]),
+      newProjectTitle: "Whiskey",
+      onProgress: () => {},
+    });
+    await vi.waitFor(() => expect(b.reading()).toBe(true));
+    b.answer([PARAGRAPH]);
+    await run;
+
+    expect(b.created).toEqual([{ title: "Whiskey", awaitingContent: true }]);
+    // The first fills the project's blank page; the second is made.
+    expect(b.pagesMade).toEqual([{ projectId: "project_1", title: "Tango", awaitingContent: true }]);
+  });
+
+  it("in the wizard fails the page, says why, and keeps it and its project", async () => {
+    const b = backend({ writtenFirst: true });
+    const run = runImport({
+      client: b.client,
+      roots: [{ id: "notion-page-1", title: "Whiskey", children: [] }],
+      selection: new Set(["notion-page-1"]),
+      newProjectTitle: "Whiskey",
+      onProgress: () => {},
+    });
+    await vi.waitFor(() => expect(b.reading()).toBe(true));
+    b.answer([PARAGRAPH]);
+    const progress = await run;
+
+    expect(progress.phase).toBe("done");
+    expect(progress.pages[0]).toMatchObject({
+      state: "failed",
+      kept: true,
+      error: "Someone wrote on this page before the import could fill it.",
+    });
+    expect(progress.projectId).toBe("project_1");
+    expect(b.calls).not.toContain("pages:remove");
+    expect(b.calls).not.toContain("projects:remove");
+  });
+
+  it("from a followed link fails the follow and keeps the page", async () => {
+    const b = backend({ writtenFirst: true });
+    const run = importReferencedPage(b.client, {
+      projectId: "project_1" as Id<"projects">,
+      notionPageId: "notion-page-1",
+      title: "Alpha",
+    });
+    await vi.waitFor(() => expect(b.reading()).toBe(true));
+    b.answer([PARAGRAPH]);
+    const { progress } = await run;
+
+    expect(b.pagesMade).toEqual([{ projectId: "project_1", title: "Alpha", awaitingContent: true }]);
+    expect(progress).toMatchObject({ state: "failed", kept: true });
+    expect(b.calls).not.toContain("pages:remove");
   });
 });

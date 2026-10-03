@@ -5,7 +5,7 @@ import { internal } from "./_generated/api";
 import { checkRead, checkWrite, pageForDoc } from "./prosemirror";
 import { ownerId, requireManageable, requireOwner } from "./auth";
 import * as Y from "yjs";
-import { appendYUpdate, readStoredUpdates, registerYDoc } from "./ydoc";
+import { appendYUpdate, readStoredUpdates, registerYDoc, ydocRow } from "./ydoc";
 import { NML_SCHEMA_VERSION, type NmlDocument } from "@/app/lib/nml/schema";
 import { assertValidDocument } from "@/app/lib/nml/validate";
 import { createNmlYDoc, NML_YJS_ENCODING_VERSION } from "@/app/lib/nml/yjs";
@@ -283,6 +283,11 @@ export const electMigration = mutation({
       // Already elected (or rolled back): stand down, do not write a second root.
       return { elected: false, reason: "already-elected" };
     }
+    // Nothing written yet: the document's first write belongs to whoever is
+    // filling it (a Notion import's `ydoc.init`), which a root appended now
+    // would beat (NT-131). It migrates once it holds something.
+    const row = await ydocRow(ctx, args.docId);
+    if (!row || row.seq === 0) return { elected: false, reason: "unwritten" };
     if (!args.equivalenceOk || !args.limitOk) {
       throw new Error("Refusing to persist a root that failed equivalence or limits");
     }
