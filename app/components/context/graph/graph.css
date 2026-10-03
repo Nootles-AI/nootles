@@ -12,7 +12,7 @@
   max-height: none;
   overflow: hidden;
   background: var(--surface);
-  border-radius: 14px;
+  border-radius: calc(14px * var(--corner-scale));
 }
 /* The box takes focus so the keyboard starts inside it; a ring round the
    whole screen says nothing. Nodes and fields keep theirs. */
@@ -138,7 +138,7 @@
   color: var(--foreground);
   background: var(--elevated);
   border: 1px solid var(--border-strong);
-  border-radius: 9px;
+  border-radius: calc(9px * var(--corner-scale));
   box-shadow:
     0 1px 1px oklch(0.25 0.0038 55 / 0.04),
     0 3px 8px -3px oklch(0.25 0.0038 55 / 0.1);
@@ -178,6 +178,7 @@
   color: var(--muted);
   background: var(--surface);
   border-radius: 999px;
+  corner-shape: round;
   box-shadow: none;
 }
 
@@ -200,7 +201,7 @@
   color: var(--background);
   background: var(--foreground);
   border-color: var(--foreground);
-  border-radius: 12px;
+  border-radius: calc(12px * var(--corner-scale));
   box-shadow:
     0 1px 2px oklch(0.25 0.0038 55 / 0.2),
     0 10px 28px -10px oklch(0.25 0.0038 55 / 0.5);
@@ -211,6 +212,7 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
+  corner-shape: round;
   background: var(--brand);
 }
 
@@ -221,7 +223,7 @@
   padding: 0 14px 0 12px;
   gap: 8px;
   font-weight: 600;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--corner-scale));
   border-width: 1.5px;
 }
 .nt-gnode.is-repo .nt-gnode-icon {
@@ -253,6 +255,7 @@
   color: var(--foreground);
   background: var(--surface);
   border-radius: 999px;
+  corner-shape: round;
   box-shadow: none;
 }
 
@@ -264,7 +267,7 @@
   font-size: 12.5px;
   background: var(--sunken);
   border-color: var(--border);
-  border-radius: 8px;
+  border-radius: calc(8px * var(--corner-scale));
   box-shadow: none;
 }
 .nt-gnode.is-styling {
@@ -276,7 +279,7 @@
   flex: none;
   width: 11px;
   height: 11px;
-  border-radius: 3px;
+  border-radius: calc(3px * var(--corner-scale));
   background: linear-gradient(
     to right,
     var(--foreground) 0 33%,
@@ -335,7 +338,7 @@
   color: var(--muted);
   background: var(--elevated);
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: calc(9px * var(--corner-scale));
   box-shadow: 0 2px 8px -4px oklch(0.25 0.0038 55 / 0.12);
   transition: border-color var(--dur-fast) var(--ease);
 }
@@ -369,7 +372,7 @@
   padding: 3px;
   background: var(--elevated);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: calc(10px * var(--corner-scale));
   box-shadow: 0 2px 8px -4px oklch(0.25 0.0038 55 / 0.12);
 }
 .nt-graph-zoom-level {
@@ -400,7 +403,7 @@
   width: 360px;
   background: var(--elevated);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: calc(12px * var(--corner-scale));
   box-shadow:
     0 1px 2px oklch(0.25 0.0038 55 / 0.04),
     0 16px 40px -16px oklch(0.25 0.0038 55 / 0.22);
@@ -443,7 +446,7 @@
   overflow: hidden;
   background: var(--background);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: calc(10px * var(--corner-scale));
   cursor: pointer;
   transition:
     border-color var(--dur-fast) var(--ease),
@@ -508,6 +511,7 @@
   color: var(--muted);
   background: var(--sunken);
   border-radius: 50%;
+  corner-shape: round;
 }
 .nt-ginfo-face img {
   width: 100%;
@@ -532,7 +536,7 @@
   line-height: 1.5;
   color: var(--muted);
   background: var(--sunken);
-  border-radius: 8px;
+  border-radius: calc(8px * var(--corner-scale));
 }
 
 .nt-ginfo-stats {
@@ -543,7 +547,7 @@
   overflow: hidden;
   background: var(--border);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: calc(10px * var(--corner-scale));
 }
 .nt-ginfo-stats > div {
   padding: 10px 12px;
@@ -604,7 +608,7 @@
   width: 100%;
   padding: 7px 8px;
   text-align: left;
-  border-radius: 7px;
+  border-radius: calc(7px * var(--corner-scale));
   transition: background var(--dur-fast) var(--ease);
 }
 .nt-ginfo-link:hover {
@@ -674,7 +678,7 @@
   color: var(--foreground);
   white-space: pre-wrap;
   background: var(--sunken);
-  border-radius: 8px;
+  border-radius: calc(8px * var(--corner-scale));
 }
 
 /* A narrow window: the panel docks under the canvas instead of beside it. */

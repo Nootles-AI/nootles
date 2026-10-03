@@ -109,6 +109,7 @@
   width: 22px;
   height: 22px;
   border-radius: 50%;
+  corner-shape: round;
   object-fit: cover;
 }
 /* The name comes first: when it and the meta do not share a line, the meta
@@ -290,6 +291,7 @@
   color: var(--muted);
   background: var(--elevated);
   border-radius: 999px;
+  corner-shape: round;
   box-shadow:
     0 0 0 1px oklch(0.25 0.0038 55 / 0.1),
     0 1px 3px oklch(0.25 0.0038 55 / 0.08);
@@ -412,6 +414,7 @@
   color: var(--background);
   background: var(--foreground);
   border-radius: 999px;
+  corner-shape: round;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -139,9 +139,15 @@
   --inset: 8px;
   --control: 32px;
   --control-sm: 24px;
-  --radius-sm: 4px;
-  --radius: 6px;
-  --radius-lg: 10px;
+  /* Every radius reads through --corner-scale. A squircle is tighter than a
+     round corner at the same radius — it hugs the edge longer before it turns
+     — so where the browser draws squircles (see Corners) the radii grow by
+     1.8. At 45° a squircle cuts 0.16 of its radius off the box's corner and a
+     circle 0.29, so 1.8× cuts what the round corner cut. */
+  --corner-scale: 1;
+  --radius-sm: calc(4px * var(--corner-scale));
+  --radius: calc(6px * var(--corner-scale));
+  --radius-lg: calc(10px * var(--corner-scale));
 
   /* Motion. Product UI: state feedback, not choreography. */
   --ease: cubic-bezier(0.25, 1, 0.5, 1);
@@ -190,6 +196,9 @@
   --color-danger: var(--danger);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  /* Tailwind's own steps, on the same corner scale as ours. */
+  --radius-md: var(--radius);
+  --radius-xl: calc(12px * var(--corner-scale));
 }
 
 html,
@@ -203,7 +212,33 @@ body {
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
 }
 
+@supports (corner-shape: squircle) {
+  :root {
+    --corner-scale: 1.8;
+  }
+}
+
 @layer base {
+/* ---- Corners ------------------------------------------------------------
+   Every rounded corner is a squircle: the curve eases off the straight edge
+   instead of meeting it at a joint, which is what reads as soft rather than
+   machined. Zero specificity and the lowest layer, so any rule that states a
+   shape wins. `corner-shape` only reshapes a radius, so a browser without it
+   draws the same radii round.
+
+   Two things keep their round corners. A circle or a pill is a shape, not a
+   rounded box — every `999px` and `50%` says `corner-shape: round` beside it.
+   And a diagram's shapes are the document: their geometry (picking, outlines,
+   connectors) is solved for round corners, an ellipse *is* a 50% radius, and
+   the same diagram must draw the same in every browser and every export. */
+:where(*, ::before, ::after) {
+  corner-shape: squircle;
+}
+:where(.rounded-full),
+:where(.nt-node, .nt-node *) {
+  corner-shape: round;
+}
+
 /* Selected text wears the ink's own wash, as every selected thing does here —
    the browser's blue belongs to no part of this palette. */
 ::selection {
@@ -722,7 +757,7 @@ body {
 }
 .nt-well > .nt-pane,
 .nt-well > div > .nt-pane {
-  border-radius: 14px;
+  border-radius: calc(14px * var(--corner-scale));
   box-shadow:
     0 0 0 1px oklch(0.25 0.0038 55 / 0.07),
     0 1px 2px oklch(0.25 0.0038 55 / 0.04),
@@ -1693,6 +1728,7 @@ textarea.nt-input {
   width: 20px;
   height: 20px;
   border-radius: 50%;
+  corner-shape: round;
   background: var(--sunken);
   box-shadow: inset 0 0 0 1px var(--border);
   font-size: var(--text-meta);
@@ -2163,6 +2199,7 @@ ol.nt-md-list {
   width: 6px;
   height: 6px;
   border-radius: 50%;
+  corner-shape: round;
   background: var(--accent);
   box-shadow:
     0 0 4px var(--accent-soft),
@@ -2223,6 +2260,7 @@ ol.nt-md-list {
   width: 18px;
   height: 18px;
   border-radius: 50%;
+  corner-shape: round;
   background: var(--surface);
   box-shadow: inset 0 0 0 1px var(--border-strong);
   color: var(--muted);
@@ -2384,6 +2422,7 @@ button.nt-trace-label:hover .nt-trace-chevron,
   padding: 3px 9px 3px 6px;
   border: 0;
   border-radius: 999px;
+  corner-shape: round;
   background: none;
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta-lg);
@@ -2524,6 +2563,7 @@ button.nt-trace-label:hover .nt-trace-chevron,
   width: 13px;
   height: 13px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--foreground);
   color: var(--background);
   /* Linocut and Sharp contrast are mostly black; without a ring of paper
@@ -2582,6 +2622,7 @@ button.nt-trace-label:hover .nt-trace-chevron,
 .nt-draw-track {
   height: 3px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--border);
 }
 /* Scaled rather than resized: the dial is dragged, so the fill moves on every
@@ -2605,6 +2646,7 @@ button.nt-trace-label:hover .nt-trace-chevron,
   width: 3px;
   height: 3px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--border-strong);
 }
 .nt-draw-notch.is-past {
@@ -2627,6 +2669,7 @@ button.nt-trace-label:hover .nt-trace-chevron,
   height: var(--nt-thumb);
   border: 1px solid var(--foreground);
   border-radius: 999px;
+  corner-shape: round;
   background: var(--background);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.18);
   cursor: grab;
@@ -2639,6 +2682,7 @@ button.nt-trace-label:hover .nt-trace-chevron,
   height: var(--nt-thumb);
   border: 1px solid var(--foreground);
   border-radius: 999px;
+  corner-shape: round;
   background: var(--background);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.18);
   cursor: grab;
@@ -2708,7 +2752,7 @@ a.nt-chip:hover {
   width: 16px;
   height: 16px;
   margin-right: -4px;
-  border-radius: 3px;
+  border-radius: calc(3px * var(--corner-scale));
   color: var(--faint);
   transition:
     background var(--dur-fast) var(--ease),
@@ -2764,7 +2808,7 @@ a.nt-chip:hover {
   padding: 5px 5px 5px 12px;
   border: 1px solid var(--border);
   /* The composer's corner, since it sits on the composer's shoulders. */
-  border-radius: 12px;
+  border-radius: calc(12px * var(--corner-scale));
   background: var(--elevated);
   box-shadow: 0 6px 16px -8px oklch(0.25 0.0038 55 / 0.16);
   animation: nt-chat-review-in 360ms var(--spring);
@@ -2813,7 +2857,7 @@ a.nt-chip:hover {
   height: 26px;
   padding: 0 10px;
   /* The Send button's corner: the two filled controls on this rail are a pair. */
-  border-radius: 7px;
+  border-radius: calc(7px * var(--corner-scale));
   font-size: var(--text-meta-lg);
   font-weight: 500;
   color: var(--muted);
@@ -2863,7 +2907,7 @@ a.nt-chip:hover {
   position: relative;
   margin: 0 8px 8px;
   border: 1px solid var(--border-strong);
-  border-radius: 12px;
+  border-radius: calc(12px * var(--corner-scale));
   background: var(--elevated);
   transition:
     border-color var(--dur-fast) var(--ease),
@@ -3014,7 +3058,7 @@ a.nt-chip:hover {
 .nt-composer-send {
   height: 26px;
   padding: 0 10px;
-  border-radius: 7px;
+  border-radius: calc(7px * var(--corner-scale));
   background: var(--foreground);
   font-size: var(--text-meta-lg);
   font-weight: 500;
@@ -3102,7 +3146,7 @@ a.nt-chip:hover {
   margin: -7px -10px;
   padding: 8px 8px 6px 11px;
   border: 1px solid var(--shape-line-active);
-  border-radius: 12px;
+  border-radius: calc(12px * var(--corner-scale));
   background: var(--elevated);
   box-shadow: 0 6px 20px -8px oklch(0.25 0.0038 55 / 0.2);
   animation: nt-fade-in var(--dur) var(--ease);
@@ -3129,7 +3173,7 @@ a.nt-chip:hover {
 .nt-rewind-action {
   height: 26px;
   padding-inline: 10px;
-  border-radius: 7px;
+  border-radius: calc(7px * var(--corner-scale));
   font-size: var(--text-meta-lg);
   font-weight: 500;
   color: var(--muted);
@@ -3253,6 +3297,7 @@ a.nt-chip:hover {
   gap: 1px;
   padding: 3px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--elevated);
   border: 1px solid var(--border);
   box-shadow:
@@ -3267,6 +3312,7 @@ a.nt-chip:hover {
   width: 22px;
   height: 22px;
   border-radius: 999px;
+  corner-shape: round;
   border-radius: var(--radius-sm);
   color: var(--muted);
   transition: background var(--dur-fast) var(--ease);
@@ -3326,7 +3372,7 @@ a.nt-chip:hover {
   padding: 4px 4px 4px 12px;
   /* The canvas toolbar's corner and shadow: the two take turns in this one spot
      at the foot of the window, and should read as the same object doing so. */
-  border-radius: 12px;
+  border-radius: calc(12px * var(--corner-scale));
   background: var(--elevated);
   box-shadow:
     0 0 0 1px oklch(0.25 0.0038 55 / 0.06),
@@ -3398,7 +3444,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
 .nt-review-action {
   height: 28px;
   padding: 0 11px;
-  border-radius: 8px;
+  border-radius: calc(8px * var(--corner-scale));
   font-size: var(--text-meta-lg);
   font-weight: 500;
   color: var(--foreground);
@@ -3502,7 +3548,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   display: flex;
   flex-direction: column;
   width: 100%;
-  border-radius: 12px;
+  border-radius: calc(12px * var(--corner-scale));
   background: var(--surface);
   text-align: left;
   /* `backwards`, not `both`: the keyframes have no `to`, so the end state is the
@@ -3521,11 +3567,11 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   height: 148px;
   padding: 20px 22px 0;
   overflow: hidden;
-  border-radius: 12px 12px 0 0;
+  border-radius: calc(12px * var(--corner-scale)) calc(12px * var(--corner-scale)) 0 0;
 }
 .nt-card-well .nt-thumb,
 .nt-lead-well .nt-thumb {
-  border-radius: 6px 6px 0 0;
+  border-radius: calc(6px * var(--corner-scale)) calc(6px * var(--corner-scale)) 0 0;
   box-shadow:
     0 0 0 1px var(--border),
     0 1px 2px oklch(0.25 0.0038 55 / 0.05),
@@ -3555,7 +3601,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: 12px;
+  border-radius: calc(12px * var(--corner-scale));
 }
 .nt-card-foot .nt-icon-btn,
 .nt-lead > .nt-icon-btn {
@@ -3670,7 +3716,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   display: grid;
   grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
   margin-bottom: 20px;
-  border-radius: 14px;
+  border-radius: calc(14px * var(--corner-scale));
   background: var(--surface);
   animation: nt-rise 510ms var(--ease) backwards;
   transition: transform var(--dur-fast) var(--ease);
@@ -3679,7 +3725,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   transform: scale(0.992);
 }
 .nt-lead .nt-card-link::after {
-  border-radius: 14px;
+  border-radius: calc(14px * var(--corner-scale));
 }
 .nt-lead-well {
   height: 220px;
@@ -3786,7 +3832,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   width: 220px;
   height: var(--control);
   padding-inline: 10px 6px;
-  border-radius: 8px;
+  border-radius: calc(8px * var(--corner-scale));
   background: var(--sunken);
   color: var(--muted);
   font-size: var(--text-ui);
@@ -3825,7 +3871,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   height: 20px;
   padding-inline: 5px;
   place-items: center;
-  border-radius: 5px;
+  border-radius: calc(5px * var(--corner-scale));
   background: var(--background);
   box-shadow:
     0 0 0 1px var(--border),
@@ -3844,7 +3890,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
 .nt-mode.is-slide {
   position: relative;
   height: var(--control);
-  border-radius: 8px;
+  border-radius: calc(8px * var(--corner-scale));
 }
 .nt-mode.is-slide .nt-mode-btn.is-icon {
   width: 30px;
@@ -3879,6 +3925,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
 }
 .nt-tools .nt-icon-btn:has(.nt-monogram) {
   border-radius: 50%;
+  corner-shape: round;
 }
 .nt-tools .nt-icon-btn:has(.nt-monogram):hover {
   background: none;
@@ -4003,7 +4050,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   width: 18px;
   height: 18px;
   place-items: center;
-  border-radius: 4px;
+  border-radius: calc(4px * var(--corner-scale));
   background: oklch(1 0 0 / 0.14);
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta);
@@ -4102,7 +4149,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   width: 28px;
   height: 28px;
   place-items: center;
-  border-radius: 7px;
+  border-radius: calc(7px * var(--corner-scale));
   background: oklch(1 0 0 / 0.1);
   transition:
     scale 340ms var(--spring),
@@ -4167,6 +4214,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   width: 34%;
   height: 3px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--border);
 }
 
@@ -4213,6 +4261,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   width: 4px;
   height: 4px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--faint);
 }
 .nt-thumb-children {
@@ -4331,7 +4380,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
 .nt-thumb-media {
   display: block;
   height: 120px;
-  border-radius: 4px;
+  border-radius: calc(4px * var(--corner-scale));
   background: var(--sunken);
 }
 /* An album, at card size: the first few pictures in a row, each keeping its
@@ -4345,7 +4394,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   flex: 1 1 0;
   min-width: 0;
   max-height: 140px;
-  border-radius: 4px;
+  border-radius: calc(4px * var(--corner-scale));
   object-fit: cover;
   background: var(--sunken);
 }
@@ -4535,7 +4584,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   transition: color var(--dur) var(--ease);
 }
 .nt-board-frame .nt-card-link::after {
-  border-radius: 3px;
+  border-radius: calc(3px * var(--corner-scale));
 }
 .nt-board-meta {
   flex: 1 0 auto;
@@ -4555,7 +4604,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
 }
 .nt-board-page {
   overflow: hidden;
-  border-radius: 3px;
+  border-radius: calc(3px * var(--corner-scale));
   background: var(--background);
   box-shadow:
     0 0 0 1px var(--shape-line),
@@ -4671,7 +4720,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   width: 58rem;
   margin-block: min(13vh, 7rem) auto;
   overflow: hidden;
-  border-radius: 14px;
+  border-radius: calc(14px * var(--corner-scale));
   transform-origin: 50% 0;
 }
 /* ---- Keyboard shortcuts ---------------------------------------------------
@@ -4958,6 +5007,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
 .nt-pal-reading-sheet span {
   height: 3px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--border);
   animation: nt-pal-opening-wait 1.2s var(--ease) 250ms infinite alternate backwards;
 }
@@ -5054,7 +5104,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   width: 76px;
   height: 76px;
   place-items: center;
-  border-radius: 20px;
+  border-radius: calc(20px * var(--corner-scale));
   background: var(--background);
   box-shadow:
     0 0 0 1px var(--border),
@@ -5091,7 +5141,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   height: 40px;
   margin-top: 22px;
   padding-inline: 18px 20px;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--corner-scale));
   background: var(--foreground);
   box-shadow: 0 10px 22px -10px oklch(0.25 0.0038 55 / 0.55);
   color: var(--background);
@@ -5110,7 +5160,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
 }
 .nt-nc-go:focus-visible {
   outline-offset: 3px;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--corner-scale));
 }
 .nt-nc-blocker {
   max-width: 44ch;
@@ -5190,7 +5240,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   width: 28px;
   height: 28px;
   place-items: center;
-  border-radius: 7px;
+  border-radius: calc(7px * var(--corner-scale));
   color: var(--muted);
   transition:
     transform 340ms var(--spring),
@@ -5270,7 +5320,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   }
 }
 .nt-pal-card .nt-thumb {
-  border-radius: 6px;
+  border-radius: calc(6px * var(--corner-scale));
   box-shadow:
     0 0 0 1px var(--border),
     0 2px 4px oklch(0.25 0.0038 55 / 0.05),
@@ -5326,7 +5376,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
 }
 .nt-wall-brick {
   overflow: hidden;
-  border-radius: 6px;
+  border-radius: calc(6px * var(--corner-scale));
   box-shadow:
     0 0 0 1px var(--border),
     0 1px 2px oklch(0.25 0.0038 55 / 0.05),
@@ -5355,7 +5405,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   width: 30rem;
   height: 48rem;
   padding: 30px 30px 0;
-  border-radius: 8px;
+  border-radius: calc(8px * var(--corner-scale));
   background: var(--background);
   box-shadow:
     0 0 0 1px var(--border),
@@ -5470,7 +5520,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   left: 20px;
   width: 15.5rem;
   padding: 8px;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--corner-scale));
   background: #fff;
   box-shadow:
     0 0 0 1px rgb(15 15 15 / 0.06),
@@ -5496,7 +5546,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   gap: 8px;
   height: 28px;
   padding-inline: 6px;
-  border-radius: 4px;
+  border-radius: calc(4px * var(--corner-scale));
   white-space: nowrap;
 }
 .nt-port-emoji {
@@ -5510,7 +5560,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   width: 14px;
   height: 14px;
   place-items: center;
-  border-radius: 3px;
+  border-radius: calc(3px * var(--corner-scale));
   box-shadow: inset 0 0 0 1.5px rgb(55 53 47 / 0.35);
   color: #fff;
 }
@@ -5562,7 +5612,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   width: 20rem;
   height: 24rem;
   padding: 12px;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--corner-scale));
   background: var(--surface);
   box-shadow:
     0 0 0 1px var(--border),
@@ -5726,7 +5776,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   width: 64px;
   height: 64px;
   place-items: center;
-  border-radius: 18px;
+  border-radius: calc(18px * var(--corner-scale));
   background: var(--background);
   box-shadow:
     0 0 0 1px var(--border),
@@ -5830,7 +5880,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   /* Half the closed size — already a circle, but a numeric start point the
      morph can interpolate cleanly; 999px stays clamped while the box grows
      and then visibly snaps tight late in the transition. */
-  border-radius: 16px;
+  border-radius: calc(16px * var(--corner-scale));
   overflow: hidden;
   background: var(--elevated);
   border: 1px solid var(--border);
@@ -5966,6 +6016,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   width: 16px;
   height: 16px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--elevated);
   border: 1px solid var(--border);
   color: var(--muted);
@@ -5979,6 +6030,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
 .nt-feedback-send {
   padding: 5px 14px;
   border-radius: 999px;
+  corner-shape: round;
   border: 1px solid var(--border-strong);
   font-size: var(--text-ui);
   font-weight: 500;
@@ -6044,6 +6096,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
 .nt-sampler-chip {
   padding: 3px 10px;
   border-radius: 999px;
+  corner-shape: round;
   border: 1px solid var(--border);
   font-size: var(--text-meta-lg);
   color: var(--muted);
@@ -6068,6 +6121,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   gap: 6px;
   padding: 5px 6px 5px 12px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--elevated);
   border: 1px solid var(--border);
   box-shadow:
@@ -6160,6 +6214,7 @@ body:has(.nt-review-bar) .nt-sampler {
   width: 4px;
   height: 4px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--muted);
   animation: nt-dots 1s var(--ease) infinite;
 }
@@ -6203,6 +6258,7 @@ body:has(.nt-review-bar) .nt-sampler {
   gap: 10px;
   padding: 6px 8px 6px 14px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--elevated);
   border: 1px solid var(--border);
   box-shadow:
@@ -6214,6 +6270,7 @@ body:has(.nt-review-bar) .nt-sampler {
 .nt-update-go {
   padding: 3px 12px;
   border-radius: 999px;
+  corner-shape: round;
   border: 1px solid var(--border-strong);
   font-weight: 500;
   transition: background var(--dur-fast) var(--ease);
@@ -6228,6 +6285,7 @@ body:has(.nt-review-bar) .nt-sampler {
   width: 22px;
   height: 22px;
   border-radius: 999px;
+  corner-shape: round;
   color: var(--muted);
   font-size: 15px;
   line-height: 1;
@@ -6251,6 +6309,7 @@ body:has(.nt-review-bar) .nt-sampler {
   gap: 10px;
   padding: 6px 8px 6px 14px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--foreground);
   color: var(--background);
   box-shadow: 0 6px 20px oklch(0.25 0.0038 55 / 0.18);
@@ -6273,6 +6332,7 @@ body:has(.nt-review-bar) .nt-sampler {
   width: 6px;
   height: 6px;
   border-radius: 999px;
+  corner-shape: round;
   background: currentColor;
 }
 .nt-imp-left {
@@ -6284,6 +6344,7 @@ body:has(.nt-review-bar) .nt-sampler {
   flex-shrink: 0;
   padding: 3px 12px;
   border-radius: 999px;
+  corner-shape: round;
   border: 1px solid color-mix(in oklab, var(--background) 35%, transparent);
   font-weight: 500;
   transition: background var(--dur-fast) var(--ease);
@@ -6340,6 +6401,7 @@ body:has(.nt-review-bar) .nt-sampler {
   width: 24px;
   height: 24px;
   border-radius: 50%;
+  corner-shape: round;
   border: 1.5px solid var(--face-color, var(--border));
   background: var(--sunken);
   /* A page-coloured ring so overlapping portraits separate cleanly, and the
@@ -6373,6 +6435,7 @@ body:has(.nt-review-bar) .nt-sampler {
   min-width: 24px;
   padding-inline: 5px;
   border-radius: 999px;
+  corner-shape: round;
   color: var(--muted);
   font-family: var(--font-mono), ui-monospace, monospace;
   font-variant-numeric: tabular-nums;

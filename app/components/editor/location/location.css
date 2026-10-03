@@ -348,6 +348,7 @@
   width: 15px;
   height: 15px;
   border-radius: 50%;
+  corner-shape: round;
   background: var(--foreground);
   color: var(--background);
   opacity: 0;

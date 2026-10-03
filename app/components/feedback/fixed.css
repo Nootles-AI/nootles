@@ -13,7 +13,7 @@
   gap: 10px;
   max-width: min(420px, calc(100vw - 40px));
   padding: 8px 8px 8px 12px;
-  border-radius: 12px;
+  border-radius: calc(12px * var(--corner-scale));
   background: var(--elevated);
   border: 1px solid var(--border);
   box-shadow:
@@ -42,6 +42,7 @@
   flex-shrink: 0;
   padding: 3px 10px;
   border-radius: 999px;
+  corner-shape: round;
   border: 1px solid var(--border-strong);
   font-size: var(--text-ui);
   white-space: nowrap;
@@ -58,6 +59,7 @@
   width: 22px;
   height: 22px;
   border-radius: 999px;
+  corner-shape: round;
   color: var(--muted);
 }
 .nt-fixed-x:hover {
@@ -212,6 +214,7 @@
   width: 20px;
   height: 20px;
   border-radius: 999px;
+  corner-shape: round;
   color: var(--diff-add-line);
   background: color-mix(in oklch, var(--diff-add-line) 12%, transparent);
 }
@@ -229,6 +232,7 @@
   align-self: center;
   padding: 1px 7px;
   border-radius: 999px;
+  corner-shape: round;
   border: 1px solid var(--border);
   font-size: 10px;
   letter-spacing: 0.04em;
@@ -256,6 +260,7 @@
   align-self: center;
   padding: 1px 7px;
   border-radius: 999px;
+  corner-shape: round;
   font-size: 10px;
   letter-spacing: 0.04em;
   color: var(--diff-add-line);
@@ -271,7 +276,7 @@
   width: 100%;
   margin-top: 10px;
   padding: 8px 10px;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--corner-scale));
   border: 1px solid var(--border);
   font-size: var(--text-ui);
   text-align: left;

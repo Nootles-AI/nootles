@@ -397,7 +397,7 @@ body:has(.nt-pane[data-drawing]) .nt-side-menu-anchor {
   padding: 4px;
   background: var(--code-topbar);
   border: 1px solid var(--code-border);
-  border-radius: 6px;
+  border-radius: calc(6px * var(--corner-scale));
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
 }
 .nt-code-lang-menu button {
@@ -406,7 +406,7 @@ body:has(.nt-pane[data-drawing]) .nt-side-menu-anchor {
   width: 100%;
   min-height: var(--control-sm);
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: calc(4px * var(--corner-scale));
   text-align: left;
   font-size: 12px;
   color: var(--code-fg);
@@ -657,7 +657,7 @@ body:has(.nt-pane[data-drawing]) .nt-side-menu-anchor {
 .nt-math-inline {
   cursor: pointer;
   padding: 0 3px;
-  border-radius: 4px;
+  border-radius: calc(4px * var(--corner-scale));
   transition: background 0.12s ease;
 }
 .nt-math-inline:hover {
@@ -831,7 +831,7 @@ body:has(.nt-pane[data-drawing]) .nt-side-menu-anchor {
 .nt-code-preview {
   margin: 0.4rem 0;
   border: 1px dashed var(--code-border);
-  border-radius: 4px;
+  border-radius: calc(4px * var(--corner-scale));
   background: color-mix(in srgb, var(--code-bg) 62%, transparent);
   opacity: 0.7;
   overflow: hidden;
@@ -1206,13 +1206,13 @@ body:has(.nt-pane[data-drawing]) .nt-side-menu-anchor {
 .nt-editor .nt-diff-ins {
   background: var(--diff-add-bg);
   box-shadow: 0 0 0 1px var(--diff-add-bg);
-  border-radius: 3px;
+  border-radius: calc(3px * var(--corner-scale));
 }
 /* Words it removed, put back where they stood, struck. */
 .nt-editor .nt-diff-del {
   color: var(--diff-del);
   background: var(--diff-del-bg);
-  border-radius: 3px;
+  border-radius: calc(3px * var(--corner-scale));
   /* Struck in the rule's own tone, so the line through a word and the rule in
      the margin are visibly the same mark. */
   text-decoration-color: var(--diff-del-line);
@@ -1449,7 +1449,7 @@ body:has(.nt-pane[data-drawing]) .nt-side-menu-anchor {
   max-width: min(12rem, 45vw);
   padding: 1px 5px;
   overflow: hidden;
-  border-radius: 3px 3px 3px 0;
+  border-radius: calc(3px * var(--corner-scale)) calc(3px * var(--corner-scale)) calc(3px * var(--corner-scale)) 0;
   background: var(--copresence, var(--foreground));
   color: var(--background);
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;

@@ -521,7 +521,7 @@ button.nt-notion-twist:hover {
   width: 16px;
   height: 16px;
   border: 0;
-  border-radius: 5px;
+  border-radius: calc(5px * var(--corner-scale));
   box-shadow: inset 0 0 0 1.5px var(--border-strong);
   transition:
     background var(--dur-fast) var(--ease),
@@ -551,7 +551,7 @@ button.nt-notion-twist:hover {
 .nt-pal-notion .nt-notion-glyph {
   width: 26px;
   height: 26px;
-  border-radius: 7px;
+  border-radius: calc(7px * var(--corner-scale));
   transition:
     transform 340ms var(--spring),
     background var(--dur-fast) var(--ease),
@@ -657,7 +657,7 @@ button.nt-notion-twist:hover {
 .nt-pal-notion .nt-notion-run-mark {
   width: 26px;
   height: 26px;
-  border-radius: 7px;
+  border-radius: calc(7px * var(--corner-scale));
   background: var(--surface);
 }
 .nt-pal-notion .nt-notion-run[data-state="done"] .nt-notion-run-mark {

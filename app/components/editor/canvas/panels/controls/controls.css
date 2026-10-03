@@ -378,7 +378,7 @@
   flex: none;
   width: 14px;
   height: 14px;
-  border-radius: 3px;
+  border-radius: calc(3px * var(--corner-scale));
   overflow: hidden;
   box-shadow: inset 0 0 0 1px oklch(0.25 0.0038 55 / 0.14);
   background: conic-gradient(
@@ -409,7 +409,7 @@
 .nt-ctl-tag {
   flex: none;
   padding: 1px 4px;
-  border-radius: 3px;
+  border-radius: calc(3px * var(--corner-scale));
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -464,6 +464,7 @@
   min-width: 0;
   height: 12px;
   border-radius: 999px;
+  corner-shape: round;
   cursor: ew-resize;
   touch-action: none;
   box-shadow: inset 0 0 0 1px oklch(0.25 0.0038 55 / 0.12);
@@ -502,6 +503,7 @@
   width: 12px;
   height: 12px;
   border-radius: 999px;
+  corner-shape: round;
   transform: translate(-50%, -50%);
   pointer-events: none;
   box-shadow:
@@ -602,7 +604,7 @@
   top: 50%;
   width: 11px;
   height: 11px;
-  border-radius: 3px;
+  border-radius: calc(3px * var(--corner-scale));
   transform: translate(-50%, -50%);
   cursor: ew-resize;
   box-shadow:
@@ -709,6 +711,7 @@
   width: 4px;
   height: 4px;
   border-radius: 999px;
+  corner-shape: round;
   background: currentColor;
 }
 .nt-ctl-align3-on {
@@ -849,7 +852,7 @@
   display: block;
   width: 14px;
   height: 14px;
-  border-radius: 3px;
+  border-radius: calc(3px * var(--corner-scale));
   background-size: cover;
   background-position: center;
   border: 1px solid var(--border);

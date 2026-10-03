@@ -28,7 +28,7 @@ body:has(.nt-fixed) .nt-asks {
   align-items: center;
   gap: 10px;
   padding: 8px 8px 8px 12px;
-  border-radius: 12px;
+  border-radius: calc(12px * var(--corner-scale));
   background: var(--elevated);
   border: 1px solid var(--border);
   box-shadow:
@@ -80,6 +80,7 @@ body:has(.nt-fixed) .nt-asks {
   width: 22px;
   height: 22px;
   border-radius: 999px;
+  corner-shape: round;
 }
 
 /* The pen is the whole subject of the message, so it carries the one mark. */
@@ -91,6 +92,7 @@ body:has(.nt-fixed) .nt-asks {
   width: 22px;
   height: 22px;
   border-radius: 999px;
+  corner-shape: round;
   color: var(--muted);
   background: var(--sunken);
 }
@@ -100,6 +102,7 @@ body:has(.nt-fixed) .nt-asks {
   flex-shrink: 0;
   padding: 3px 10px;
   border-radius: 999px;
+  corner-shape: round;
   font-size: var(--text-ui);
   white-space: nowrap;
   transition: background var(--dur-fast) var(--ease);
@@ -130,6 +133,7 @@ body:has(.nt-fixed) .nt-asks {
   width: 22px;
   height: 22px;
   border-radius: 999px;
+  corner-shape: round;
   color: var(--muted);
 }
 .nt-ask-x:hover {

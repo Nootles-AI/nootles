@@ -306,6 +306,7 @@
   display: block;
   padding: 4px 11px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--foreground);
   font-size: var(--text-meta-lg);
   color: var(--background);
@@ -589,6 +590,7 @@
   height: 3px;
   margin-left: -16px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--faint);
   opacity: 0;
   transition: opacity var(--dur) var(--ease);
@@ -713,7 +715,7 @@
   /* A bar, not a pill: the corner the sheet, the menus and the composer share,
      so the tools read as one more surface of the same app rather than as a
      widget dropped on it. */
-  border-radius: 12px;
+  border-radius: calc(12px * var(--corner-scale));
   background: var(--elevated);
   box-shadow:
     0 0 0 1px oklch(0.25 0.0038 55 / 0.06),
@@ -757,7 +759,7 @@
   justify-content: center;
   width: 32px;
   height: 32px;
-  border-radius: 8px;
+  border-radius: calc(8px * var(--corner-scale));
   color: var(--muted);
   transition:
     background var(--dur-fast) var(--ease),
@@ -822,7 +824,7 @@
   width: var(--mark-h, 32px);
   height: var(--mark-h, 32px);
   margin-top: calc(var(--mark-h, 32px) / -2);
-  border-radius: 9px;
+  border-radius: calc(9px * var(--corner-scale));
   background: var(--foreground);
   opacity: 0;
   transform: translateX(var(--mark-x, 0px));
@@ -880,6 +882,7 @@
   height: 3px;
   margin-left: -1.5px;
   border-radius: 50%;
+  corner-shape: round;
   background: currentColor;
   opacity: 0;
   transform: scale(0);
@@ -914,7 +917,7 @@
   position: relative;
   display: flex;
   align-items: center;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--corner-scale));
   transition: background var(--dur-fast) var(--ease);
 }
 .nt-toolbar-shapes:hover:not([data-on]) {
@@ -937,7 +940,7 @@
   margin-left: -4px;
   padding-right: 4px;
   box-sizing: content-box;
-  border-radius: 0 10px 10px 0;
+  border-radius: 0 calc(10px * var(--corner-scale)) calc(10px * var(--corner-scale)) 0;
   color: var(--muted);
   transition: color var(--dur-fast) var(--ease);
 }
@@ -986,7 +989,7 @@
   min-width: 212px;
   padding: 5px;
   border: 0;
-  border-radius: 12px;
+  border-radius: calc(12px * var(--corner-scale));
   background: var(--foreground);
   box-shadow:
     0 0 0 1px oklch(1 0 0 / 0.06) inset,
@@ -998,7 +1001,7 @@
   gap: 10px;
   height: 32px;
   padding-inline: 8px 10px;
-  border-radius: 8px;
+  border-radius: calc(8px * var(--corner-scale));
   color: oklch(1 0 0 / 0.86);
 }
 .nt-tool-flyout .nt-menu-item:hover,
@@ -1069,15 +1072,15 @@
    keeps the smaller ones. */
 .nt-toolbar-dock .nt-toolbar {
   padding: 6px;
-  border-radius: 14px;
+  border-radius: calc(14px * var(--corner-scale));
 }
 .nt-toolbar-dock .nt-toolbar-btn {
   width: 38px;
   height: 38px;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--corner-scale));
 }
 .nt-toolbar-dock .nt-toolbar-mark {
-  border-radius: 10px;
+  border-radius: calc(10px * var(--corner-scale));
 }
 .nt-toolbar-dock .nt-toolbar-shapes .nt-toolbar-btn {
   width: 36px;
@@ -1088,7 +1091,7 @@
 .nt-toolbar-dock .nt-toolbar-zoom {
   height: 34px;
   min-width: 52px;
-  border-radius: 10px;
+  border-radius: calc(10px * var(--corner-scale));
 }
 .nt-toolbar-dock .nt-toolbar-sep {
   height: 22px;
@@ -1106,7 +1109,7 @@
   min-width: 46px;
   height: 32px;
   padding: 0 6px;
-  border-radius: 8px;
+  border-radius: calc(8px * var(--corner-scale));
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta-lg);
   font-variant-numeric: tabular-nums;
@@ -1196,7 +1199,8 @@
   line-height: 1.5;
   color: var(--background);
   /* A leaf: a pill with one grounded corner, pointing back into the canvas. */
-  border-radius: 999px 3px 999px 999px;
+  border-radius: 999px calc(3px * var(--corner-scale)) 999px 999px;
+  corner-shape: round squircle round round;
   white-space: nowrap;
   max-width: 12rem;
   overflow: hidden;
@@ -1375,6 +1379,7 @@
 }
 .nt-page-ghost[data-kind="ellipse"] {
   border-radius: 50%;
+  corner-shape: round;
 }
 .nt-page-ghost:has(svg) {
   border: 0;
@@ -1398,7 +1403,7 @@
   left: 50%;
   translate: -50% 0;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: calc(4px * var(--corner-scale));
   background: var(--nt-select);
   color: oklch(1 0 55);
   font-family: var(--font-mono), ui-monospace, monospace;

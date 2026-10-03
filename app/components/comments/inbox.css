@@ -13,7 +13,7 @@
   min-width: 0;
   flex: 1;
   padding: 4px 8px;
-  border-radius: 8px;
+  border-radius: calc(8px * var(--corner-scale));
   text-align: left;
   transition: background var(--dur-fast) var(--ease);
 }
