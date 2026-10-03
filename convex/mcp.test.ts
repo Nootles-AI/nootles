@@ -1041,33 +1041,52 @@ describe("pages born on NML", () => {
     }
   });
 
-  test("a Notion import's page, filled by ydoc.init, gets its content: a pristine born page is handed back", async () => {
+  test("a Notion import's pages wait unwritten for ydoc.init, and nothing beats it to the first write (NT-131)", async () => {
     const t = harness();
     await enable(t);
-    const projectId = await t.withIdentity(ME).mutation(api.projects.create, { title: "Imported" });
-    const pageId = await t.withIdentity(ME).mutation(api.pages.create, { projectId, title: "From Notion" });
-    const docId = await docOf(t, pageId);
     const legacy = new Y.Doc();
     const p = new Y.XmlElement("paragraph");
     p.insert(0, [new Y.XmlText("imported words")]);
     legacy.getXmlFragment("prosemirror").insert(0, [p]);
-    expect(await t.withIdentity(ME).mutation(api.ydoc.init, { docId, update: bytes(Y.encodeStateAsUpdate(legacy)) })).toEqual({ migrated: true });
-    expect(await t.run(async (ctx) => await ctx.db.query("nmlDocState").withIndex("by_doc", (q) => q.eq("docId", docId)).unique())).toBeNull();
-    const back = await t.run(async (ctx) => {
-      const read = await readStoredUpdates(ctx, docId);
-      if (!read || "tooLarge" in read) throw new Error("unreadable");
-      return read;
-    });
-    const doc = new Y.Doc();
-    for (const u of back.updates) Y.applyUpdate(doc, new Uint8Array(u));
-    expect([back.seq, doc.getXmlFragment("prosemirror").toString().includes("imported words"), doc.getMap("nml").size]).toEqual([1, true, 0]);
-    expect(await t.withIdentity(ME).query(api.nmlMigration.nmlAuthority, { docId })).toMatchObject({ serve: false, reason: "not-migrated" });
+    const filling = bytes(Y.encodeStateAsUpdate(legacy));
+    const elect = (docId: string) =>
+      t.withIdentity(ME).mutation(api.nmlMigration.electMigration, {
+        docId, update: bytes(new Uint8Array([0, 0])), nmlSchemaVersion: 1, nmlEncodingVersion: 1, equivalenceOk: true, mismatchClasses: [], limitOk: true,
+      });
+    const log = async (docId: string) => {
+      const read = await t.run(async (ctx) => await readStoredUpdates(ctx, docId));
+      if (read === null) return { seq: 0, text: false, nml: 0 };
+      if ("tooLarge" in read) throw new Error("unreadable");
+      const doc = new Y.Doc();
+      for (const u of read.updates) Y.applyUpdate(doc, new Uint8Array(u));
+      return { seq: read.seq, text: doc.getXmlFragment("prosemirror").toString().includes("imported words"), nml: doc.getMap("nml").size };
+    };
+    const state = (docId: string) => t.run(async (ctx) => await ctx.db.query("nmlDocState").withIndex("by_doc", (q) => q.eq("docId", docId)).unique());
 
-    // A born page someone has written to keeps "first writer wins".
-    const used = await docOf(t, await t.withIdentity(ME).mutation(api.pages.create, { projectId }));
-    await humanEdit(t, used, [{ type: "insertNodes", parentId: null, nodes: [para("mine", "Mine")] }]);
-    expect(await t.withIdentity(ME).mutation(api.ydoc.init, { docId: used, update: bytes(Y.encodeStateAsUpdate(legacy)) })).toEqual({ migrated: false });
-    expect(await t.withIdentity(ME).query(api.nmlMigration.nmlAuthority, { docId: used })).toMatchObject({ serve: true });
+    // A new project's blank page, and pages made into it, both awaiting content.
+    const projectId = await t.withIdentity(ME).mutation(api.projects.create, { title: "Imported", awaitingContent: true });
+    const seeded = await t.run(async (ctx) => (await ctx.db.query("pages").withIndex("by_project", (q) => q.eq("projectId", projectId)).collect())[0]);
+    const made = await docOf(t, await t.withIdentity(ME).mutation(api.pages.create, { projectId, title: "From Notion", awaitingContent: true }));
+    for (const docId of [seeded.docId, made]) {
+      expect(await state(docId)).toBeNull();
+      expect(await t.run(async (ctx) => (await ctx.db.query("ydocs").withIndex("by_doc", (q) => q.eq("docId", docId)).unique())?.seq)).toBe(0);
+      // An editor opened on it meanwhile does not migrate it into the way.
+      expect(await elect(docId)).toEqual({ elected: false, reason: "unwritten" });
+      expect(await state(docId)).toBeNull();
+      expect(await t.withIdentity(ME).mutation(api.ydoc.init, { docId, update: filling })).toEqual({ migrated: true });
+      expect(await log(docId)).toEqual({ seq: 1, text: true, nml: 0 });
+      expect(await t.withIdentity(ME).query(api.nmlMigration.nmlAuthority, { docId })).toMatchObject({ serve: false, reason: "not-migrated" });
+    }
+
+    // Filled, it migrates on its next open as any imported page does.
+    expect(await elect(made)).toMatchObject({ elected: true, seq: 2 });
+
+    // A page born on NML is never rewritten under its readers: `init` loses to the birth.
+    const born = await docOf(t, await t.withIdentity(ME).mutation(api.pages.create, { projectId }));
+    expect(await t.withIdentity(ME).mutation(api.ydoc.init, { docId: born, update: filling })).toEqual({ migrated: false });
+    expect(await log(born)).toMatchObject({ seq: 1, text: false });
+    expect(await state(born)).toMatchObject({ bornNml: true });
+    expect(await t.withIdentity(ME).query(api.nmlMigration.nmlAuthority, { docId: born })).toMatchObject({ serve: true });
   });
 
   test("everyone else's pages, and anyone's while serving is off, are born exactly as before", async () => {

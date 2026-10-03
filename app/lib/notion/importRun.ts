@@ -43,6 +43,8 @@ export type PageProgress = {
   /** Files that would not come down, so the report can be honest about them. */
   lostMedia?: number;
   error?: string;
+  /** Failed, but left in place: someone wrote on it before it could be filled. */
+  kept?: boolean;
 };
 
 export type ImportProgress = {
@@ -134,6 +136,7 @@ export async function runImport(request: ImportRequest): Promise<ImportProgress>
       request.projectId ??
       ((await client.mutation(api.projects.create, {
         title: request.newProjectTitle?.trim() || "Imported from Notion",
+        awaitingContent: true,
         ...(request.workspace
           ? {
               workspaceId: request.workspace.workspaceId,
@@ -190,6 +193,7 @@ export async function runImport(request: ImportRequest): Promise<ImportProgress>
           projectId,
           title: page.title,
           ...(folderId ? { folderId } : {}),
+          awaitingContent: true,
         })) as Id<"pages">);
       if (reuse) await client.mutation(api.pages.rename, { pageId: reuse, title: page.title });
       pageIds.set(page.key, id);
@@ -224,6 +228,7 @@ export async function runImport(request: ImportRequest): Promise<ImportProgress>
         if (isAbort(error)) throw error;
         entry.state = "failed";
         entry.error = message(error);
+        entry.kept = error instanceof WrittenFirst;
         report();
       }
     }
@@ -258,7 +263,8 @@ export async function runImport(request: ImportRequest): Promise<ImportProgress>
  * or a page failing inside a run that otherwise finished — leaves empty pages
  * wearing Notion titles, including a fresh project's seed page, renamed and
  * never written. Each row that never reached done is removed (its error is
- * kept, so the report can still say why), then any folder left holding
+ * kept, so the report can still say why) unless someone wrote on it first,
+ * which leaves it standing as though it had landed; then any folder left holding
  * nothing, and a project this run made goes entirely when nothing landed in
  * it — discarded rather than removed in a workspace, where deleting a
  * project is its managers' and its maker may only take back one nobody else
@@ -274,7 +280,7 @@ async function unmake(
 ): Promise<boolean> {
   const landed = new Set<string>();
   plan.pages.forEach((planned, index) => {
-    if (pages[index].state === "done") landed.add(planned.key);
+    if (pages[index].state === "done" || pages[index].kept) landed.add(planned.key);
   });
 
   if (made.fresh && landed.size === 0) {
@@ -294,7 +300,7 @@ async function unmake(
   for (const [index, planned] of plan.pages.entries()) {
     const entry = pages[index];
     const pageId = made.pages.get(planned.key);
-    if (entry.state === "done" || !pageId) continue;
+    if (landed.has(planned.key) || !pageId) continue;
     try {
       await client.mutation(api.pages.remove, { pageId });
       entry.state = "removed";
@@ -438,6 +444,7 @@ export async function importReferencedPage(
     projectId: options.projectId,
     title: options.title,
     ...(options.folderId ? { folderId: options.folderId } : {}),
+    awaitingContent: true,
   })) as Id<"pages">;
 
   try {
@@ -454,10 +461,13 @@ export async function importReferencedPage(
   } catch (error) {
     entry.state = "failed";
     entry.error = isAbort(error) ? "Import stopped." : message(error);
-    try {
-      await client.mutation(api.pages.remove, { pageId });
-    } catch {
-      // The failure above is the one worth reporting.
+    entry.kept = error instanceof WrittenFirst;
+    if (!entry.kept) {
+      try {
+        await client.mutation(api.pages.remove, { pageId });
+      } catch {
+        // The failure above is the one worth reporting.
+      }
     }
     report();
   }
@@ -485,10 +495,13 @@ async function writeDocument(
   blocks: ReturnType<typeof toBlockNote>,
 ): Promise<void> {
   if (!blocks.length) return;
-  await client.mutation(api.ydoc.init, {
+  const { migrated } = await client.mutation(api.ydoc.init, {
     docId,
     update: seedUpdate(blocks as SeedBlock[]),
   });
+  // First writer wins, and it was someone typing on the page while Notion was
+  // being read: their words stay, and this page's import is what failed.
+  if (!migrated) throw new WrittenFirst("Someone wrote on this page before the import could fill it.");
 }
 
 function count(blocks: { children: unknown[] }[]): number {
@@ -499,6 +512,7 @@ function count(blocks: { children: unknown[] }[]): number {
 }
 
 class Aborted extends Error {}
+class WrittenFirst extends Error {}
 function stopIfAborted(signal?: AbortSignal) {
   if (signal?.aborted) throw new Aborted("aborted");
 }

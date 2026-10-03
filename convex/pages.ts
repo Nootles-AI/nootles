@@ -88,6 +88,8 @@ export const create = mutation({
     after: v.optional(v.id("pages")),
     /** Sidebar folder to create it in; absent = the anchor's folder, or top level. */
     folderId: v.optional(v.id("folders")),
+    /** The caller fills the document itself through `ydoc.init` (a Notion import). */
+    awaitingContent: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     // Owner inherited from the authorized parent rather than re-derived, so a
@@ -103,6 +105,7 @@ export const create = mutation({
       title: args.title,
       after: args.after,
       folderId: args.folderId,
+      awaitingContent: args.awaitingContent,
     });
   },
 });
@@ -113,6 +116,12 @@ export const create = mutation({
  * born on NML when it would be served (`registerPageDoc`). Shared by the app's
  * `create`, a new project's first page, and MCP's `create_page`, so no path
  * makes a page any other way.
+ *
+ * A page `awaitingContent` is registered with nothing written instead, because
+ * its content arrives as the document's first write (`ydoc.init`), possibly
+ * minutes later. Born on NML, it would already hold a write, and an editor
+ * opened on it meanwhile adds more, so the content would lose first writer
+ * wins (NT-131).
  */
 export async function insertPage(
   ctx: MutationCtx,
@@ -123,6 +132,7 @@ export async function insertPage(
     title?: string;
     after?: Id<"pages">;
     folderId?: Id<"folders">;
+    awaitingContent?: boolean;
   },
 ): Promise<Id<"pages">> {
   const anchor = args.after ? await ctx.db.get(args.after) : null;
@@ -147,7 +157,8 @@ export async function insertPage(
   });
   // Born on Yjs: the first open syncs an empty doc instead of asking which
   // pipeline it is on and `init`ing it, round trips paid before the caret.
-  await registerPageDoc(ctx, docId, args.createdBy);
+  if (args.awaitingContent) await registerYDoc(ctx, docId);
+  else await registerPageDoc(ctx, docId, args.createdBy);
   await refreshPageSummary(ctx, args.projectId);
   return pageId;
 }

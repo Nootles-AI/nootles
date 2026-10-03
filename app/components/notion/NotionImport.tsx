@@ -619,6 +619,7 @@ function summarise(progress: ImportProgress): string {
   const pages = progress.pages;
   const landed = pages.filter((p) => p.state === "done").length;
   const failed = pages.filter((p) => p.error).length;
+  const kept = pages.filter((p) => p.kept).length;
   const unfinished = pages.filter((p) => p.state === "removed" && !p.error).length;
   const blocks = pages.reduce((total, page) => total + (page.blocks ?? 0), 0);
   const changed = pages.filter((p) => noted(p) > 0).length;
@@ -635,7 +636,8 @@ function summarise(progress: ImportProgress): string {
   return (
     `${n(landed, "page")}, ${n(blocks, "block")}.` +
     (changed ? ` ${changed} changed on the way in.` : landed ? " Nothing was lost." : "") +
-    (failed ? ` ${n(failed, "page")} failed and ${failed === 1 ? "was" : "were"} removed.` : "")
+    (failed > kept ? ` ${n(failed - kept, "page")} failed and ${failed - kept === 1 ? "was" : "were"} removed.` : "") +
+    (kept ? ` ${n(kept, "page")} failed and ${kept === 1 ? "was" : "were"} left as someone wrote ${kept === 1 ? "it" : "them"}.` : "")
   );
 }
 

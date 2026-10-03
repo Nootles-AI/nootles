@@ -202,6 +202,9 @@ try {
     return { pageId, projectId, docId: row.docId, title };
   }
   async function serve(who, doc, blocks) {
+    // A page migrates only once something is written on it (NT-131): its first
+    // write, as an editor's first flush would make it.
+    await as(who).mutation(anyApi.ydoc.init, { docId: doc.docId, update: new Uint8Array([0, 0]).buffer });
     await as(who).mutation(anyApi.nmlMigration.electMigration, { docId: doc.docId, ...seed.migration(doc.docId, blocks) });
     for (let i = 0; ; i++) {
       const authority = await as(who).query(anyApi.nmlMigration.nmlAuthority, { docId: doc.docId });

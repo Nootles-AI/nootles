@@ -20,6 +20,7 @@ import {
 } from "./auth";
 import { ABOUT, BACKGROUND } from "./ai/questions";
 import { registerPageDoc } from "./nmlMigration";
+import { registerYDoc } from "./ydoc";
 import { recordInProject } from "./audit";
 import { requireQuota, requireQuotaIn } from "./entitlements";
 import { attachFile, contextFileRef } from "./files/context";
@@ -306,6 +307,8 @@ export const create = mutation({
      * learns what a template is. Absent or empty means one blank page.
      */
     seed: v.optional(v.array(seedRow)),
+    /** The blank page is filled by the caller (`pages.create`'s `awaitingContent`). */
+    awaitingContent: v.optional(v.boolean()),
     /** Where it lives. Absent is the caller's own account. */
     workspaceId: v.optional(v.id("workspaces")),
     /** Who in the workspace sees it; ignored on a personal project. */
@@ -392,7 +395,8 @@ export const create = mutation({
         yjs: true,
         createdAt: now,
       });
-      await registerPageDoc(ctx, docId, ownerId);
+      if (args.awaitingContent) await registerYDoc(ctx, docId);
+      else await registerPageDoc(ctx, docId, ownerId);
     }
     await refreshPageSummary(ctx, projectId);
     return projectId;
