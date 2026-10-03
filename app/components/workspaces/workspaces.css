@@ -846,9 +846,9 @@
   border-radius: var(--radius-lg);
   background: var(--elevated);
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.04),
-    0 8px 24px oklch(0.25 0.005 90 / 0.07),
-    0 24px 64px oklch(0.25 0.005 90 / 0.11);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.04),
+    0 8px 24px oklch(0.25 0.0038 55 / 0.07),
+    0 24px 64px oklch(0.25 0.0038 55 / 0.11);
   text-align: center;
   transform-origin: 50% 30%;
   animation: nt-ws-join-in 410ms var(--spring) backwards;

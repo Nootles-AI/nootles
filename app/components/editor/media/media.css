@@ -235,9 +235,9 @@ a.nt-media-card:hover {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.05),
-    0 4px 12px oklch(0.25 0.005 90 / 0.07),
-    0 16px 40px oklch(0.25 0.005 90 / 0.1);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.05),
+    0 4px 12px oklch(0.25 0.0038 55 / 0.07),
+    0 16px 40px oklch(0.25 0.0038 55 / 0.1);
   animation: nt-menu-in var(--dur) var(--ease);
 }
 
@@ -289,8 +289,8 @@ a.nt-media-card:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: oklch(1 0 90);
-  background: oklch(0.25 0.005 90 / 0.45);
+  color: oklch(1 0 55);
+  background: oklch(0.25 0.0038 55 / 0.45);
   opacity: 0;
   transition: opacity var(--dur-fast) var(--ease);
 }

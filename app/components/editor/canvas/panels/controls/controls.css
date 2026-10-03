@@ -380,12 +380,12 @@
   height: 14px;
   border-radius: 3px;
   overflow: hidden;
-  box-shadow: inset 0 0 0 1px oklch(0.25 0.005 90 / 0.14);
+  box-shadow: inset 0 0 0 1px oklch(0.25 0.0038 55 / 0.14);
   background: conic-gradient(
-      oklch(0.88 0.003 90) 0 25%,
-      oklch(1 0 90) 0 50%,
-      oklch(0.88 0.003 90) 0 75%,
-      oklch(1 0 90) 0
+      oklch(0.88 0.0028 55) 0 25%,
+      oklch(1 0 55) 0 50%,
+      oklch(0.88 0.0028 55) 0 75%,
+      oklch(1 0 55) 0
     )
     0 0 / 8px 8px;
 }
@@ -466,7 +466,7 @@
   border-radius: 999px;
   cursor: ew-resize;
   touch-action: none;
-  box-shadow: inset 0 0 0 1px oklch(0.25 0.005 90 / 0.12);
+  box-shadow: inset 0 0 0 1px oklch(0.25 0.0038 55 / 0.12);
 }
 .nt-ctl-slider.is-hue {
   background: linear-gradient(
@@ -483,10 +483,10 @@
 .nt-ctl-slider.is-alpha {
   overflow: hidden;
   background: conic-gradient(
-      oklch(0.88 0.003 90) 0 25%,
-      oklch(1 0 90) 0 50%,
-      oklch(0.88 0.003 90) 0 75%,
-      oklch(1 0 90) 0
+      oklch(0.88 0.0028 55) 0 25%,
+      oklch(1 0 55) 0 50%,
+      oklch(0.88 0.0028 55) 0 75%,
+      oklch(1 0 55) 0
     )
     0 0 / 8px 8px;
 }
@@ -505,9 +505,9 @@
   transform: translate(-50%, -50%);
   pointer-events: none;
   box-shadow:
-    inset 0 0 0 2px oklch(1 0 90),
-    0 0 0 1px oklch(0.25 0.005 90 / 0.4),
-    0 1px 3px oklch(0.25 0.005 90 / 0.25);
+    inset 0 0 0 2px oklch(1 0 55),
+    0 0 0 1px oklch(0.25 0.0038 55 / 0.4),
+    0 1px 3px oklch(0.25 0.0038 55 / 0.25);
 }
 
 /* The knob answers the hand before the press: a little larger under the
@@ -555,8 +555,8 @@
   height: 14px;
   background: var(--elevated);
   box-shadow:
-    0 0 0 1px oklch(0.25 0.005 90 / 0.18),
-    0 1px 3px oklch(0.25 0.005 90 / 0.2);
+    0 0 0 1px oklch(0.25 0.0038 55 / 0.18),
+    0 1px 3px oklch(0.25 0.0038 55 / 0.2);
 }
 
 /* A popover's own scrim, inert while a colour-pick session (COLOR) is up —
@@ -583,9 +583,9 @@
   cursor: crosshair;
   touch-action: none;
   background-image:
-    linear-gradient(to top, oklch(0 0 90) 0%, oklch(0 0 90 / 0) 100%),
-    linear-gradient(to right, oklch(1 0 90) 0%, oklch(1 0 90 / 0) 100%);
-  box-shadow: inset 0 0 0 1px oklch(0.25 0.005 90 / 0.12);
+    linear-gradient(to top, oklch(0 0 55) 0%, oklch(0 0 55 / 0) 100%),
+    linear-gradient(to right, oklch(1 0 55) 0%, oklch(1 0 55 / 0) 100%);
+  box-shadow: inset 0 0 0 1px oklch(0.25 0.0038 55 / 0.12);
 }
 
 /* ---- Gradient bar ------------------------------------------------------- */
@@ -595,7 +595,7 @@
   border-radius: var(--radius-sm);
   cursor: copy;
   touch-action: none;
-  box-shadow: inset 0 0 0 1px oklch(0.25 0.005 90 / 0.12);
+  box-shadow: inset 0 0 0 1px oklch(0.25 0.0038 55 / 0.12);
 }
 .nt-ctl-stop {
   position: absolute;
@@ -606,12 +606,12 @@
   transform: translate(-50%, -50%);
   cursor: ew-resize;
   box-shadow:
-    0 0 0 1.5px oklch(1 0 90),
-    0 0 0 2.5px oklch(0.25 0.005 90 / 0.3);
+    0 0 0 1.5px oklch(1 0 55),
+    0 0 0 2.5px oklch(0.25 0.0038 55 / 0.3);
 }
 .nt-ctl-stop.is-on {
   box-shadow:
-    0 0 0 1.5px oklch(1 0 90),
+    0 0 0 1.5px oklch(1 0 55),
     0 0 0 2.5px var(--foreground);
 }
 
@@ -655,7 +655,7 @@
   width: calc((100% - 4px - (var(--n, 2) - 1) * 1px) / var(--n, 2));
   border-radius: var(--radius-sm);
   background: var(--background);
-  box-shadow: 0 1px 2px oklch(0.25 0.005 90 / 0.06);
+  box-shadow: 0 1px 2px oklch(0.25 0.0038 55 / 0.06);
   transform: translateX(calc(var(--at, 0) * (100% + 1px)));
   transition:
     transform var(--dur-slow) var(--spring),
@@ -700,7 +700,7 @@
 .nt-ctl-align3-cell[aria-pressed="true"] {
   background: var(--background);
   color: var(--foreground);
-  box-shadow: 0 1px 2px oklch(0.25 0.005 90 / 0.06);
+  box-shadow: 0 1px 2px oklch(0.25 0.0038 55 / 0.06);
 }
 /* --muted, not --faint: a 4px decorative dot was the entire content of this
    control, and it sat below the contrast floor for anything that carries

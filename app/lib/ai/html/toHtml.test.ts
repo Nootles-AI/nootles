@@ -104,7 +104,7 @@ describe("compileScene: goldens (html)", () => {
         '    </defs>\n' +
         '    <path data-nt-id="e1" d="M120 90 L280 90" style="fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; stroke: #111" marker-end="url(#nt-c2-arrow-0)"/>\n' +
         '  </svg>\n' +
-        '  <div data-nt-edge-label="e1" style="position: absolute; left: 200px; top: 90px; transform: translate(-50%, -50%); padding: 1px 5px; border-radius: 4px; background: #fff; font-size: 12px; line-height: 1.35; white-space: pre-wrap; color: oklch(0.25 0.005 90); pointer-events: none">deploys</div>\n' +
+        '  <div data-nt-edge-label="e1" style="position: absolute; left: 200px; top: 90px; transform: translate(-50%, -50%); padding: 1px 5px; border-radius: 4px; background: #fff; font-size: 12px; line-height: 1.35; white-space: pre-wrap; color: oklch(0.25 0.0038 55); pointer-events: none">deploys</div>\n' +
         '  <div data-nt-id="a" style="box-sizing: border-box; white-space: pre-wrap; overflow-wrap: break-word; background: #eee; position: absolute; left: 20px; top: 60px; width: 100px; height: 60px"><span>A</span></div>\n' +
         '  <div data-nt-id="b" style="box-sizing: border-box; white-space: pre-wrap; overflow-wrap: break-word; background: #eee; position: absolute; left: 280px; top: 60px; width: 100px; height: 60px"><span>B</span></div>\n' +
         "</div>",

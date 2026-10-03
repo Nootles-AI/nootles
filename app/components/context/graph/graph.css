@@ -35,7 +35,7 @@
   background-color: var(--surface);
   background-image: radial-gradient(
     circle at 1px 1px,
-    oklch(0.25 0.005 90 / 0.12) 1px,
+    oklch(0.25 0.0038 55 / 0.12) 1px,
     transparent 1.3px
   );
   background-size: 22px 22px;
@@ -140,8 +140,8 @@
   border: 1px solid var(--border-strong);
   border-radius: 9px;
   box-shadow:
-    0 1px 1px oklch(0.25 0.005 90 / 0.04),
-    0 3px 8px -3px oklch(0.25 0.005 90 / 0.1);
+    0 1px 1px oklch(0.25 0.0038 55 / 0.04),
+    0 3px 8px -3px oklch(0.25 0.0038 55 / 0.1);
   cursor: pointer;
   pointer-events: auto;
   /* No `will-change`: a promoted layer is scaled as a bitmap, and a zoomed-in
@@ -155,8 +155,8 @@
 .nt-gnode:hover {
   border-color: var(--shape-line-hover);
   box-shadow:
-    0 1px 1px oklch(0.25 0.005 90 / 0.05),
-    0 6px 16px -6px oklch(0.25 0.005 90 / 0.18);
+    0 1px 1px oklch(0.25 0.0038 55 / 0.05),
+    0 6px 16px -6px oklch(0.25 0.0038 55 / 0.18);
 }
 .nt-gnode:focus-visible {
   outline: 2px solid var(--foreground);
@@ -202,8 +202,8 @@
   border-color: var(--foreground);
   border-radius: 12px;
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.2),
-    0 10px 28px -10px oklch(0.25 0.005 90 / 0.5);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.2),
+    0 10px 28px -10px oklch(0.25 0.0038 55 / 0.5);
 }
 .nt-gnode.is-project::before {
   content: "";
@@ -290,13 +290,13 @@
   border-style: solid;
   box-shadow:
     0 0 0 1px var(--foreground),
-    0 8px 22px -8px oklch(0.25 0.005 90 / 0.32);
+    0 8px 22px -8px oklch(0.25 0.0038 55 / 0.32);
 }
 .nt-gnode.is-project.is-selected {
   box-shadow:
     0 0 0 3px var(--surface),
     0 0 0 4.5px var(--foreground),
-    0 10px 28px -10px oklch(0.25 0.005 90 / 0.5);
+    0 10px 28px -10px oklch(0.25 0.0038 55 / 0.5);
 }
 .nt-gnode.is-match {
   border-color: var(--foreground);
@@ -312,7 +312,7 @@
   cursor: grabbing;
   box-shadow:
     0 0 0 1px var(--foreground),
-    0 14px 32px -10px oklch(0.25 0.005 90 / 0.35);
+    0 14px 32px -10px oklch(0.25 0.0038 55 / 0.35);
 }
 
 /* ---- Floating chrome ---------------------------------------------------- */
@@ -336,7 +336,7 @@
   background: var(--elevated);
   border: 1px solid var(--border);
   border-radius: 9px;
-  box-shadow: 0 2px 8px -4px oklch(0.25 0.005 90 / 0.12);
+  box-shadow: 0 2px 8px -4px oklch(0.25 0.0038 55 / 0.12);
   transition: border-color var(--dur-fast) var(--ease);
 }
 .nt-graph-search:focus-within {
@@ -370,7 +370,7 @@
   background: var(--elevated);
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 2px 8px -4px oklch(0.25 0.005 90 / 0.12);
+  box-shadow: 0 2px 8px -4px oklch(0.25 0.0038 55 / 0.12);
 }
 .nt-graph-zoom-level {
   min-width: 52px;
@@ -402,8 +402,8 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.04),
-    0 16px 40px -16px oklch(0.25 0.005 90 / 0.22);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.04),
+    0 16px 40px -16px oklch(0.25 0.0038 55 / 0.22);
   overflow: hidden;
 }
 .nt-ginfo-top {
@@ -451,7 +451,7 @@
 }
 .nt-ginfo-thumb:hover {
   border-color: var(--border-strong);
-  box-shadow: 0 6px 18px -10px oklch(0.25 0.005 90 / 0.25);
+  box-shadow: 0 6px 18px -10px oklch(0.25 0.0038 55 / 0.25);
 }
 .nt-ginfo-thumb:focus-visible {
   outline: 2px solid var(--foreground);

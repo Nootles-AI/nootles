@@ -24,7 +24,7 @@
   background: var(--elevated);
   border: 1px solid var(--border);
   border-radius: 9px;
-  box-shadow: 0 1px 1px oklch(0.25 0.005 90 / 0.04);
+  box-shadow: 0 1px 1px oklch(0.25 0.0038 55 / 0.04);
   transition:
     border-color var(--dur-fast) var(--ease),
     background var(--dur-fast) var(--ease),
@@ -78,7 +78,7 @@
   background: var(--elevated);
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 1px 2px oklch(0.25 0.005 90 / 0.04);
+  box-shadow: 0 1px 2px oklch(0.25 0.0038 55 / 0.04);
   animation: nt-src-in 190ms var(--ease);
 }
 /* Arrives where it was added; answers the click that added it. */

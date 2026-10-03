@@ -8,10 +8,12 @@
    the shell derives from those two numbers; don't hand-tune per component. */
 :root {
   /* ---- Palette ----------------------------------------------------------
-     Surfaces and ink are neutral: chroma never exceeds 0.006, which is below
-     the threshold where a hue is perceptible. They read as paper and graphite,
-     not as a tint. A tinted ramp was tried and pulled the whole surface toward
-     a colour it did not need.
+     Surfaces and ink are all but neutral: a hint of warm stone at hue 55, with
+     chroma that peaks in the mid tones (~0.0055) and falls away toward paper
+     and ink, so the ink never browns. They read as paper and graphite, not as
+     a tint. The hue matters more than the amount: at 90 the same chroma lands
+     on yellow, and a yellow grey reads as olive — dirty, not warm. Pure
+     neutral, a cool ramp and a stronger stone were all tried and set aside.
 
      Colour appears in exactly two places, and only one of them means anything —
      the accent, for AI activity, which is the only thing on screen that should
@@ -22,19 +24,19 @@
      on the darkest surface it can land on; the measured ratio is noted. */
 
   /* Surfaces: chrome recedes, the document advances. */
-  --background: oklch(1 0 90);            /* the page itself           */
-  --surface: oklch(0.975 0.002 90);       /* panels                    */
-  --sunken: oklch(0.958 0.003 90);        /* wells inside panels       */
-  --elevated: oklch(1 0 90);          /* menus, popovers (+shadow) */
+  --background: oklch(1 0 55);            /* the page itself           */
+  --surface: oklch(0.975 0.0019 55);       /* panels                    */
+  --sunken: oklch(0.958 0.0022 55);        /* wells inside panels       */
+  --elevated: oklch(1 0 55);          /* menus, popovers (+shadow) */
 
   /* Lines. Used sparingly — separation is mostly by surface value now. */
-  --border: oklch(0.93 0.003 90);
-  --border-strong: oklch(0.875 0.004 90);
+  --border: oklch(0.93 0.0025 55);
+  --border-strong: oklch(0.875 0.0028 55);
 
   /* Ink */
-  --foreground: oklch(0.25 0.005 90);     /* 16.1:1 on background      */
-  --muted: oklch(0.535 0.004 90);         /* 4.54:1 on sunken          */
-  --faint: oklch(0.72 0.004 90);          /* decorative only, no text  */
+  --foreground: oklch(0.25 0.0038 55);     /* 16.0:1 on background      */
+  --muted: oklch(0.535 0.0054 55);         /* 4.58:1 on sunken          */
+  --faint: oklch(0.72 0.0043 55);          /* decorative only, no text  */
 
   /* Brand — identity only, and identity is a short list: the logo, the sign-in
      page, the favicon. It never states a product meaning. Nothing is selected,
@@ -82,11 +84,11 @@
   --diff-del-line: oklch(0.64 0.12 25);    /* rule, never text          */
 
   /* Interaction states — the only four values any hover should reach for. */
-  --hover: oklch(0.25 0.005 90 / 0.05);
-  --active: oklch(0.25 0.005 90 / 0.08);
-  --selected: oklch(0.25 0.005 90 / 0.065);
-  --hover-on-dark: oklch(1 0 90 / 0.07);
-  --active-on-dark: oklch(1 0 90 / 0.1);
+  --hover: oklch(0.25 0.0038 55 / 0.05);
+  --active: oklch(0.25 0.0038 55 / 0.08);
+  --selected: oklch(0.25 0.0038 55 / 0.065);
+  --hover-on-dark: oklch(1 0 55 / 0.07);
+  --active-on-dark: oklch(1 0 55 / 0.1);
 
   /* Commented words: the house grey warmed a little, so a highlight reads as
      paper marked in pencil — never the amber, which means AI activity. */
@@ -95,23 +97,23 @@
   --comment-hl-active: oklch(0.6 0.03 80 / 0.3);
 
   /* Code surfaces */
-  --code-bg: oklch(0.255 0.005 90);
-  --code-topbar: oklch(0.225 0.005 90);
-  --code-border: oklch(0.33 0.006 90);
-  --code-fg: oklch(0.85 0.004 90);        /* 9.0:1 on code-bg          */
-  --code-fg-muted: oklch(0.64 0.005 90);  /* 4.50:1 on code-bg         */
+  --code-bg: oklch(0.255 0.0039 55);
+  --code-topbar: oklch(0.225 0.0037 55);
+  --code-border: oklch(0.33 0.0044 55);
+  --code-fg: oklch(0.85 0.003 55);        /* 9.0:1 on code-bg          */
+  --code-fg-muted: oklch(0.64 0.0049 55);  /* 4.69:1 on code-bg         */
 
   /* Canvas line ramp — cooler than panel borders so shapes read as objects
      sitting on a surface rather than as chrome. */
-  --shape-line: oklch(0.865 0.004 90);
-  --shape-line-hover: oklch(0.79 0.005 90);
-  --shape-line-active: oklch(0.52 0.006 90);
-  --edge-line: oklch(0.68 0.005 90);
+  --shape-line: oklch(0.865 0.0029 55);
+  --shape-line-hover: oklch(0.79 0.0036 55);
+  --shape-line-active: oklch(0.52 0.0053 55);
+  --edge-line: oklch(0.68 0.0046 55);
 
   /* Suggestion ink. Legible enough to read before you accept it, tinted
      enough to read as not-yet-real. */
-  --ghost: oklch(0.54 0.006 90);           /* 4.50:1 on sunken          */
-  --ghost-on-code: oklch(0.632 0.006 90);  /* 4.55:1 on code-bg         */
+  --ghost: oklch(0.535 0.0054 55);          /* 4.58:1 on sunken          */
+  --ghost-on-code: oklch(0.632 0.005 55);  /* 4.54:1 on code-bg         */
 
   /* ---- Type -------------------------------------------------------------
      One sans for reading and chrome; mono carries metadata (labels, counts,
@@ -205,7 +207,7 @@ body {
 /* Selected text wears the ink's own wash, as every selected thing does here —
    the browser's blue belongs to no part of this palette. */
 ::selection {
-  background: oklch(0.25 0.005 90 / 0.14);
+  background: oklch(0.25 0.0038 55 / 0.14);
 }
 
 /* Placeholder for empty contentEditable fields (see Editable.tsx). */
@@ -722,9 +724,9 @@ body {
 .nt-well > div > .nt-pane {
   border-radius: 14px;
   box-shadow:
-    0 0 0 1px oklch(0.25 0.005 90 / 0.07),
-    0 1px 2px oklch(0.25 0.005 90 / 0.04),
-    0 12px 32px -16px oklch(0.25 0.005 90 / 0.12);
+    0 0 0 1px oklch(0.25 0.0038 55 / 0.07),
+    0 1px 2px oklch(0.25 0.0038 55 / 0.04),
+    0 12px 32px -16px oklch(0.25 0.0038 55 / 0.12);
 }
 /* A rail's place in the shell. Putting a rail away closes this over it — the
    rail keeps its width and slides out toward its own edge of the window while
@@ -842,9 +844,9 @@ body[data-resizing] .nt-rail-face {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.05),
-    0 4px 12px oklch(0.25 0.005 90 / 0.06),
-    0 16px 40px oklch(0.25 0.005 90 / 0.08);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.05),
+    0 4px 12px oklch(0.25 0.0038 55 / 0.06),
+    0 16px 40px oklch(0.25 0.0038 55 / 0.08);
   opacity: 0;
   translate: calc(-100% - var(--float-inset)) 0;
   visibility: hidden;
@@ -1032,9 +1034,9 @@ body[data-resizing] .nt-rail-face {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.05),
-    0 4px 12px oklch(0.25 0.005 90 / 0.07),
-    0 16px 40px oklch(0.25 0.005 90 / 0.1);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.05),
+    0 4px 12px oklch(0.25 0.0038 55 / 0.07),
+    0 16px 40px oklch(0.25 0.0038 55 / 0.1);
   /* It grows out of whatever raised it: `Menu` sets the origin to the corner
      nearest its trigger, and a context menu's default is the pointer's. */
   transform-origin: var(--origin, top left);
@@ -1337,7 +1339,7 @@ textarea.nt-input {
 .nt-scrim {
   position: fixed;
   inset: 0;
-  background: oklch(0.25 0.005 90 / 0.1);
+  background: oklch(0.25 0.0038 55 / 0.1);
   /* The page stays there behind it and stops being readable, which is the whole
      message: still present, not what you are doing.
 
@@ -1377,9 +1379,9 @@ textarea.nt-input {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.04),
-    0 8px 24px oklch(0.25 0.005 90 / 0.07),
-    0 24px 64px oklch(0.25 0.005 90 / 0.11);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.04),
+    0 8px 24px oklch(0.25 0.0038 55 / 0.07),
+    0 24px 64px oklch(0.25 0.0038 55 / 0.11);
   animation: nt-dialog-in 410ms var(--spring);
 }
 .nt-dialog.is-closing {
@@ -1601,9 +1603,9 @@ textarea.nt-input {
   border-radius: var(--radius-lg);
   background: var(--background);
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.04),
-    0 8px 24px oklch(0.25 0.005 90 / 0.06),
-    0 24px 64px oklch(0.25 0.005 90 / 0.08);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.04),
+    0 8px 24px oklch(0.25 0.0038 55 / 0.06),
+    0 24px 64px oklch(0.25 0.0038 55 / 0.08);
 }
 
 /* The page does not end at the crop, so it fades rather than being cut mid-line. */
@@ -1719,7 +1721,7 @@ textarea.nt-input {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    oklch(1 0 90 / 0.8) 50%,
+    oklch(1 0 55 / 0.8) 50%,
     transparent 100%
   );
   animation: nt-sweep 1.7s var(--ease) infinite;
@@ -1844,7 +1846,7 @@ textarea.nt-input {
 .nt-mode-btn.is-on {
   background: var(--background);
   color: var(--foreground);
-  box-shadow: 0 1px 2px oklch(0.25 0.005 90 / 0.06);
+  box-shadow: 0 1px 2px oklch(0.25 0.0038 55 / 0.06);
 }
 /* The worded toggle, with a thumb that travels. Its words are not the same
    length, so the segments are made the same width — every column as wide as
@@ -1866,7 +1868,7 @@ textarea.nt-input {
   width: calc((100% - 4px) / var(--n, 2));
   border-radius: var(--radius-sm);
   background: var(--background);
-  box-shadow: 0 1px 2px oklch(0.25 0.005 90 / 0.06);
+  box-shadow: 0 1px 2px oklch(0.25 0.0038 55 / 0.06);
   transform: translateX(calc(var(--at, 0) * 100%));
   transition: transform 360ms var(--spring);
 }
@@ -2764,7 +2766,7 @@ a.nt-chip:hover {
   /* The composer's corner, since it sits on the composer's shoulders. */
   border-radius: 12px;
   background: var(--elevated);
-  box-shadow: 0 6px 16px -8px oklch(0.25 0.005 90 / 0.16);
+  box-shadow: 0 6px 16px -8px oklch(0.25 0.0038 55 / 0.16);
   animation: nt-chat-review-in 360ms var(--spring);
 }
 /* It arrives from the composer it answers to. */
@@ -2842,7 +2844,7 @@ a.nt-chip:hover {
   color: var(--background);
 }
 .nt-chat-review-btn.is-keep:hover:not(:disabled) {
-  background: oklch(0.33 0.005 90);
+  background: oklch(0.33 0.0044 55);
   color: var(--background);
 }
 /* Busy, it keeps its ink: the rule above that clears a disabled button's hover
@@ -2872,7 +2874,7 @@ a.nt-chip:hover {
    one field on this side of the window, saying it is the one being written in. */
 .nt-composer:focus-within {
   border-color: var(--shape-line-active);
-  box-shadow: 0 6px 20px -8px oklch(0.25 0.005 90 / 0.2);
+  box-shadow: 0 6px 20px -8px oklch(0.25 0.0038 55 / 0.2);
 }
 /* A drop target says so by looking like a well, which is what it is about to
    become. No dashed outline: the box is already outlined. */
@@ -3023,7 +3025,7 @@ a.nt-chip:hover {
     transform var(--dur-slow) var(--spring);
 }
 .nt-composer-send:hover:not(:disabled) {
-  background: oklch(0.33 0.005 90);
+  background: oklch(0.33 0.0044 55);
 }
 .nt-composer-send:active:not(:disabled) {
   transform: scale(0.95);
@@ -3102,7 +3104,7 @@ a.nt-chip:hover {
   border: 1px solid var(--shape-line-active);
   border-radius: 12px;
   background: var(--elevated);
-  box-shadow: 0 6px 20px -8px oklch(0.25 0.005 90 / 0.2);
+  box-shadow: 0 6px 20px -8px oklch(0.25 0.0038 55 / 0.2);
   animation: nt-fade-in var(--dur) var(--ease);
 }
 .nt-rewind-input {
@@ -3148,7 +3150,7 @@ a.nt-chip:hover {
   color: var(--background);
 }
 .nt-rewind-action.is-primary:hover {
-  background: oklch(0.33 0.005 90);
+  background: oklch(0.33 0.0044 55);
   color: var(--background);
 }
 
@@ -3234,8 +3236,8 @@ a.nt-chip:hover {
   background: var(--elevated);
   border: 1px solid color-mix(in oklch, var(--accent) 30%, var(--border));
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.05),
-    0 6px 20px color-mix(in oklch, var(--accent) 12%, oklch(0.25 0.005 90 / 0.1));
+    0 1px 2px oklch(0.25 0.0038 55 / 0.05),
+    0 6px 20px color-mix(in oklch, var(--accent) 12%, oklch(0.25 0.0038 55 / 0.1));
   animation: nt-menu-in var(--dur) var(--ease);
 }
 /* The counter is a control for the SET of suggestions, not part of any one of
@@ -3254,8 +3256,8 @@ a.nt-chip:hover {
   background: var(--elevated);
   border: 1px solid var(--border);
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.05),
-    0 6px 20px oklch(0.25 0.005 90 / 0.1);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.05),
+    0 6px 20px oklch(0.25 0.0038 55 / 0.1);
   animation: nt-menu-in var(--dur) var(--ease);
 }
 .nt-reformat-step {
@@ -3327,9 +3329,9 @@ a.nt-chip:hover {
   border-radius: 12px;
   background: var(--elevated);
   box-shadow:
-    0 0 0 1px oklch(0.25 0.005 90 / 0.06),
-    0 4px 12px oklch(0.25 0.005 90 / 0.07),
-    0 16px 40px oklch(0.25 0.005 90 / 0.1);
+    0 0 0 1px oklch(0.25 0.0038 55 / 0.06),
+    0 4px 12px oklch(0.25 0.0038 55 / 0.07),
+    0 16px 40px oklch(0.25 0.0038 55 / 0.1);
   animation: nt-review-bar-in 440ms var(--spring);
 }
 /* Rises into the spot, the way the toolbar does, clearing as it lands. The
@@ -3443,7 +3445,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   opacity: 0.7;
 }
 .nt-review-action.is-keep:hover:not(:disabled) {
-  background: oklch(0.33 0.005 90);
+  background: oklch(0.33 0.0044 55);
   color: var(--background);
 }
 .nt-review-failure {
@@ -3526,8 +3528,8 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   border-radius: 6px 6px 0 0;
   box-shadow:
     0 0 0 1px var(--border),
-    0 1px 2px oklch(0.25 0.005 90 / 0.05),
-    0 10px 24px -10px oklch(0.25 0.005 90 / 0.2);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.05),
+    0 10px 24px -10px oklch(0.25 0.0038 55 / 0.2);
   transition:
     transform 420ms var(--ease),
     box-shadow 420ms var(--ease);
@@ -3539,8 +3541,8 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   transform: translateY(-5px);
   box-shadow:
     0 0 0 1px var(--border-strong),
-    0 2px 4px oklch(0.25 0.005 90 / 0.06),
-    0 22px 36px -14px oklch(0.25 0.005 90 / 0.3);
+    0 2px 4px oklch(0.25 0.0038 55 / 0.06),
+    0 22px 36px -14px oklch(0.25 0.0038 55 / 0.3);
 }
 /* One target, the whole card. The name is the link; its hit area reaches back
    over the thumbnail and the rest of the chin, so there is no dead strip under
@@ -3858,7 +3860,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   height: 28px;
   border-radius: var(--radius);
   background: var(--background);
-  box-shadow: 0 1px 2px oklch(0.25 0.005 90 / 0.1);
+  box-shadow: 0 1px 2px oklch(0.25 0.0038 55 / 0.1);
   transition: transform 360ms var(--spring);
 }
 .nt-mode.is-slide[data-at="1"]::before {
@@ -3921,7 +3923,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   z-index: var(--z-dropdown);
   width: var(--open-w);
   pointer-events: none;
-  filter: drop-shadow(0 12px 20px oklch(0.25 0.005 90 / 0));
+  filter: drop-shadow(0 12px 20px oklch(0.25 0.0038 55 / 0));
   transition: filter 200ms var(--ease);
   /* The open panel's size even when closed: it would catch every press meant
      for what sits beside or below the button. The surface answers instead,
@@ -3932,7 +3934,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   pointer-events: auto;
 }
 .nt-create[data-open="true"] .nt-create-lift {
-  filter: drop-shadow(0 18px 28px oklch(0.25 0.005 90 / 0.32));
+  filter: drop-shadow(0 18px 28px oklch(0.25 0.0038 55 / 0.32));
   transition: filter 390ms var(--ease);
 }
 /* The spring carries the clip a few pixels past the box on the way in — about
@@ -4123,7 +4125,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
 }
 /* 7.9:1 on the ink. */
 .nt-create-two > :last-child {
-  color: oklch(0.78 0.004 90);
+  color: oklch(0.78 0.0037 55);
   font-size: var(--text-meta-lg);
 }
 
@@ -4442,7 +4444,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   inset: 0;
   overflow: hidden;
   background-color: var(--surface);
-  background-image: radial-gradient(circle, oklch(0.25 0.005 90 / 0.16) 1px, transparent 1.4px);
+  background-image: radial-gradient(circle, oklch(0.25 0.0038 55 / 0.16) 1px, transparent 1.4px);
   /* `background-position` follows the pan, written inline by `ProjectsBoard`. */
   background-size: 24px 24px;
   cursor: grab;
@@ -4557,7 +4559,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   background: var(--background);
   box-shadow:
     0 0 0 1px var(--shape-line),
-    0 1px 2px oklch(0.25 0.005 90 / 0.05);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.05);
   transition:
     box-shadow 300ms var(--ease),
     transform 420ms var(--spring);
@@ -4588,13 +4590,13 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
 .nt-board-frame:has(.nt-card-link:focus-visible) .nt-board-page {
   box-shadow:
     0 0 0 1.5px var(--shape-line-active),
-    0 14px 30px -12px oklch(0.25 0.005 90 / 0.35);
+    0 14px 30px -12px oklch(0.25 0.0038 55 / 0.35);
   transform: translateY(-3px);
 }
 .nt-board-frame[data-dragging="true"] .nt-board-page {
   box-shadow:
     0 0 0 1.5px var(--shape-line-active),
-    0 30px 50px -18px oklch(0.25 0.005 90 / 0.45);
+    0 30px 50px -18px oklch(0.25 0.0038 55 / 0.45);
   transform: translateY(-3px);
 }
 .nt-board-frame:has(.nt-card-link:focus-visible) .nt-board-page {
@@ -4631,7 +4633,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   background: var(--elevated);
   box-shadow:
     0 0 0 1px var(--border),
-    0 8px 24px -8px oklch(0.25 0.005 90 / 0.2);
+    0 8px 24px -8px oklch(0.25 0.0038 55 / 0.2);
 }
 .nt-board-mini i,
 .nt-board-mini b {
@@ -5036,7 +5038,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   position: absolute;
   inset: 0;
   z-index: -1;
-  background-image: radial-gradient(circle, oklch(0.25 0.005 90 / 0.13) 1px, transparent 1.4px);
+  background-image: radial-gradient(circle, oklch(0.25 0.0038 55 / 0.13) 1px, transparent 1.4px);
   background-position: center 40%;
   background-size: 22px 22px;
   mask-image: radial-gradient(ellipse 60% 62% at 50% 38%, #000 20%, transparent 72%);
@@ -5056,8 +5058,8 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   background: var(--background);
   box-shadow:
     0 0 0 1px var(--border),
-    0 2px 4px oklch(0.25 0.005 90 / 0.05),
-    0 18px 36px -14px oklch(0.25 0.005 90 / 0.3);
+    0 2px 4px oklch(0.25 0.0038 55 / 0.05),
+    0 18px 36px -14px oklch(0.25 0.0038 55 / 0.3);
   color: var(--foreground);
 }
 .nt-nc-tile.is-ours {
@@ -5091,7 +5093,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   padding-inline: 18px 20px;
   border-radius: 10px;
   background: var(--foreground);
-  box-shadow: 0 10px 22px -10px oklch(0.25 0.005 90 / 0.55);
+  box-shadow: 0 10px 22px -10px oklch(0.25 0.0038 55 / 0.55);
   color: var(--background);
   font-size: 14px;
   font-weight: 500;
@@ -5100,7 +5102,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
     box-shadow var(--dur) var(--ease);
 }
 .nt-nc-go:hover {
-  box-shadow: 0 16px 28px -12px oklch(0.25 0.005 90 / 0.6);
+  box-shadow: 0 16px 28px -12px oklch(0.25 0.0038 55 / 0.6);
   transform: translateY(-1px);
 }
 .nt-nc-go:active {
@@ -5271,8 +5273,8 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   border-radius: 6px;
   box-shadow:
     0 0 0 1px var(--border),
-    0 2px 4px oklch(0.25 0.005 90 / 0.05),
-    0 18px 36px -16px oklch(0.25 0.005 90 / 0.3);
+    0 2px 4px oklch(0.25 0.0038 55 / 0.05),
+    0 18px 36px -16px oklch(0.25 0.0038 55 / 0.3);
 }
 /* A template's preview: a page on top, the sidebar it opens with below. The
    sheet is the project thumbnail's own frame, so a template looks like the
@@ -5327,8 +5329,8 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   border-radius: 6px;
   box-shadow:
     0 0 0 1px var(--border),
-    0 1px 2px oklch(0.25 0.005 90 / 0.05),
-    0 10px 22px -12px oklch(0.25 0.005 90 / 0.28);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.05),
+    0 10px 22px -12px oklch(0.25 0.0038 55 / 0.28);
   animation: nt-rise 600ms var(--ease) backwards;
   animation-delay: calc(var(--i, 0) * 35ms);
 }
@@ -5357,8 +5359,8 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   background: var(--background);
   box-shadow:
     0 0 0 1px var(--border),
-    0 2px 4px oklch(0.25 0.005 90 / 0.05),
-    0 24px 48px -20px oklch(0.25 0.005 90 / 0.3);
+    0 2px 4px oklch(0.25 0.0038 55 / 0.05),
+    0 24px 48px -20px oklch(0.25 0.0038 55 / 0.3);
   animation: nt-rise 600ms var(--ease) backwards;
 }
 .nt-blank-title {
@@ -5396,9 +5398,9 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   border-radius: var(--radius-lg);
   background: var(--elevated);
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.05),
-    0 4px 12px oklch(0.25 0.005 90 / 0.07),
-    0 16px 40px oklch(0.25 0.005 90 / 0.1);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.05),
+    0 4px 12px oklch(0.25 0.0038 55 / 0.07),
+    0 16px 40px oklch(0.25 0.0038 55 / 0.1);
   animation: nt-rise 600ms var(--ease) 120ms backwards;
 }
 .nt-blank-tool {
@@ -5564,8 +5566,8 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   background: var(--surface);
   box-shadow:
     0 0 0 1px var(--border),
-    0 2px 4px oklch(0.25 0.005 90 / 0.05),
-    0 24px 48px -20px oklch(0.25 0.005 90 / 0.3);
+    0 2px 4px oklch(0.25 0.0038 55 / 0.05),
+    0 24px 48px -20px oklch(0.25 0.0038 55 / 0.3);
   font-size: var(--text-ui);
   animation: nt-rise 600ms var(--ease) 120ms backwards;
 }
@@ -5728,7 +5730,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   background: var(--background);
   box-shadow:
     0 0 0 1px var(--border),
-    0 14px 28px -14px oklch(0.25 0.005 90 / 0.3);
+    0 14px 28px -14px oklch(0.25 0.0038 55 / 0.3);
 }
 .nt-pal-big svg {
   width: 24px;
@@ -5789,7 +5791,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   height: 100%;
   object-fit: contain;
   user-select: none;
-  filter: drop-shadow(0 18px 30px oklch(0.25 0.005 90 / 0.14));
+  filter: drop-shadow(0 18px 30px oklch(0.25 0.0038 55 / 0.14));
   animation: nt-rise 600ms var(--ease) backwards;
 }
 
@@ -5809,7 +5811,7 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   height: 100%;
   object-fit: contain;
   user-select: none;
-  filter: drop-shadow(0 18px 30px oklch(0.25 0.005 90 / 0.14));
+  filter: drop-shadow(0 18px 30px oklch(0.25 0.0038 55 / 0.14));
   animation: nt-rise 600ms var(--ease) backwards;
 }
 
@@ -5833,8 +5835,8 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   background: var(--elevated);
   border: 1px solid var(--border);
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.05),
-    0 6px 20px oklch(0.25 0.005 90 / 0.1);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.05),
+    0 6px 20px oklch(0.25 0.0038 55 / 0.1);
   transition:
     width var(--dur-slow) var(--ease),
     height var(--dur-slow) var(--ease),
@@ -6014,8 +6016,8 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   background: var(--elevated);
   border: 1px solid var(--border);
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.05),
-    0 6px 20px oklch(0.25 0.005 90 / 0.1);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.05),
+    0 6px 20px oklch(0.25 0.0038 55 / 0.1);
   animation: nt-menu-in var(--dur) var(--ease);
   font-size: var(--text-ui);
 }
@@ -6069,8 +6071,8 @@ body:has(.nt-toolbar-dock.is-page):has(.nt-review-bar:not(.nt-agent-bar)) .nt-ag
   background: var(--elevated);
   border: 1px solid var(--border);
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.05),
-    0 6px 20px oklch(0.25 0.005 90 / 0.1);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.05),
+    0 6px 20px oklch(0.25 0.0038 55 / 0.1);
   animation: nt-menu-in var(--dur) var(--ease);
 }
 .nt-sampler-q {
@@ -6204,8 +6206,8 @@ body:has(.nt-review-bar) .nt-sampler {
   background: var(--elevated);
   border: 1px solid var(--border);
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.05),
-    0 6px 20px oklch(0.25 0.005 90 / 0.1);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.05),
+    0 6px 20px oklch(0.25 0.0038 55 / 0.1);
   font-size: var(--text-ui);
   animation: nt-menu-in var(--dur) var(--ease);
 }
@@ -6251,7 +6253,7 @@ body:has(.nt-review-bar) .nt-sampler {
   border-radius: 999px;
   background: var(--foreground);
   color: var(--background);
-  box-shadow: 0 6px 20px oklch(0.25 0.005 90 / 0.18);
+  box-shadow: 0 6px 20px oklch(0.25 0.0038 55 / 0.18);
   font-size: var(--text-ui);
   animation: nt-menu-in var(--dur) var(--ease);
   /* A label is a name, an address, or a short id — and an address can be

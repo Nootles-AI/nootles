@@ -22,8 +22,8 @@ const H = 212;
  *  more of the wall. */
 const SHOWN = 0.86;
 const INK = "var(--foreground)";
-const SOFT = "oklch(0.9 0.003 90)";
-const RULE = "oklch(0.8 0.004 90)";
+const SOFT = "oklch(0.9 0.0027 55)";
+const RULE = "oklch(0.8 0.0035 55)";
 const FILL = "#eef1f7";
 const FILL_EDGE = "#cdd5e5";
 const MINT = "#e9f2ef";
