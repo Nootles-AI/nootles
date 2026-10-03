@@ -24,14 +24,8 @@ import type { NotionBlock } from "../app/lib/notion/types";
 
 type Boot = { url: string; jwt: string; identity: { userId: string; name: string } };
 
-declare global {
-  interface Window {
-    __e2e: Boot;
-    e2e: typeof harness;
-  }
-}
-
-const boot = window.__e2e;
+// Its own window fields, cast rather than declared: comments-e2e.fullstack.tsx declares these names globally.
+const boot = (window as unknown as { __e2e: Boot }).__e2e;
 const client = new ConvexReactClient(boot.url, { skipConvexDeploymentUrlCheck: true, unsavedChangesWarning: false });
 const auth = { isLoading: false, isAuthenticated: true, fetchAccessToken: async () => boot.jwt };
 const useAuth = () => auth;
@@ -115,7 +109,7 @@ function Shell() {
   );
 }
 
-window.e2e = harness;
+(window as unknown as { e2e: typeof harness }).e2e = harness;
 // What the swapped-in Clerk reads.
 (window as unknown as { surfaces: { identity: Boot["identity"]; signIns: string[] } }).surfaces = { identity: boot.identity, signIns: [] };
 createRoot(document.getElementById("app")!).render(
