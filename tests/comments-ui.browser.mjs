@@ -93,7 +93,7 @@ try {
 
   // Wide enough that a centred column still leaves a card's room beside it once
   // the chat is put away; section 1 checks the narrower window falls to dots.
-  async function open(name, visitor, { query = "", viewport = { width: 1600, height: 900 } } = {}) {
+  async function open(name, visitor, { query = "", viewport = { width: 1800, height: 900 } } = {}) {
     const tab = await guardedTab(browser, { origin, inert: true, label: name, failures });
     await tab.page.setViewportSize(viewport);
     const context = tab.context;
@@ -172,9 +172,9 @@ try {
   await A.setViewportSize({ width: 1440, height: 900 });
   await wait(500);
   check("[ada] at 1440 the centred column leaves no card room: dots", await layerMode(A), "dots");
-  await A.setViewportSize({ width: 1600, height: 900 });
+  await A.setViewportSize({ width: 1800, height: 900 });
   await wait(500);
-  check("[ada] back at 1600: cards", await layerMode(A), "cards");
+  check("[ada] back at 1800: cards", await layerMode(A), "cards");
   check("[ada] nothing is written by opening a page", (await stored(A)).length, 0);
 
   // ---- 2. Ada starts a thread from the formatting toolbar --------------------
@@ -499,7 +499,7 @@ try {
   await C.locator(".nt-comment-float").click();
   check("[cam] narrow, the composer opens in the panel", await C.evaluate(() => !!document.activeElement?.closest(".nt-comments-panel") && document.activeElement.getAttribute("aria-label")), "Comment");
   await C.keyboard.press("Escape");
-  await C.setViewportSize({ width: 1600, height: 900 });
+  await C.setViewportSize({ width: 1800, height: 900 });
   await wait(400);
   check("[cam] wide again, cards", await layerMode(C), "cards");
 

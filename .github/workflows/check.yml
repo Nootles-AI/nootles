@@ -42,8 +42,10 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npx playwright install --with-deps chromium
       - run: npm run test:canvas:browser
-      # The editor's typing shortcuts and paste, on both undo pipelines.
+      # The editor's typing shortcuts and paste, on both undo pipelines. Runs even
+      # when the canvas gate has failed, so a red one cannot hide it.
       - run: npm run test:editor:typing
+        if: ${{ !cancelled() }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -119,11 +121,13 @@ jobs:
           CONVEX_LOCAL_BACKEND_BINARY: /home/runner/.cache/convex/binaries/${{ env.CONVEX_LOCAL_BACKEND }}/convex-local-backend
       # Same throwaway backend recipe, for what the agent is told about an album.
       - run: npm run test:album:fullstack
+        if: ${{ !cancelled() }}
         env:
           COMMENTS_BROWSER_CHANNEL: chromium
           CONVEX_LOCAL_BACKEND_BINARY: /home/runner/.cache/convex/binaries/${{ env.CONVEX_LOCAL_BACKEND }}/convex-local-backend
       # And for a share link running out while someone is typing (NT-80).
       - run: npm run test:links:expiry
+        if: ${{ !cancelled() }}
         env:
           COMMENTS_BROWSER_CHANNEL: chromium
           CONVEX_LOCAL_BACKEND_BINARY: /home/runner/.cache/convex/binaries/${{ env.CONVEX_LOCAL_BACKEND }}/convex-local-backend

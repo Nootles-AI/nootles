@@ -105,8 +105,8 @@ try {
     }
     await fresh(pipeline);
     await page.keyboard.type("# Title");
-    await page.waitForTimeout(50);
-    await page.keyboard.press("Home");
+    await page.waitForFunction(() => window.typingPaste.document()[0]?.type === "heading");
+    await page.evaluate(() => window.typingPaste.caretToStart());
     await page.keyboard.type("1) ");
     check("`1) ` in a heading stays text", await first(), { type: "heading", runs: ["1) Title"] });
 

@@ -261,7 +261,7 @@ try {
 
   await open([{ type: "paragraph", content: "let x" }]);
   await caret(0, "end");
-  await page.keyboard.press("Meta+Alt+8");
+  await page.keyboard.press("ControlOrMeta+Alt+8");
   await page.waitForSelector(".cm-editor");
   await sleep(150);
   d = await doc();
@@ -274,7 +274,7 @@ try {
 
   await open([{ type: "heading", props: { level: 2 }, content: "Title" }]);
   await caret(0, "end");
-  await page.keyboard.press("Meta+Alt+8");
+  await page.keyboard.press("ControlOrMeta+Alt+8");
   await page.waitForSelector(".cm-editor");
   await sleep(150);
   d = await doc();
@@ -282,7 +282,7 @@ try {
 
   await open([{ type: "paragraph", content: [{ type: "text", text: "See ", styles: {} }, { type: "pageMention", props: { pageId: "p1", title: "Roadmap" } }] }]);
   await caret(0, "end");
-  await page.keyboard.press("Meta+Alt+8");
+  await page.keyboard.press("ControlOrMeta+Alt+8");
   await page.waitForSelector(".cm-editor");
   await sleep(150);
   check("⌘⌥8 keeps a mention, as its title", (await doc())[0].code, "See Roadmap");
@@ -297,7 +297,7 @@ try {
   d = await doc();
   await h((ids) => window.codeHarness.selectBlocks(ids), d.map((b) => b.id).slice(0, 4));
   await sleep();
-  await page.keyboard.press("Meta+Alt+8");
+  await page.keyboard.press("ControlOrMeta+Alt+8");
   await page.waitForFunction(() => document.querySelectorAll(".cm-editor").length === 3);
   await sleep(150);
   d = await doc();
@@ -311,7 +311,7 @@ try {
   d = await doc();
   await h(([a, b]) => window.codeHarness.selectText(a, b), [d[0].id, d[1].id]);
   await sleep();
-  await page.keyboard.press("Meta+Alt+8");
+  await page.keyboard.press("ControlOrMeta+Alt+8");
   await page.waitForFunction(() => document.querySelectorAll(".cm-editor").length === 2);
   await sleep(150);
   d = await doc();
@@ -522,13 +522,13 @@ try {
     await sleep(200);
   };
   const undo = async () => {
-    await page.keyboard.press("Meta+z");
+    await page.keyboard.press("ControlOrMeta+z");
     await sleep(300);
   };
 
   await shared([{ type: "heading", props: { level: 2 }, content: "Title" }]);
   await caret(0, "end");
-  await page.keyboard.press("Meta+Alt+8");
+  await page.keyboard.press("ControlOrMeta+Alt+8");
   await page.waitForSelector(".cm-editor");
   await sleep(300);
   check("⌘⌥8 turns the heading", (await doc())[0].type, "codeBlock");
