@@ -142,7 +142,8 @@
   /* Every radius reads through --corner-scale. A squircle is tighter than a
      round corner at the same radius — it hugs the edge longer before it turns
      — so where the browser draws squircles (see Corners) the radii grow by
-     half again, which lands each corner at the size the round one had. */
+     1.8. At 45° a squircle cuts 0.16 of its radius off the box's corner and a
+     circle 0.29, so 1.8× cuts what the round corner cut. */
   --corner-scale: 1;
   --radius-sm: calc(4px * var(--corner-scale));
   --radius: calc(6px * var(--corner-scale));
@@ -213,7 +214,7 @@ body {
 
 @supports (corner-shape: squircle) {
   :root {
-    --corner-scale: 1.5;
+    --corner-scale: 1.8;
   }
 }
 
