@@ -136,7 +136,7 @@
      dropped the sheet's own entrance to single figures and made the staggered
      reveal look broken. Separation is worth one shade of grey, not the frame
      budget of the animation it exists to support. */
-  background: oklch(0.25 0.005 90 / 0.28);
+  background: oklch(0.25 0.0038 55 / 0.28);
 }
 
 @keyframes nt-pw-wash {
@@ -169,8 +169,8 @@
   /* Offset and blur, so it reads as a sheet lifted off the page rather than as
      a halo drawn around one. */
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.04),
-    0 12px 32px -8px oklch(0.25 0.005 90 / 0.16);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.04),
+    0 12px 32px -8px oklch(0.25 0.0038 55 / 0.16);
   pointer-events: auto;
   animation: nt-pw-arrive var(--dur-slow) var(--ease) backwards;
   /* Growing in place is the whole idea, so the size change is a transition on
@@ -516,7 +516,7 @@
 }
 
 .nt-pw-btn.is-solid:hover:not(:disabled) {
-  background: oklch(0.19 0.005 90);
+  background: oklch(0.19 0.0035 55);
 }
 
 .nt-pw-btn.is-outline {
@@ -648,7 +648,7 @@
 }
 
 .nt-pw-back:hover {
-  background: oklch(0.19 0.005 90);
+  background: oklch(0.19 0.0035 55);
 }
 
 /* The bar that empties while the return runs itself. It is a countdown, and it

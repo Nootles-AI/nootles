@@ -216,7 +216,7 @@
   min-height: 0;
 }
 .nt-sb-full-stage .nt-canvas-shot {
-  box-shadow: 0 10px 30px oklch(0.2 0.01 90 / 0.14);
+  box-shadow: 0 10px 30px oklch(0.2 0.0035 55 / 0.14);
 }
 
 .nt-sb-full-close {

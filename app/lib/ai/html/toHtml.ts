@@ -710,7 +710,7 @@ function renderNode(ctx: Ctx, node: SceneNode, slot: Flow | undefined, depth: nu
 
 /** `--edge-line` resolved (globals.css) — the default an edge paints with
  *  when it names no `stroke` of its own. */
-const EDGE_LINE_DEFAULT = "oklch(0.68 0.005 90)";
+const EDGE_LINE_DEFAULT = "oklch(0.68 0.0046 55)";
 
 function edgeSvgDecls(): Map<string, string> {
   const m = new Map<string, string>();
@@ -744,7 +744,7 @@ function edgeLabelDecls(x: number, y: number): Map<string, string> {
   put(m, "font-size", "12px");
   put(m, "line-height", "1.35");
   put(m, "white-space", "pre-wrap");
-  put(m, "color", "oklch(0.25 0.005 90)");
+  put(m, "color", "oklch(0.25 0.0038 55)");
   put(m, "pointer-events", "none");
   return m;
 }

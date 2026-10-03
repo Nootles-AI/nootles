@@ -11,8 +11,8 @@
   overflow: visible;
   pointer-events: none;
 
-  --ov-line: oklch(0.5 0.006 90);
-  --ov-guide: oklch(0.42 0.006 90);
+  --ov-line: oklch(0.5 0.0052 55);
+  --ov-guide: oklch(0.42 0.0048 55);
   /* The size readout is the gesture's own answer, so it wears the one accent
      with the frame and the grips it is reading off. */
   --ov-chip: var(--nt-select);
@@ -83,7 +83,7 @@
 }
 
 .nt-ov-band {
-  fill: oklch(0.25 0.005 90 / 0.05);
+  fill: oklch(0.25 0.0038 55 / 0.05);
   stroke: var(--ov-line);
   shape-rendering: crispEdges;
 }
@@ -153,7 +153,7 @@
 }
 
 .nt-ov-chip > text {
-  fill: oklch(1 0 90);
+  fill: oklch(1 0 55);
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 11px;
   /* White on the accent is a lighter contrast than on graphite; the weight

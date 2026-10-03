@@ -78,13 +78,13 @@
   transition: none;
   transform: translate(calc(var(--x) + var(--dx)), calc(var(--y) + var(--dy)))
     scale(1.02);
-  box-shadow: 0 10px 30px oklch(0.2 0.01 90 / 0.22);
+  box-shadow: 0 10px 30px oklch(0.2 0.0035 55 / 0.22);
 }
 
 /* Let go: it glides into its slot above the others, shadow fading as it lands. */
 .nt-album-tile.is-homing {
   z-index: 2;
-  box-shadow: 0 10px 30px oklch(0.2 0.01 90 / 0);
+  box-shadow: 0 10px 30px oklch(0.2 0.0035 55 / 0);
   transition:
     transform var(--dur) var(--ease),
     width var(--dur) var(--ease),
@@ -346,8 +346,8 @@
   background: var(--elevated);
   border: 1px solid var(--border);
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.05),
-    0 6px 20px oklch(0.25 0.005 90 / 0.1);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.05),
+    0 6px 20px oklch(0.25 0.0038 55 / 0.1);
   transform: translateX(-50%);
   transition: opacity var(--dur-fast) var(--ease);
   animation: nt-album-tools-in var(--dur) var(--ease);
@@ -494,19 +494,19 @@
   display: grid;
   place-items: center;
   padding: 48px;
-  background: oklch(0.17 0.004 90 / 0.88);
+  background: oklch(0.17 0.0035 55 / 0.88);
   animation: nt-fade-in var(--dur) var(--ease);
   transition: background var(--dur-slow) var(--ease);
 }
 .nt-album-lightbox.is-editing {
-  background: oklch(0.145 0.004 90 / 0.97);
+  background: oklch(0.145 0.0035 55 / 0.97);
 }
 .nt-album-lightbox:focus {
   outline: none;
 }
 /* The global ring is amber on white; this room is dark. */
 .nt-album-lightbox :focus-visible {
-  outline: 2px solid oklch(1 0 90 / 0.75);
+  outline: 2px solid oklch(1 0 55 / 0.75);
   outline-offset: 2px;
 }
 
@@ -537,13 +537,13 @@
 
 .nt-album-crop {
   position: absolute;
-  border: 1px solid oklch(1 0 90 / 0.9);
+  border: 1px solid oklch(1 0 55 / 0.9);
   /* Thirds, the way every crop since the view camera has been judged. */
   background-image:
-    linear-gradient(oklch(1 0 90 / 0.28), oklch(1 0 90 / 0.28)),
-    linear-gradient(oklch(1 0 90 / 0.28), oklch(1 0 90 / 0.28)),
-    linear-gradient(oklch(1 0 90 / 0.28), oklch(1 0 90 / 0.28)),
-    linear-gradient(oklch(1 0 90 / 0.28), oklch(1 0 90 / 0.28));
+    linear-gradient(oklch(1 0 55 / 0.28), oklch(1 0 55 / 0.28)),
+    linear-gradient(oklch(1 0 55 / 0.28), oklch(1 0 55 / 0.28)),
+    linear-gradient(oklch(1 0 55 / 0.28), oklch(1 0 55 / 0.28)),
+    linear-gradient(oklch(1 0 55 / 0.28), oklch(1 0 55 / 0.28));
   background-size:
     1px 100%,
     1px 100%,
@@ -556,7 +556,7 @@
     0 66.67%;
   background-repeat: no-repeat;
   /* The dim is the window's shadow: one box, no four-panel arithmetic. */
-  box-shadow: 0 0 0 9999px oklch(0.08 0.004 90 / 0.62);
+  box-shadow: 0 0 0 9999px oklch(0.08 0.0035 55 / 0.62);
   cursor: move;
   touch-action: none;
 }
@@ -589,29 +589,29 @@
 .nt-album-crop-grip.is-nw::before {
   top: 9px;
   left: 9px;
-  border-top: 3px solid oklch(1 0 90);
-  border-left: 3px solid oklch(1 0 90);
+  border-top: 3px solid oklch(1 0 55);
+  border-left: 3px solid oklch(1 0 55);
   border-top-left-radius: 3px;
 }
 .nt-album-crop-grip.is-ne::before {
   top: 9px;
   right: 9px;
-  border-top: 3px solid oklch(1 0 90);
-  border-right: 3px solid oklch(1 0 90);
+  border-top: 3px solid oklch(1 0 55);
+  border-right: 3px solid oklch(1 0 55);
   border-top-right-radius: 3px;
 }
 .nt-album-crop-grip.is-se::before {
   bottom: 9px;
   right: 9px;
-  border-bottom: 3px solid oklch(1 0 90);
-  border-right: 3px solid oklch(1 0 90);
+  border-bottom: 3px solid oklch(1 0 55);
+  border-right: 3px solid oklch(1 0 55);
   border-bottom-right-radius: 3px;
 }
 .nt-album-crop-grip.is-sw::before {
   bottom: 9px;
   left: 9px;
-  border-bottom: 3px solid oklch(1 0 90);
-  border-left: 3px solid oklch(1 0 90);
+  border-bottom: 3px solid oklch(1 0 55);
+  border-left: 3px solid oklch(1 0 55);
   border-bottom-left-radius: 3px;
 }
 
@@ -623,7 +623,7 @@
   width: 22px;
   height: 3px;
   border-radius: 999px;
-  background: oklch(1 0 90);
+  background: oklch(1 0 55);
 }
 .nt-album-crop-grip.is-n::before { top: 10px; }
 .nt-album-crop-grip.is-s::before { bottom: 10px; }
@@ -636,7 +636,7 @@
   width: 3px;
   height: 22px;
   border-radius: 999px;
-  background: oklch(1 0 90);
+  background: oklch(1 0 55);
 }
 .nt-album-crop-grip.is-e::before { right: 10px; }
 .nt-album-crop-grip.is-w::before { left: 10px; }
@@ -654,7 +654,7 @@
 }
 .nt-album-dock-note {
   font-size: var(--text-meta-lg);
-  color: oklch(1 0 90 / 0.85);
+  color: oklch(1 0 55 / 0.85);
 }
 
 /* At rest: each way in as an icon over its name, the Photos editor's row. */
@@ -669,7 +669,7 @@
   align-items: center;
   min-width: 52px;
   font-size: var(--text-meta-lg);
-  color: oklch(1 0 90 / 0.78);
+  color: oklch(1 0 55 / 0.78);
   transition: color var(--dur-fast) var(--ease);
 }
 .nt-album-mode-chip {
@@ -678,9 +678,9 @@
   width: 40px;
   height: 40px;
   border-radius: 999px;
-  background: oklch(1 0 90 / 0.1);
+  background: oklch(1 0 55 / 0.1);
   backdrop-filter: blur(10px);
-  color: oklch(1 0 90 / 0.9);
+  color: oklch(1 0 55 / 0.9);
   transition:
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease),
@@ -691,11 +691,11 @@
   height: 16px;
 }
 .nt-album-mode:hover {
-  color: oklch(1 0 90);
+  color: oklch(1 0 55);
 }
 .nt-album-mode:hover .nt-album-mode-chip {
-  background: oklch(1 0 90 / 0.18);
-  color: oklch(1 0 90);
+  background: oklch(1 0 55 / 0.18);
+  color: oklch(1 0 55);
 }
 .nt-album-mode:active .nt-album-mode-chip {
   transform: scale(0.94);
@@ -713,24 +713,24 @@
   font-size: var(--text-meta);
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: oklch(1 0 90 / 0.62);
+  color: oklch(1 0 55 / 0.62);
 }
 .nt-album-action {
   height: 34px;
   padding: 0 18px;
   border-radius: 999px;
   font-size: 13px;
-  background: oklch(1 0 90 / 0.1);
+  background: oklch(1 0 55 / 0.1);
   backdrop-filter: blur(10px);
-  color: oklch(1 0 90 / 0.85);
+  color: oklch(1 0 55 / 0.85);
   justify-self: end;
   transition:
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
 .nt-album-action:hover {
-  background: oklch(1 0 90 / 0.16);
-  color: oklch(1 0 90);
+  background: oklch(1 0 55 / 0.16);
+  color: oklch(1 0 55);
 }
 /* Where Photos says it in yellow, this app says it in its own amber. */
 .nt-album-action.is-done {
@@ -746,8 +746,8 @@
   color: oklch(0.16 0.02 75);
 }
 .nt-album-action:disabled {
-  background: oklch(1 0 90 / 0.07);
-  color: oklch(1 0 90 / 0.35);
+  background: oklch(1 0 55 / 0.07);
+  color: oklch(1 0 55 / 0.35);
   cursor: default;
 }
 
@@ -758,17 +758,17 @@
   height: 34px;
   padding: 0 16px;
   border-radius: 999px;
-  background: oklch(1 0 90 / 0.08);
+  background: oklch(1 0 55 / 0.08);
   backdrop-filter: blur(10px);
   font-size: var(--text-meta-lg);
   font-variant-numeric: tabular-nums;
-  color: oklch(1 0 90 / 0.85);
+  color: oklch(1 0 55 / 0.85);
 }
 .nt-album-busy-spin {
   width: 14px;
   height: 14px;
-  border: 2px solid oklch(1 0 90 / 0.25);
-  border-top-color: oklch(1 0 90 / 0.9);
+  border: 2px solid oklch(1 0 55 / 0.25);
+  border-top-color: oklch(1 0 55 / 0.9);
   border-radius: 50%;
   animation: nt-album-spin 0.8s linear infinite;
 }
@@ -791,9 +791,9 @@
   width: 36px;
   height: 36px;
   border-radius: 999px;
-  background: oklch(1 0 90 / 0.1);
+  background: oklch(1 0 55 / 0.1);
   backdrop-filter: blur(10px);
-  color: oklch(1 0 90 / 0.9);
+  color: oklch(1 0 55 / 0.9);
   transition:
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
@@ -803,15 +803,15 @@
   height: 15px;
 }
 .nt-album-trim-play:hover {
-  background: oklch(1 0 90 / 0.18);
-  color: oklch(1 0 90);
+  background: oklch(1 0 55 / 0.18);
+  color: oklch(1 0 55);
 }
 .nt-album-trim-time {
   min-width: 44px;
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta);
   font-variant-numeric: tabular-nums;
-  color: oklch(1 0 90 / 0.7);
+  color: oklch(1 0 55 / 0.7);
   text-align: center;
 }
 .nt-album-trim-track {
@@ -821,7 +821,7 @@
   height: 56px;
   border-radius: 9px;
   /* A held space while the frames decode. */
-  background: oklch(1 0 90 / 0.08);
+  background: oklch(1 0 55 / 0.08);
   touch-action: none;
   cursor: ew-resize;
 }
@@ -839,7 +839,7 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  background: oklch(0.145 0.004 90 / 0.65);
+  background: oklch(0.145 0.0035 55 / 0.65);
 }
 .nt-album-trim-shade.is-before { left: 0; }
 .nt-album-trim-shade.is-after { right: 0; }
@@ -850,7 +850,7 @@
   width: 3px;
   transform: translateX(-50%);
   border-radius: 999px;
-  background: oklch(1 0 90);
+  background: oklch(1 0 55);
   box-shadow: 0 0 4px oklch(0 0 0 / 0.5);
   pointer-events: none;
 }
@@ -859,7 +859,7 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  border: 2px solid oklch(1 0 90 / 0.92);
+  border: 2px solid oklch(1 0 55 / 0.92);
   border-left-width: 20px;
   border-right-width: 20px;
   border-radius: 9px;
@@ -876,7 +876,7 @@
   display: grid;
   place-items: center;
   width: 20px;
-  color: oklch(0.2 0.01 90);
+  color: oklch(0.2 0.0035 55);
   cursor: ew-resize;
   touch-action: none;
 }
@@ -897,15 +897,15 @@
   width: 36px;
   height: 36px;
   border-radius: 999px;
-  color: oklch(1 0 90 / 0.72);
+  color: oklch(1 0 55 / 0.72);
   transition:
     background var(--dur-fast) var(--ease),
     color var(--dur-fast) var(--ease);
 }
 .nt-album-close:hover,
 .nt-album-page:hover {
-  background: oklch(1 0 90 / 0.12);
-  color: oklch(1 0 90);
+  background: oklch(1 0 55 / 0.12);
+  color: oklch(1 0 55);
 }
 .nt-album-close {
   top: 12px;
@@ -925,7 +925,7 @@
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta-lg);
   font-variant-numeric: tabular-nums;
-  color: oklch(1 0 90 / 0.65);
+  color: oklch(1 0 55 / 0.65);
 }
 
 @media (prefers-reduced-motion: reduce) {

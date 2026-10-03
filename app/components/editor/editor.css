@@ -88,8 +88,8 @@ body:has(.nt-pane[data-drawing]) .nt-side-menu-anchor {
 .nt-side-menu-anchor[data-nt-tight] .nt-block-handles {
   background: var(--background);
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.06),
-    0 2px 8px oklch(0.25 0.005 90 / 0.09);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.06),
+    0 2px 8px oklch(0.25 0.0038 55 / 0.09);
 }
 
 /* Over a selected block the cluster stops carrying its own surface: the plate
@@ -152,12 +152,12 @@ body:has(.nt-pane[data-drawing]) .nt-side-menu-anchor {
   --bn-colors-border: var(--border);
   --bn-border-radius: var(--radius);
   --bn-shadow-medium:
-    0 1px 2px oklch(0.25 0.005 90 / 0.05), 0 4px 12px oklch(0.25 0.005 90 / 0.07),
-    0 16px 40px oklch(0.25 0.005 90 / 0.1);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.05), 0 4px 12px oklch(0.25 0.0038 55 / 0.07),
+    0 16px 40px oklch(0.25 0.0038 55 / 0.1);
   /* Mantine's accent is blue, and it reaches for it in places BlockNote never
      restyles — a focus ring, a light-variant hover, a switch. Graphite. */
   --mantine-primary-color-filled: var(--foreground);
-  --mantine-primary-color-filled-hover: oklch(0.33 0.005 90);
+  --mantine-primary-color-filled-hover: oklch(0.33 0.0044 55);
   --mantine-primary-color-light: var(--selected);
   --mantine-primary-color-light-hover: var(--hover);
   --mantine-primary-color-light-color: var(--foreground);
@@ -223,9 +223,9 @@ body:has(.nt-pane[data-drawing]) .nt-side-menu-anchor {
   border-radius: var(--radius-lg);
   background: var(--elevated);
   box-shadow:
-    0 0 0 1px oklch(0.25 0.005 90 / 0.06),
-    0 4px 12px oklch(0.25 0.005 90 / 0.07),
-    0 16px 40px oklch(0.25 0.005 90 / 0.1);
+    0 0 0 1px oklch(0.25 0.0038 55 / 0.06),
+    0 4px 12px oklch(0.25 0.0038 55 / 0.07),
+    0 16px 40px oklch(0.25 0.0038 55 / 0.1);
 }
 .bn-root.bn-mantine .bn-formatting-toolbar {
   transform-origin: bottom center;
@@ -953,7 +953,7 @@ body:has(.nt-pane[data-drawing]) .nt-side-menu-anchor {
 .nt-diagram-ghost-grid {
   position: absolute;
   inset: 0;
-  background-image: radial-gradient(circle, oklch(0.25 0.005 90 / 0.16) 1px, transparent 1.2px);
+  background-image: radial-gradient(circle, oklch(0.25 0.0038 55 / 0.16) 1px, transparent 1.2px);
   background-size: 16px 16px;
   /* Faded at every edge, so the band reads as a patch of the page rather than
      a rectangle laid on it. */
@@ -1312,9 +1312,9 @@ body:has(.nt-pane[data-drawing]) .nt-side-menu-anchor {
   border-radius: var(--radius);
   background: var(--elevated);
   box-shadow:
-    0 0 0 1px oklch(0.25 0.005 90 / 0.07),
-    0 1px 2px oklch(0.25 0.005 90 / 0.06),
-    0 6px 16px -6px oklch(0.25 0.005 90 / 0.14);
+    0 0 0 1px oklch(0.25 0.0038 55 / 0.07),
+    0 1px 2px oklch(0.25 0.0038 55 / 0.06),
+    0 6px 16px -6px oklch(0.25 0.0038 55 / 0.14);
   transform-origin: left center;
   animation: nt-diff-actions-in var(--dur-slow) var(--spring) 170ms backwards;
 }
@@ -1367,7 +1367,7 @@ body:has(.nt-pane[data-drawing]) .nt-side-menu-anchor {
   color: var(--background);
 }
 .nt-diff-btn.is-keep:hover:not(:disabled) {
-  background: oklch(0.33 0.005 90);
+  background: oklch(0.33 0.0044 55);
 }
 .nt-diff-btn.is-answering {
   cursor: wait;

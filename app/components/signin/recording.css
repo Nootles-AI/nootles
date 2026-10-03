@@ -168,8 +168,8 @@
    left the surface, and it is the shadow the menus use rather than a new one. */
 .nt-rec-slot.is-drag [data-id="d4"] {
   box-shadow:
-    0 1px 2px oklch(0.25 0.005 90 / 0.06),
-    0 6px 18px oklch(0.25 0.005 90 / 0.14);
+    0 1px 2px oklch(0.25 0.0038 55 / 0.06),
+    0 6px 18px oklch(0.25 0.0038 55 / 0.14);
 }
 
 /* ---- The pointer -------------------------------------------------------
@@ -183,7 +183,7 @@
   z-index: var(--z-base);
   display: block;
   pointer-events: none;
-  filter: drop-shadow(0 1px 2px oklch(0.25 0.005 90 / 0.28));
+  filter: drop-shadow(0 1px 2px oklch(0.25 0.0038 55 / 0.28));
   transition: transform 260ms var(--ease);
   animation: nt-fade-in var(--dur) var(--ease);
 }
