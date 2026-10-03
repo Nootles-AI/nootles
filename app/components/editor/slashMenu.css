@@ -23,6 +23,7 @@
   background-color: var(--border);
   border: 3px solid transparent;
   border-radius: 999px;
+  corner-shape: round;
 }
 .nt-slash::-webkit-scrollbar-thumb:hover {
   background-color: var(--muted);

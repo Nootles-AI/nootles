@@ -213,6 +213,7 @@
   width: 22px;
   height: 22px;
   border-radius: 50%;
+  corner-shape: round;
   border: 1.5px solid color-mix(in oklch, var(--foreground) 45%, transparent);
   animation: nt-rec-press 420ms var(--ease) forwards;
 }

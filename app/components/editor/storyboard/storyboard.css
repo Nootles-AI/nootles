@@ -43,6 +43,7 @@
   height: 32px;
   margin-top: -16px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--faint);
   opacity: 0;
   transition: opacity var(--dur) var(--ease);
@@ -89,6 +90,7 @@
   width: 22px;
   height: 22px;
   border-radius: 999px;
+  corner-shape: round;
   background: color-mix(in oklch, var(--background) 88%, transparent);
   color: var(--muted);
   transition: color var(--dur-fast) var(--ease);
@@ -228,6 +230,7 @@
   width: 36px;
   height: 36px;
   border-radius: 999px;
+  corner-shape: round;
   color: var(--muted);
   transition:
     background var(--dur-fast) var(--ease),

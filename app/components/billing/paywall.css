@@ -623,6 +623,7 @@
   border: 1.5px solid var(--border);
   border-top-color: var(--muted);
   border-radius: 50%;
+  corner-shape: round;
   animation: nt-pw-spin 1.4s linear infinite;
 }
 

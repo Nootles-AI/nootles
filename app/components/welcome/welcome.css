@@ -239,6 +239,7 @@
   padding-inline: 13px;
   border: 1px solid var(--border);
   border-radius: 999px;
+  corner-shape: round;
   background: var(--background);
   font-size: var(--text-ui);
   color: var(--foreground);
@@ -270,6 +271,7 @@
   padding-inline: 14px;
   border: 1px solid var(--border);
   border-radius: 999px;
+  corner-shape: round;
   background: var(--background);
   font-size: var(--text-ui);
   color: var(--foreground);
@@ -292,6 +294,7 @@
   height: 32px;
   padding-inline: 16px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--foreground);
   font-size: var(--text-ui);
   font-weight: 500;
@@ -379,6 +382,7 @@
   width: 5px;
   height: 5px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--border-strong);
   transition:
     width var(--dur) var(--ease),

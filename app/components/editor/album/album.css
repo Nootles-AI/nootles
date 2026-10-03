@@ -178,11 +178,13 @@
   overflow: hidden;
   height: 3px;
   border-radius: 999px;
+  corner-shape: round;
   background: color-mix(in oklch, var(--border-strong) 70%, transparent);
 }
 .nt-album-bar-fill {
   height: 100%;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--muted);
   transform-origin: left center;
   /* Scaled rather than sized: a width transition on a 3px bar judders. */
@@ -207,6 +209,7 @@
   width: 22px;
   height: 22px;
   border-radius: 999px;
+  corner-shape: round;
   background: color-mix(in oklch, var(--background) 88%, transparent);
   color: var(--muted);
   opacity: 0;
@@ -245,6 +248,7 @@
   width: 22px;
   height: 22px;
   border-radius: 999px;
+  corner-shape: round;
   background: color-mix(in oklch, var(--background) 88%, transparent);
   color: var(--muted);
   transition: color var(--dur-fast) var(--ease);
@@ -343,6 +347,7 @@
   gap: 2px;
   padding: 4px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--elevated);
   border: 1px solid var(--border);
   box-shadow:
@@ -374,6 +379,7 @@
   width: 28px;
   height: 28px;
   border-radius: 999px;
+  corner-shape: round;
   color: var(--muted);
   transition:
     background var(--dur-fast) var(--ease),
@@ -399,6 +405,7 @@
   height: 28px;
   padding: 0 8px;
   border-radius: 999px;
+  corner-shape: round;
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: var(--text-meta-lg);
   font-variant-numeric: tabular-nums;
@@ -428,6 +435,7 @@
   height: 28px;
   padding: 0 10px 0 8px;
   border-radius: 999px;
+  corner-shape: round;
   font-size: var(--text-meta-lg);
   color: var(--muted);
   white-space: nowrap;
@@ -473,6 +481,7 @@
   height: 32px;
   margin-top: -16px;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--faint);
   opacity: 0;
   transition: opacity var(--dur) var(--ease);
@@ -591,28 +600,28 @@
   left: 9px;
   border-top: 3px solid oklch(1 0 55);
   border-left: 3px solid oklch(1 0 55);
-  border-top-left-radius: 3px;
+  border-top-left-radius: calc(3px * var(--corner-scale));
 }
 .nt-album-crop-grip.is-ne::before {
   top: 9px;
   right: 9px;
   border-top: 3px solid oklch(1 0 55);
   border-right: 3px solid oklch(1 0 55);
-  border-top-right-radius: 3px;
+  border-top-right-radius: calc(3px * var(--corner-scale));
 }
 .nt-album-crop-grip.is-se::before {
   bottom: 9px;
   right: 9px;
   border-bottom: 3px solid oklch(1 0 55);
   border-right: 3px solid oklch(1 0 55);
-  border-bottom-right-radius: 3px;
+  border-bottom-right-radius: calc(3px * var(--corner-scale));
 }
 .nt-album-crop-grip.is-sw::before {
   bottom: 9px;
   left: 9px;
   border-bottom: 3px solid oklch(1 0 55);
   border-left: 3px solid oklch(1 0 55);
-  border-bottom-left-radius: 3px;
+  border-bottom-left-radius: calc(3px * var(--corner-scale));
 }
 
 .nt-album-crop-grip.is-n { top: -12px; left: calc(50% - 12px); cursor: ns-resize; }
@@ -623,6 +632,7 @@
   width: 22px;
   height: 3px;
   border-radius: 999px;
+  corner-shape: round;
   background: oklch(1 0 55);
 }
 .nt-album-crop-grip.is-n::before { top: 10px; }
@@ -636,6 +646,7 @@
   width: 3px;
   height: 22px;
   border-radius: 999px;
+  corner-shape: round;
   background: oklch(1 0 55);
 }
 .nt-album-crop-grip.is-e::before { right: 10px; }
@@ -678,6 +689,7 @@
   width: 40px;
   height: 40px;
   border-radius: 999px;
+  corner-shape: round;
   background: oklch(1 0 55 / 0.1);
   backdrop-filter: blur(10px);
   color: oklch(1 0 55 / 0.9);
@@ -719,6 +731,7 @@
   height: 34px;
   padding: 0 18px;
   border-radius: 999px;
+  corner-shape: round;
   font-size: 13px;
   background: oklch(1 0 55 / 0.1);
   backdrop-filter: blur(10px);
@@ -758,6 +771,7 @@
   height: 34px;
   padding: 0 16px;
   border-radius: 999px;
+  corner-shape: round;
   background: oklch(1 0 55 / 0.08);
   backdrop-filter: blur(10px);
   font-size: var(--text-meta-lg);
@@ -770,6 +784,7 @@
   border: 2px solid oklch(1 0 55 / 0.25);
   border-top-color: oklch(1 0 55 / 0.9);
   border-radius: 50%;
+  corner-shape: round;
   animation: nt-album-spin 0.8s linear infinite;
 }
 @keyframes nt-album-spin {
@@ -791,6 +806,7 @@
   width: 36px;
   height: 36px;
   border-radius: 999px;
+  corner-shape: round;
   background: oklch(1 0 55 / 0.1);
   backdrop-filter: blur(10px);
   color: oklch(1 0 55 / 0.9);
@@ -819,7 +835,7 @@
   overflow: hidden;
   width: min(520px, 46vw);
   height: 56px;
-  border-radius: 9px;
+  border-radius: calc(9px * var(--corner-scale));
   /* A held space while the frames decode. */
   background: oklch(1 0 55 / 0.08);
   touch-action: none;
@@ -850,6 +866,7 @@
   width: 3px;
   transform: translateX(-50%);
   border-radius: 999px;
+  corner-shape: round;
   background: oklch(1 0 55);
   box-shadow: 0 0 4px oklch(0 0 0 / 0.5);
   pointer-events: none;
@@ -862,7 +879,7 @@
   border: 2px solid oklch(1 0 55 / 0.92);
   border-left-width: 20px;
   border-right-width: 20px;
-  border-radius: 9px;
+  border-radius: calc(9px * var(--corner-scale));
   pointer-events: none;
   transition: border-color var(--dur-fast) var(--ease);
 }
@@ -897,6 +914,7 @@
   width: 36px;
   height: 36px;
   border-radius: 999px;
+  corner-shape: round;
   color: oklch(1 0 55 / 0.72);
   transition:
     background var(--dur-fast) var(--ease),

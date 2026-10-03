@@ -19,6 +19,7 @@
 /* The one shape whose form is not a declaration in the grammar. */
 .nt-node-ellipse {
   border-radius: 50%;
+  corner-shape: round;
 }
 
 .nt-node.is-editing {

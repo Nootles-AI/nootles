@@ -301,7 +301,7 @@
   color: var(--foreground);
 }
 .nt-monogram.nt-ws-tile.is-square {
-  border-radius: 5px;
+  border-radius: calc(5px * var(--corner-scale));
 }
 /* The tile beside a workspace's name on its home, at the title's height. For
    an owner or an admin it is the way to the icon picker, and answers the
@@ -312,7 +312,7 @@
   height: 28px;
   margin-top: 2px;
   vertical-align: top;
-  border-radius: 7px;
+  border-radius: calc(7px * var(--corner-scale));
   font-size: 14px;
   letter-spacing: 0;
   color: var(--foreground);
@@ -320,7 +320,7 @@
 .nt-ws-title-tile {
   display: inline-grid;
   vertical-align: top;
-  border-radius: 7px;
+  border-radius: calc(7px * var(--corner-scale));
   transition: transform var(--dur) var(--ease);
 }
 .nt-ws-title-tile > .nt-monogram.nt-ws-tile.is-title {
@@ -342,7 +342,7 @@
 .nt-monogram.nt-ws-tile.is-field {
   width: 24px;
   height: 24px;
-  border-radius: 6px;
+  border-radius: calc(6px * var(--corner-scale));
   font-size: var(--text-meta-lg);
   color: var(--foreground);
 }
@@ -535,6 +535,7 @@
   height: var(--control);
   padding-inline: 4px;
   border-radius: 999px;
+  corner-shape: round;
   transition: background var(--dur-fast) var(--ease);
 }
 .nt-ws-pile:hover {
@@ -873,7 +874,7 @@
   animation: nt-ws-tile-in 440ms var(--spring) 75ms backwards;
 }
 .nt-monogram.nt-ws-join-tile.is-square {
-  border-radius: 12px;
+  border-radius: calc(12px * var(--corner-scale));
 }
 @keyframes nt-ws-tile-in {
   from {
@@ -1042,6 +1043,7 @@
 }
 .nt-ws-gh-avatar.is-round {
   border-radius: 50%;
+  corner-shape: round;
 }
 
 /* ---- Audit -------------------------------------------------------------------
